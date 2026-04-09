@@ -179,6 +179,21 @@ func WithIndexName(name string) ClientOption {
 	}
 }
 
+// Status returns the current QMD index status summary.
+func (client *QMDClient) Status(ctx context.Context) (IndexStatus, error) {
+	stdout, _, err := client.run(ctx, client.statusCommand())
+	if err != nil {
+		return IndexStatus{}, err
+	}
+
+	status, err := parseIndexStatus(stdout)
+	if err != nil {
+		return IndexStatus{}, fmt.Errorf("qmd status: parse output: %w", err)
+	}
+
+	return status, nil
+}
+
 // Search executes a QMD search command and returns normalized results.
 func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
 	query := strings.TrimSpace(options.Query)
@@ -661,6 +676,9 @@ func parseIndexStatus(output string) (IndexStatus, error) {
 	status.HasVectorIndex = embeddedDocuments > 0 || (status.TotalDocuments > 0 && status.NeedsEmbedding == 0)
 
 	if status.TotalDocuments == 0 && len(status.Collections) == 0 {
+		if strings.Contains(text, "No collections.") {
+			return status, nil
+		}
 		return IndexStatus{}, fmt.Errorf("missing status summary in %q", text)
 	}
 

@@ -444,6 +444,22 @@ func TestParseIndexStatusParsesCollectionsAndHealth(t *testing.T) {
 	}
 }
 
+func TestParseIndexStatusAcceptsEmptyIndex(t *testing.T) {
+	t.Parallel()
+
+	status, err := parseIndexStatus(emptyStatusOutputFixture)
+	if err != nil {
+		t.Fatalf("parseIndexStatus(empty) returned error: %v", err)
+	}
+
+	if status.TotalDocuments != 0 || status.NeedsEmbedding != 0 || status.HasVectorIndex {
+		t.Fatalf("status = %#v, want empty zero-value summary", status)
+	}
+	if len(status.Collections) != 0 {
+		t.Fatalf("collections = %#v, want no collections", status.Collections)
+	}
+}
+
 func TestParseHumanDurationMillisecondsParsesMultipleUnits(t *testing.T) {
 	t.Parallel()
 
@@ -597,6 +613,18 @@ Collections
   notes (qmd://notes/)
     Pattern:  **/*.md
     Files:    1 (updated 3m ago)
+`
+
+const emptyStatusOutputFixture = `QMD Status
+
+Index: /tmp/index.sqlite
+Size:  4.0 KB
+
+Documents
+  Total:    0 files indexed
+  Vectors:  0 embedded
+
+No collections. Run 'qmd collection add .' to index markdown files.
 `
 
 const lexicalSearchJSONFixture = `[{"docid":"#body","score":0.4,"file":"qmd://docs/file.md","title":"Doc","snippet":"Preview"}]`
