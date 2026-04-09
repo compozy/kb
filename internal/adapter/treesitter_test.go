@@ -23,6 +23,10 @@ func TestLanguagesInitialize(t *testing.T) {
 			load: func() *tree_sitter.Language { return typeScriptLanguage() },
 		},
 		{
+			name: "tsx",
+			load: func() *tree_sitter.Language { return tsxLanguage() },
+		},
+		{
 			name: "javascript",
 			load: func() *tree_sitter.Language { return javaScriptLanguage() },
 		},
@@ -63,6 +67,18 @@ func TestParsersParseTrivialSources(t *testing.T) {
 		{
 			name:     "typescript",
 			language: func() *tree_sitter.Language { return typeScriptLanguage() },
+			source:   []byte("const x = 1;\n"),
+			wantKind: "program",
+		},
+		{
+			name:     "tsx",
+			language: func() *tree_sitter.Language { return tsxLanguage() },
+			source:   []byte("export default function App(){ return <div /> }\n"),
+			wantKind: "program",
+		},
+		{
+			name:     "javascript",
+			language: func() *tree_sitter.Language { return javaScriptLanguage() },
 			source:   []byte("const x = 1;\n"),
 			wantKind: "program",
 		},

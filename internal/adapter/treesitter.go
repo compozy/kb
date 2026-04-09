@@ -20,6 +20,10 @@ func typeScriptLanguage() *tree_sitter.Language {
 	return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
 }
 
+func tsxLanguage() *tree_sitter.Language {
+	return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
+}
+
 func javaScriptLanguage() *tree_sitter.Language {
 	return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
 }
