@@ -6,7 +6,7 @@ else
 MAGE_RUN = $(MAGE)
 endif
 
-.PHONY: deps fmt lint test build verify help
+.PHONY: deps fmt lint test test-integration build verify help
 
 deps:
 	@$(MAGE_RUN) deps
@@ -19,6 +19,9 @@ lint:
 
 test:
 	@$(MAGE_RUN) test
+
+test-integration:
+	@$(MAGE_RUN) testIntegration
 
 build:
 	@$(MAGE_RUN) build
