@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.24, cobra (CLI), tree-sitter/go-tree-sitter + tree-sitter-typescript + tree-sitter-javascript + tree-sitter-go (parsing), slog (logging), BurntSushi/toml (config), mage (build).
 
-**Reference:** `/root/kodebase` (TypeScript source — ~6,700 LOC, 24 files)
+**Reference:** `~/dev/projects/kodebase` (TypeScript source — ~6,700 LOC, 24 files)
 
 ---
 
@@ -19,6 +19,7 @@
 **Objective:** Rename the Go module from `github.com/user/go-devstack` to `github.com/pedronauck/kodebase` and update cmd to use cobra for subcommand routing.
 
 **Files:**
+
 - Modify: `go.mod`
 - Modify: `cmd/app/main.go`
 - Create: `internal/cli/root.go`
@@ -31,7 +32,7 @@
 **Step 1: Install cobra**
 
 ```bash
-cd /root/kodebase-go
+cd ~/dev/projects/kodebase-go
 go get github.com/spf13/cobra@latest
 ```
 
@@ -46,6 +47,7 @@ go 1.24
 **Step 3: Create root command**
 
 Create `internal/cli/root.go`:
+
 ```go
 package cli
 
@@ -120,7 +122,7 @@ func main() {
 **Step 6: Verify**
 
 ```bash
-cd /root/kodebase-go && go build ./... && ./app version
+cd ~/dev/projects/kodebase-go && go build ./... && ./app version
 # Expected: version output
 ./app generate .
 # Expected: "generate: not implemented"
@@ -143,6 +145,7 @@ git add -A && git commit -m "feat: bootstrap project with cobra CLI skeleton"
 **Objective:** Port all TypeScript interfaces/types to Go structs in a single models package.
 
 **Files:**
+
 - Create: `internal/kodebase/models/models.go`
 
 **Reference:** `kodebase/packages/cli/src/knowledge-base/models.ts` (220 lines)
@@ -150,6 +153,7 @@ git add -A && git commit -m "feat: bootstrap project with cobra CLI skeleton"
 **Step 1: Write models.go**
 
 Port all types:
+
 - `SupportedLanguage` — string type with constants: LangTS, LangTSX, LangJS, LangJSX, LangGo
 - `RelationType` — string type with constants: RelImports, RelExports, RelCalls, RelReferences, RelDeclares, RelContains
 - `RelationConfidence` — string type: ConfidenceSemantic, ConfidenceSyntactic
@@ -181,6 +185,7 @@ Port all types:
 **Step 2: Write test**
 
 Create `internal/kodebase/models/models_test.go`:
+
 ```go
 package models_test
 
@@ -219,6 +224,7 @@ git add -A && git commit -m "feat: add domain models package"
 **Objective:** Port `scan-workspace.ts` — discover and filter source files using gitignore rules.
 
 **Files:**
+
 - Create: `internal/kodebase/scanner/scanner.go`
 - Create: `internal/kodebase/scanner/scanner_test.go`
 
@@ -235,6 +241,7 @@ go get github.com/sabhiram/go-gitignore@latest
 **Step 2: Implement scanner**
 
 Port logic:
+
 - `ScanWorkspace(rootPath string, opts ScanOptions) (*ScannedWorkspace, error)`
 - Load `.gitignore` from rootPath
 - Apply default exclusions (node_modules, .git, dist, vendor, .kodebase, etc.)
@@ -269,6 +276,7 @@ git add -A && git commit -m "feat: implement workspace scanner with gitignore su
 **Objective:** Install tree-sitter Go bindings and grammar packages.
 
 **Files:**
+
 - Modify: `go.mod`
 
 **Step 1: Install tree-sitter packages**
@@ -299,6 +307,7 @@ git add -A && git commit -m "feat: add tree-sitter dependencies for Go, TS, JS p
 **Objective:** Port `go-adapter.ts` — parse Go source files using tree-sitter-go.
 
 **Files:**
+
 - Create: `internal/kodebase/adapter/go_adapter.go`
 - Create: `internal/kodebase/adapter/go_adapter_test.go`
 
@@ -307,6 +316,7 @@ git add -A && git commit -m "feat: add tree-sitter dependencies for Go, TS, JS p
 **Step 1: Implement Go adapter**
 
 Port logic:
+
 - `type GoAdapter struct{}` implementing `LanguageAdapter` interface
 - `Supports(lang)` returns true for LangGo
 - `ParseFiles(files, rootPath)` parses each .go file:
@@ -344,6 +354,7 @@ git add -A && git commit -m "feat: implement Go language adapter with tree-sitte
 **Objective:** Port `oxc-typescript-adapter.ts` — parse TS/JS files using tree-sitter-typescript and tree-sitter-javascript.
 
 **Files:**
+
 - Create: `internal/kodebase/adapter/ts_adapter.go`
 - Create: `internal/kodebase/adapter/ts_adapter_test.go`
 
@@ -352,6 +363,7 @@ git add -A && git commit -m "feat: implement Go language adapter with tree-sitte
 **Step 1: Implement TS adapter**
 
 Port logic:
+
 - `type TSAdapter struct{}` implementing `LanguageAdapter` interface
 - `Supports(lang)` returns true for LangTS, LangTSX, LangJS, LangJSX
 - `ParseFiles(files, rootPath)` parses each TS/JS file:
@@ -390,6 +402,7 @@ git add -A && git commit -m "feat: implement TypeScript/JavaScript adapter with 
 **Objective:** Port `normalize-graph.ts` — merge parsed files into a single GraphSnapshot.
 
 **Files:**
+
 - Create: `internal/kodebase/graph/normalize.go`
 - Create: `internal/kodebase/graph/normalize_test.go`
 
@@ -417,6 +430,7 @@ git add -A && git commit -m "feat: implement graph normalizer"
 **Objective:** Port `compute-metrics.ts` — compute symbol, file, and directory metrics.
 
 **Files:**
+
 - Create: `internal/kodebase/metrics/compute.go`
 - Create: `internal/kodebase/metrics/compute_test.go`
 
@@ -425,6 +439,7 @@ git add -A && git commit -m "feat: implement graph normalizer"
 **Step 1: Implement metrics computation**
 
 Port all metric calculations:
+
 - **Per-symbol:** blast radius (BFS), centrality (PageRank-like), direct dependents, external reference count, dead export detection, long function, code smells
 - **Per-file:** afferent/efferent coupling, instability, orphan/god file detection, circular dependency participation
 - **Per-directory:** coupling aggregation
@@ -452,6 +467,7 @@ git add -A && git commit -m "feat: implement metrics engine (blast radius, coupl
 **Objective:** Port `path-utils.ts` — path manipulation and vault path derivation.
 
 **Files:**
+
 - Create: `internal/kodebase/vault/pathutils.go`
 - Create: `internal/kodebase/vault/pathutils_test.go`
 
@@ -464,6 +480,7 @@ git add -A && git commit -m "feat: implement metrics engine (blast radius, coupl
 **Objective:** Port `text-utils.ts` — comment extraction and normalization.
 
 **Files:**
+
 - Create: `internal/kodebase/vault/textutils.go`
 - Create: `internal/kodebase/vault/textutils_test.go`
 
@@ -476,6 +493,7 @@ git add -A && git commit -m "feat: implement metrics engine (blast radius, coupl
 **Objective:** Port `render-documents.ts` — render Obsidian vault documents (raw, wiki, index, base).
 
 **Files:**
+
 - Create: `internal/kodebase/vault/render.go`
 - Create: `internal/kodebase/vault/render_wiki.go`
 - Create: `internal/kodebase/vault/render_base.go`
@@ -484,6 +502,7 @@ git add -A && git commit -m "feat: implement metrics engine (blast radius, coupl
 **Reference:** `kodebase/packages/cli/src/knowledge-base/render-documents.ts` (1692 lines — largest file)
 
 This is the biggest single task. Break into sub-files:
+
 - `render.go` — orchestrator: `RenderKnowledgeBaseDocuments(graph, metrics, topic) []RenderedDocument`
 - `render_wiki.go` — 10 wiki concept articles + 3 index pages
 - `render_base.go` — 12 Obsidian Base definition files
@@ -525,6 +544,7 @@ git add -A && git commit -m "feat: implement vault document renderer (raw, wiki,
 **Objective:** Port `write-vault.ts` — write the full Obsidian vault to disk.
 
 **Files:**
+
 - Create: `internal/kodebase/vault/writer.go`
 - Create: `internal/kodebase/vault/writer_test.go`
 
@@ -555,6 +575,7 @@ git add -A && git commit -m "feat: implement vault writer"
 **Objective:** Connect scanner, adapters, graph normalizer, metrics, and vault writer into the `generate` CLI command.
 
 **Files:**
+
 - Modify: `internal/cli/generate.go`
 - Create: `internal/kodebase/generate.go`
 - Create: `internal/kodebase/generate_test.go`
@@ -568,6 +589,7 @@ func Generate(ctx context.Context, opts GenerateOptions) (*GenerationSummary, er
 ```
 
 Pipeline:
+
 1. Scan workspace
 2. Select adapters based on languages found
 3. Parse files with adapters
@@ -600,6 +622,7 @@ git add -A && git commit -m "feat: wire generate command end-to-end"
 **Objective:** Port `vault-reader.ts` — read generated vault back into structured data.
 
 **Files:**
+
 - Create: `internal/kodebase/vault/reader.go`
 - Create: `internal/kodebase/vault/reader_test.go`
 
@@ -612,6 +635,7 @@ git add -A && git commit -m "feat: wire generate command end-to-end"
 **Objective:** Port `vault-query.ts` — resolve vault and topic paths.
 
 **Files:**
+
 - Create: `internal/kodebase/vault/query.go`
 - Create: `internal/kodebase/vault/query_test.go`
 
@@ -624,6 +648,7 @@ git add -A && git commit -m "feat: wire generate command end-to-end"
 **Objective:** Port `output-formatter.ts` — format tabular data as ASCII table, JSON, or TSV.
 
 **Files:**
+
 - Create: `internal/kodebase/output/formatter.go`
 - Create: `internal/kodebase/output/formatter_test.go`
 
@@ -636,6 +661,7 @@ git add -A && git commit -m "feat: wire generate command end-to-end"
 **Objective:** Port all 9 inspect subcommands: smells, dead-code, complexity, blast-radius, coupling, symbol, file, backlinks, deps, circular-deps.
 
 **Files:**
+
 - Modify: `internal/cli/inspect.go`
 - Create: `internal/cli/inspect_smells.go`
 - Create: `internal/cli/inspect_deadcode.go`
@@ -651,6 +677,7 @@ git add -A && git commit -m "feat: wire generate command end-to-end"
 **Reference:** `kodebase/packages/cli/src/commands/inspect/` (744 lines total)
 
 Each subcommand:
+
 1. Resolves vault/topic via vault-query
 2. Reads snapshot via vault-reader
 3. Formats output via formatter
@@ -677,6 +704,7 @@ git add -A && git commit -m "feat: implement inspect command with 9 subcommands"
 **Objective:** Port `qmd-client.ts` — call QMD CLI via shell for search and indexing.
 
 **Files:**
+
 - Create: `internal/kodebase/qmd/client.go`
 - Create: `internal/kodebase/qmd/client_test.go`
 
@@ -694,6 +722,7 @@ func (c *QMDClient) Search(ctx context.Context, opts SearchOptions) ([]SearchRes
 ```
 
 Uses `os/exec` to call:
+
 - `qmd collection add <path>` — index
 - `qmd collection update <path>` — update
 - `qmd search --mode hybrid|lexical|vector <query>` — search
@@ -715,6 +744,7 @@ git add -A && git commit -m "feat: implement QMD shell client"
 **Objective:** Port `search.ts` — hybrid/lexical/vector search via QMD.
 
 **Files:**
+
 - Modify: `internal/cli/search.go`
 
 **Reference:** `kodebase/packages/cli/src/commands/search.ts` (251 lines)
@@ -736,6 +766,7 @@ git add -A && git commit -m "feat: wire search command with QMD integration"
 **Objective:** Port `index-vault.ts` — create/update QMD collection for a vault topic.
 
 **Files:**
+
 - Modify: `internal/cli/index.go`
 
 **Reference:** `kodebase/packages/cli/src/commands/index-vault.ts` (135 lines)
@@ -759,11 +790,13 @@ git add -A && git commit -m "feat: wire index-vault command with QMD integration
 **Objective:** End-to-end test: generate vault from a fixture project, then inspect it.
 
 **Files:**
+
 - Create: `internal/kodebase/generate_integration_test.go`
 
 **Step 1: Create fixture project in testdata**
 
 Small Go project with:
+
 - Multiple packages
 - Circular imports
 - Dead exports
@@ -793,6 +826,7 @@ git add -A && git commit -m "test: add end-to-end integration test"
 **Objective:** Update project documentation to reflect kodebase purpose.
 
 **Files:**
+
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 - Modify: `config.example.toml`
@@ -818,7 +852,7 @@ git add -A && git commit -m "docs: update AGENTS.md and config for kodebase"
 **Step 1: Run make verify**
 
 ```bash
-cd /root/kodebase-go && make verify
+cd ~/dev/projects/kodebase-go && make verify
 ```
 
 Must pass: fmt + lint + test + build with zero issues.
@@ -835,21 +869,22 @@ gh repo create pedronauck/kodebase-go --private --source=. --push
 
 ## Summary
 
-| Phase | Tasks | Est. LOC | Key Dependencies |
-|-------|-------|----------|-----------------|
-| 0. Bootstrap | 1 | ~200 | cobra |
-| 1. Models | 1 | ~300 | — |
-| 2. Scanner | 1 | ~250 | go-gitignore |
-| 3. Adapters | 3 | ~800 | go-tree-sitter, tree-sitter-go, tree-sitter-typescript, tree-sitter-javascript |
-| 4. Graph & Metrics | 2 | ~600 | — |
-| 5. Vault Rendering | 4 | ~1500 | — |
-| 6. Generate Command | 1 | ~200 | — |
-| 7. Inspect Commands | 4 | ~600 | — |
-| 8. QMD Integration | 3 | ~300 | os/exec |
-| 9. Polish | 3 | ~100 | — |
-| **Total** | **23 tasks** | **~4,850** | |
+| Phase               | Tasks        | Est. LOC   | Key Dependencies                                                               |
+| ------------------- | ------------ | ---------- | ------------------------------------------------------------------------------ |
+| 0. Bootstrap        | 1            | ~200       | cobra                                                                          |
+| 1. Models           | 1            | ~300       | —                                                                              |
+| 2. Scanner          | 1            | ~250       | go-gitignore                                                                   |
+| 3. Adapters         | 3            | ~800       | go-tree-sitter, tree-sitter-go, tree-sitter-typescript, tree-sitter-javascript |
+| 4. Graph & Metrics  | 2            | ~600       | —                                                                              |
+| 5. Vault Rendering  | 4            | ~1500      | —                                                                              |
+| 6. Generate Command | 1            | ~200       | —                                                                              |
+| 7. Inspect Commands | 4            | ~600       | —                                                                              |
+| 8. QMD Integration  | 3            | ~300       | os/exec                                                                        |
+| 9. Polish           | 3            | ~100       | —                                                                              |
+| **Total**           | **23 tasks** | **~4,850** |                                                                                |
 
 **Parallelizable workstreams** (can run simultaneously via `$team`):
+
 - Stream A: Phases 0-1-2 (scaffold + models + scanner)
 - Stream B: Phase 3 (adapters — can start after Phase 1 models)
 - Stream C: Phases 4-5 (graph + vault — can start after Phase 1 models)

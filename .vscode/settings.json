@@ -1,0 +1,37 @@
+{
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+
+    // Go files use gopls
+    "[go]": {
+        "editor.defaultFormatter": "golang.go",
+        "editor.tabSize": 4,
+        "editor.insertSpaces": false
+    },
+
+    // JSON files use 4 spaces
+    "[json]": {
+        "editor.tabSize": 4
+    },
+    "[jsonc]": {
+        "editor.tabSize": 4
+    },
+
+    // File exclusions
+    "files.exclude": {
+        "**/dist": true,
+        "**/.git": true,
+        "**/.DS_Store": true,
+        "**/bin": true
+    },
+    "search.exclude": {
+        "**/dist": true,
+        "**/bin": true
+    },
+
+    // Misc
+    "json.schemaDownload.enable": false
+}

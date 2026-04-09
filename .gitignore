@@ -6,3 +6,7 @@ bin/
 dist/
 coverage.out
 coverage.html
+.codex/ledger/*-MEMORY-*
+.codex/CONTINUITY*
+.claude/skills
+.compozy/runs
