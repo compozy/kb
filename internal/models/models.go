@@ -75,6 +75,42 @@ const (
 	StageValidate DiagnosticStage = "validate"
 )
 
+// DocumentKind identifies the rendered markdown document bucket.
+type DocumentKind string
+
+const (
+	// DocRaw marks a raw source snapshot document.
+	DocRaw DocumentKind = "raw"
+	// DocWiki marks a compiled wiki concept article.
+	DocWiki DocumentKind = "wiki"
+	// DocIndex marks a generated index page.
+	DocIndex DocumentKind = "index"
+)
+
+// ManagedArea identifies the managed subtree within a generated topic.
+type ManagedArea string
+
+const (
+	// AreaRawCodebase stores generated raw source snapshots.
+	AreaRawCodebase ManagedArea = "raw-codebase"
+	// AreaWikiConcept stores generated wiki concept articles.
+	AreaWikiConcept ManagedArea = "wiki-concept"
+	// AreaWikiIndex stores generated wiki index pages.
+	AreaWikiIndex ManagedArea = "wiki-index"
+)
+
+// BaseViewType identifies the Obsidian Base view mode.
+type BaseViewType string
+
+const (
+	// ViewTable renders a table-based Base view.
+	ViewTable BaseViewType = "table"
+	// ViewCards renders a card-based Base view.
+	ViewCards BaseViewType = "cards"
+	// ViewList renders a list-based Base view.
+	ViewList BaseViewType = "list"
+)
+
 // StructuredDiagnostic is a machine-readable issue emitted during processing.
 type StructuredDiagnostic struct {
 	Code     string             `json:"code"`
@@ -203,4 +239,97 @@ type MetricsResult struct {
 	Directories          map[string]DirectoryMetrics `json:"directories"`
 	Files                map[string]FileMetrics      `json:"files"`
 	Symbols              map[string]SymbolMetrics    `json:"symbols"`
+}
+
+// RenderedDocument is the in-memory representation of a generated markdown file.
+type RenderedDocument struct {
+	Kind         DocumentKind           `json:"kind"`
+	ManagedArea  ManagedArea            `json:"managedArea"`
+	RelativePath string                 `json:"relativePath"`
+	Frontmatter  map[string]interface{} `json:"frontmatter"`
+	Body         string                 `json:"body"`
+}
+
+// TopicMetadata captures the derived topic information for a vault render.
+type TopicMetadata struct {
+	RootPath  string `json:"rootPath"`
+	Title     string `json:"title"`
+	Slug      string `json:"slug"`
+	Domain    string `json:"domain"`
+	Today     string `json:"today"`
+	VaultPath string `json:"vaultPath"`
+	TopicPath string `json:"topicPath"`
+}
+
+// GenerateOptions configures a full knowledge-base generation run.
+type GenerateOptions struct {
+	RootPath        string   `json:"rootPath"`
+	OutputPath      string   `json:"outputPath,omitempty"`
+	Topic           string   `json:"topic,omitempty"`
+	Title           string   `json:"title,omitempty"`
+	Domain          string   `json:"domain,omitempty"`
+	IncludePatterns []string `json:"includePatterns,omitempty"`
+	ExcludePatterns []string `json:"excludePatterns,omitempty"`
+	Semantic        bool     `json:"semantic,omitempty"`
+}
+
+// GenerationSummary reports the outcome of a generation run.
+type GenerationSummary struct {
+	Command               string                 `json:"command"`
+	RootPath              string                 `json:"rootPath"`
+	VaultPath             string                 `json:"vaultPath"`
+	TopicPath             string                 `json:"topicPath"`
+	TopicSlug             string                 `json:"topicSlug"`
+	FilesScanned          int                    `json:"filesScanned"`
+	FilesParsed           int                    `json:"filesParsed"`
+	FilesSkipped          int                    `json:"filesSkipped"`
+	SymbolsExtracted      int                    `json:"symbolsExtracted"`
+	RelationsEmitted      int                    `json:"relationsEmitted"`
+	RawDocumentsWritten   int                    `json:"rawDocumentsWritten"`
+	WikiDocumentsWritten  int                    `json:"wikiDocumentsWritten"`
+	IndexDocumentsWritten int                    `json:"indexDocumentsWritten"`
+	Diagnostics           []StructuredDiagnostic `json:"diagnostics"`
+}
+
+// BaseFilter is a recursive Obsidian Base filter tree.
+type BaseFilter struct {
+	Expression string       `json:"expression,omitempty"`
+	And        []BaseFilter `json:"and,omitempty"`
+	Or         []BaseFilter `json:"or,omitempty"`
+	Not        *BaseFilter  `json:"not,omitempty"`
+}
+
+// BaseProperty configures the display metadata for a Base property.
+type BaseProperty struct {
+	DisplayName string `json:"displayName"`
+}
+
+// BaseGroupBy configures the grouping rule for a Base view.
+type BaseGroupBy struct {
+	Direction string `json:"direction"`
+	Property  string `json:"property"`
+}
+
+// BaseView configures a single Obsidian Base view.
+type BaseView struct {
+	Filters   *BaseFilter       `json:"filters,omitempty"`
+	GroupBy   *BaseGroupBy      `json:"groupBy,omitempty"`
+	Name      string            `json:"name"`
+	Order     []string          `json:"order"`
+	Summaries map[string]string `json:"summaries,omitempty"`
+	Type      BaseViewType      `json:"type"`
+}
+
+// BaseDefinition is the persisted definition of an Obsidian Base file.
+type BaseDefinition struct {
+	Filters    *BaseFilter             `json:"filters,omitempty"`
+	Formulas   map[string]string       `json:"formulas,omitempty"`
+	Properties map[string]BaseProperty `json:"properties,omitempty"`
+	Views      []BaseView              `json:"views"`
+}
+
+// BaseFile describes one generated Obsidian Base file.
+type BaseFile struct {
+	Definition   BaseDefinition `json:"definition"`
+	RelativePath string         `json:"relativePath"`
 }
