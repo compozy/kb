@@ -1,9 +1,22 @@
+# Kodebase runtime config.
+#
+# Set APP_CONFIG to point at this file if you want to load a TOML config.
+# The current CLI feature surface is configured primarily through command flags:
+# - `kodebase generate`
+# - `kodebase inspect ...`
+# - `kodebase search`
+# - `kodebase index`
+#
+# Environment-only runtime secrets loaded by internal/config:
+# - DATABASE_URL
+# - API_KEY
+
 [app]
-name = "my-app"
+name = "kodebase"
 env = "development"
 
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8080
 
 [log]

@@ -1,70 +1,101 @@
-# Kodebase Go Port — AGENTS.md
+# AGENTS.md
 
-## HIGH PRIORITY
+## Project Overview
 
-- **YOU MUST** use `gpt-5.4` model with `xhigh` reasoning effort
-- **YOU MUST** run `make verify` (fmt + lint + test + build) before completing ANY task
-- **IF YOU DON'T CHECK SKILLS** your task will be invalidated
-- **NEVER** use workarounds — use `no-workarounds` + `systematic-debugging` skills for bugs
-- **NEVER** add dependencies by hand in `go.mod` — always use `go get`
-- **NEVER** run `git restore`, `git checkout`, `git reset`, `git clean`, `git rm` without explicit permission
+Kodebase CLI is a Go port of [kodebase](https://github.com/compozy/kodebase). It scans source repositories, builds a normalized code graph, computes metrics, and writes Obsidian-compatible knowledge vaults that can later be inspected and indexed with QMD.
 
-## PROJECT OVERVIEW
+**Reference TypeScript source:** `~/dev/projects/kodebase`
 
-Kodebase CLI — A Go port of [kodebase](https://github.com/compozy/kodebase).
-Turns source code repositories into Karpathy-style Obsidian knowledge vaults with rich code metrics.
+## Source of Truth
 
-**Reference TypeScript source:** `/root/kodebase` (~6,700 LOC, 24 files)
+- Rewrite PRD and implementation plan: `.compozy/tasks/rewrite/_techspec.md`
+- Rewrite task tracker: `.compozy/tasks/rewrite/_tasks.md`
+- Task-local memory and handoff notes: `.compozy/tasks/rewrite/memory/`
 
-## IMPLEMENTATION PLAN
+## Critical Rules
 
-Read the full plan at: `docs/plans/implementation-plan.md`
+- `make verify` is the blocking completion gate. It must pass with zero warnings and zero errors.
+- `make lint` has zero-tolerance for golangci-lint findings.
+- Use `go get` for dependency changes. Do not hand-edit `go.mod`.
+- Do not run destructive git restore/reset/checkout/clean/rm commands without explicit approval.
+- Prefer local code search (`rg`, `rg --files`) over web lookups for repository questions.
 
-## PACKAGE LAYOUT
-
-| Path | Responsibility |
-|------|---------------|
-| `cmd/kodebase` | CLI entry point |
-| `internal/cli` | Cobra command definitions |
-| `internal/kodebase/models` | Domain types and interfaces |
-| `internal/kodebase/scanner` | Workspace file discovery |
-| `internal/kodebase/adapter` | Tree-sitter language adapters (Go, TS/JS) |
-| `internal/kodebase/graph` | Graph normalization |
-| `internal/kodebase/metrics` | Metrics engine |
-| `internal/kodebase/vault` | Vault rendering, writing, reading |
-| `internal/kodebase/qmd` | QMD shell client |
-| `internal/kodebase/output` | Output formatting |
-| `internal/config` | Config loading |
-| `internal/logger` | Structured logging |
-| `internal/version` | Build metadata |
-
-## BUILD COMMANDS
+## Build Commands
 
 ```bash
-make verify    # fmt -> lint -> test -> build (BLOCKING GATE)
-make fmt       # gofmt
-make lint      # golangci-lint (zero issues)
-make test      # go test ./... -race
-make build     # go build ./...
-make deps      # go mod tidy
+make verify              # fmt -> lint -> test -> build -> boundaries
+make fmt                 # gofmt over repository Go files
+make lint                # golangci-lint v2
+make test                # unit tests with -race via gotestsum
+make test-integration    # unit + integration tests with -race and -tags integration
+make build               # build ./... and bin/kodebase with ldflags
+make deps                # go mod tidy
+make help                # mage target list
 ```
 
-## CODING STYLE
+## Package Layout
 
-- Go 1.24, cobra for CLI, slog for logging
-- `fmt.Errorf("context: %w", err)` for error wrapping
-- `errors.Is()`/`errors.As()` for error matching
-- `context.Context` as first arg on all functions crossing runtime boundaries
-- Table-driven tests with `t.Run`, `t.Parallel()`, `t.TempDir()`
-- No `panic()`/`log.Fatal()` in production paths
-- Functional options for complex constructors
-- Compile-time interface checks: `var _ Interface = (*Type)(nil)`
-- Always reference the TypeScript source in `/root/kodebase` when implementing
+| Path | Responsibility |
+| --- | --- |
+| `cmd/kodebase` | CLI entrypoint |
+| `internal/cli` | Cobra command tree and command-specific I/O |
+| `internal/generate` | End-to-end generate pipeline orchestration |
+| `internal/models` | Domain types, snapshots, metrics, and shared interfaces |
+| `internal/scanner` | Workspace discovery and ignore filtering |
+| `internal/adapter` | Tree-sitter adapters for Go and TS/JS |
+| `internal/graph` | Graph normalization from parsed files |
+| `internal/metrics` | File, symbol, and directory metric computation |
+| `internal/vault` | Path/text helpers, document rendering, writing, reading, and query resolution |
+| `internal/qmd` | Shell-backed QMD integration for search and indexing |
+| `internal/output` | Table / JSON / TSV output rendering |
+| `internal/config` | TOML loading plus env-backed runtime secrets |
+| `internal/logger` | Structured slog logger construction |
+| `internal/version` | Build metadata surfaced by `kodebase version` |
 
-## ARCHITECTURE
+## CLI Commands
 
-Single-binary Go CLI. Pipeline: Scan → Parse (tree-sitter adapters) → Normalize Graph → Compute Metrics → Render Documents → Write Vault → Read/Inspect.
+| Command | Purpose |
+| --- | --- |
+| `kodebase generate <path>` | Scan a repository and write a topic vault summary as JSON |
+| `kodebase inspect smells` | List smell signals for symbols and files |
+| `kodebase inspect dead-code` | List dead exports and orphan files |
+| `kodebase inspect complexity` | Rank functions by cyclomatic complexity |
+| `kodebase inspect blast-radius` | Rank symbols by blast radius |
+| `kodebase inspect coupling` | Rank files by instability |
+| `kodebase inspect symbol <name>` | Find symbols by case-insensitive substring |
+| `kodebase inspect file <path>` | Resolve one source file by exact path |
+| `kodebase inspect backlinks <name-or-path>` | Show inbound relations for a file or symbol |
+| `kodebase inspect deps <name-or-path>` | Show outgoing relations for a file or symbol |
+| `kodebase inspect circular-deps` | List detected circular dependency cycles |
+| `kodebase search <query>` | Query a generated vault through QMD hybrid, lexical, or vector modes |
+| `kodebase index` | Create or update a QMD collection for a generated topic |
+| `kodebase index-vault` | Alias for `kodebase index` |
+| `kodebase version` | Print build version metadata |
 
-- `LanguageAdapter` interface: `Supports(lang) bool`, `ParseFiles(files, rootPath) ([]ParsedFile, error)`
-- Adapters: GoAdapter (tree-sitter-go), TSAdapter (tree-sitter-typescript + tree-sitter-javascript)
-- QMD integration via shell calls (`os/exec`), graceful fallback when not installed
+### Command Notes
+
+- `generate` accepts `--output`, `--topic`, `--title`, `--domain`, `--include`, `--exclude`, and `--semantic`.
+- `inspect` subcommands share `--vault`, `--topic`, and `--format` (`table`, `json`, `tsv`).
+- `search` supports `--lex`, `--vec`, `--limit`, `--min-score`, `--full`, `--all`, `--collection`, `--vault`, `--topic`, and `--format`.
+- `index` supports `--vault`, `--topic`, `--name`, `--embed`, `--context`, and `--force-embed`.
+
+## Runtime Config
+
+- `config.example.toml` documents the TOML keys currently supported by `internal/config`.
+- `APP_CONFIG` overrides the config file path.
+- `.env` is loaded automatically when present.
+- `DATABASE_URL` and `API_KEY` remain environment-only runtime secrets.
+- Generation, inspect, search, and index behavior is currently configured by CLI flags rather than TOML keys.
+
+## Architecture Notes
+
+- Active package layout is the shorter `internal/...` structure. Ignore stale `internal/kodebase/...` references when implementing new work.
+- `internal/generate` is the orchestration layer. Keep Cobra commands thin and push behavior into internal packages.
+- The pipeline is: scan -> adapter parse -> graph normalize -> metrics compute -> vault render -> vault write -> inspect/search/index read paths.
+- `vault.RenderDocuments` returns markdown bodies that already include frontmatter. Base definitions are rendered separately and written as YAML `.base` files.
+
+## Testing Notes
+
+- Integration tests use the `integration` build tag and live next to the packages they exercise.
+- QMD-related integration tests must isolate `HOME`, `XDG_CACHE_HOME`, and `XDG_CONFIG_HOME`.
+- Treat failing tests as product bugs first. Fix production behavior instead of weakening assertions.
