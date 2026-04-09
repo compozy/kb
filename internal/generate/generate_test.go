@@ -1,0 +1,352 @@
+package generate
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/user/go-devstack/internal/models"
+	"github.com/user/go-devstack/internal/scanner"
+	"github.com/user/go-devstack/internal/vault"
+)
+
+type fakeAdapter struct {
+	name        string
+	supported   map[models.SupportedLanguage]bool
+	parseResult []models.ParsedFile
+	parseErr    error
+	calls       *[]string
+}
+
+func (a fakeAdapter) Supports(language models.SupportedLanguage) bool {
+	return a.supported[language]
+}
+
+func (a fakeAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath string) ([]models.ParsedFile, error) {
+	if a.calls != nil {
+		*a.calls = append(*a.calls, "parse:"+a.name)
+	}
+
+	if a.parseErr != nil {
+		return nil, a.parseErr
+	}
+
+	return a.parseResult, nil
+}
+
+func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
+	t.Parallel()
+
+	var calls []string
+	scannedWorkspace := &models.ScannedWorkspace{
+		Files: []models.ScannedSourceFile{
+			{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+		},
+		FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+			models.LangGo: {
+				{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+			},
+		},
+	}
+
+	graphSnapshot := models.GraphSnapshot{
+		RootPath: "/repo",
+		Files: []models.GraphFile{
+			{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo},
+		},
+		Symbols: []models.SymbolNode{
+			{ID: "symbol:main.go:main:function:1:3", Name: "main", SymbolKind: "function", FilePath: "main.go"},
+		},
+		Relations: []models.RelationEdge{
+			{FromID: "file:main.go", ToID: "symbol:main.go:main:function:1:3", Type: models.RelContains},
+		},
+	}
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			calls = append(calls, "scan")
+			return scannedWorkspace, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:      "go",
+				supported: map[models.SupportedLanguage]bool{models.LangGo: true},
+				parseResult: []models.ParsedFile{
+					{File: graphSnapshot.Files[0], Symbols: graphSnapshot.Symbols, Relations: graphSnapshot.Relations},
+				},
+				calls: &calls,
+			},
+		},
+		normalizeGraph: func(rootPath string, parsedFiles []models.ParsedFile) models.GraphSnapshot {
+			calls = append(calls, "normalize")
+			return graphSnapshot
+		},
+		computeMetrics: func(graph models.GraphSnapshot) models.MetricsResult {
+			calls = append(calls, "metrics")
+			return models.MetricsResult{}
+		},
+		renderDocuments: func(
+			graph models.GraphSnapshot,
+			metrics models.MetricsResult,
+			topic models.TopicMetadata,
+		) []models.RenderedDocument {
+			calls = append(calls, "render")
+			return []models.RenderedDocument{
+				{
+					Kind:         models.DocWiki,
+					ManagedArea:  models.AreaWikiConcept,
+					RelativePath: "wiki/concepts/Codebase Overview.md",
+					Frontmatter:  map[string]interface{}{"title": "Codebase Overview"},
+					Body:         "---\ntitle: \"Codebase Overview\"\n---\n\n# Codebase Overview\n",
+				},
+			}
+		},
+		renderBaseFiles: func(metrics models.MetricsResult) []models.BaseFile {
+			return []models.BaseFile{{RelativePath: "bases/module-health.base"}}
+		},
+		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
+			calls = append(calls, "write")
+			return vault.WriteVaultResult{RawDocumentsWritten: 1, WikiDocumentsWritten: 1, IndexDocumentsWritten: 0}, nil
+		},
+		now: testClock(
+			time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 1, 500000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 1, 500000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 0, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 100000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 100000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 200000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 200000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 300000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 300000000, time.UTC),
+			time.Date(2026, 4, 9, 12, 0, 2, 400000000, time.UTC),
+		),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
+		RootPath:   "/repo",
+		OutputPath: "/vault",
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	expectedOrder := []string{"scan", "parse:go", "normalize", "metrics", "render", "write"}
+	if !reflect.DeepEqual(calls, expectedOrder) {
+		t.Fatalf("call order = %#v, want %#v", calls, expectedOrder)
+	}
+
+	if summary.FilesScanned != 1 || summary.FilesParsed != 1 || summary.SymbolsExtracted != 1 {
+		t.Fatalf("unexpected summary counts: %#v", summary)
+	}
+	if summary.Timings.TotalMillis <= 0 {
+		t.Fatalf("expected total timing to be recorded, got %#v", summary.Timings)
+	}
+}
+
+func TestSelectAdaptersForGoOnlyWorkspace(t *testing.T) {
+	t.Parallel()
+
+	selected := selectAdapters(
+		[]models.SupportedLanguage{models.LangGo},
+		[]models.LanguageAdapter{
+			fakeAdapter{name: "ts", supported: map[models.SupportedLanguage]bool{models.LangTS: true}},
+			fakeAdapter{name: "go", supported: map[models.SupportedLanguage]bool{models.LangGo: true}},
+		},
+	)
+
+	if len(selected) != 1 {
+		t.Fatalf("selected %d adapters, want 1", len(selected))
+	}
+	if !selected[0].Supports(models.LangGo) {
+		t.Fatalf("selected adapter does not support Go")
+	}
+}
+
+func TestSelectAdaptersForMixedWorkspace(t *testing.T) {
+	t.Parallel()
+
+	selected := selectAdapters(
+		[]models.SupportedLanguage{models.LangTS, models.LangGo},
+		[]models.LanguageAdapter{
+			fakeAdapter{name: "ts", supported: map[models.SupportedLanguage]bool{models.LangTS: true}},
+			fakeAdapter{name: "go", supported: map[models.SupportedLanguage]bool{models.LangGo: true}},
+		},
+	)
+
+	if len(selected) != 2 {
+		t.Fatalf("selected %d adapters, want 2", len(selected))
+	}
+	if !selected[0].Supports(models.LangTS) || !selected[1].Supports(models.LangGo) {
+		t.Fatalf("unexpected adapter selection order")
+	}
+}
+
+func TestRunnerGenerateSummaryReportsCounts(t *testing.T) {
+	t.Parallel()
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files: []models.ScannedSourceFile{
+					{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+					{AbsolutePath: "/repo/internal/helper.go", RelativePath: "internal/helper.go", Language: models.LangGo},
+					{AbsolutePath: "/repo/web/index.ts", RelativePath: "web/index.ts", Language: models.LangTS},
+				},
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+					models.LangGo: {
+						{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+						{AbsolutePath: "/repo/internal/helper.go", RelativePath: "internal/helper.go", Language: models.LangGo},
+					},
+					models.LangTS: {
+						{AbsolutePath: "/repo/web/index.ts", RelativePath: "web/index.ts", Language: models.LangTS},
+					},
+				},
+			}, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:      "ts",
+				supported: map[models.SupportedLanguage]bool{models.LangTS: true},
+				parseResult: []models.ParsedFile{
+					{File: models.GraphFile{ID: "file:web/index.ts", FilePath: "web/index.ts", Language: models.LangTS}},
+				},
+			},
+			fakeAdapter{
+				name:      "go",
+				supported: map[models.SupportedLanguage]bool{models.LangGo: true},
+				parseResult: []models.ParsedFile{
+					{File: models.GraphFile{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo}},
+				},
+			},
+		},
+		normalizeGraph: func(rootPath string, parsedFiles []models.ParsedFile) models.GraphSnapshot {
+			return models.GraphSnapshot{
+				RootPath: rootPath,
+				Files: []models.GraphFile{
+					{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo},
+					{ID: "file:web/index.ts", FilePath: "web/index.ts", Language: models.LangTS},
+				},
+				Symbols: []models.SymbolNode{
+					{ID: "symbol:main", Name: "main", SymbolKind: "function", FilePath: "main.go"},
+					{ID: "symbol:greet", Name: "greet", SymbolKind: "function", FilePath: "main.go"},
+					{ID: "symbol:index", Name: "index", SymbolKind: "function", FilePath: "web/index.ts"},
+					{ID: "symbol:helper", Name: "helper", SymbolKind: "function", FilePath: "web/index.ts"},
+				},
+				Relations: []models.RelationEdge{
+					{FromID: "symbol:main", ToID: "symbol:greet", Type: models.RelCalls},
+					{FromID: "symbol:index", ToID: "symbol:helper", Type: models.RelCalls},
+					{FromID: "file:main.go", ToID: "file:web/index.ts", Type: models.RelImports},
+					{FromID: "file:web/index.ts", ToID: "symbol:helper", Type: models.RelContains},
+					{FromID: "file:main.go", ToID: "symbol:greet", Type: models.RelContains},
+				},
+			}
+		},
+		computeMetrics: func(graph models.GraphSnapshot) models.MetricsResult {
+			return models.MetricsResult{}
+		},
+		renderDocuments: func(graph models.GraphSnapshot, metrics models.MetricsResult, topic models.TopicMetadata) []models.RenderedDocument {
+			return []models.RenderedDocument{
+				{
+					Kind:         models.DocRaw,
+					ManagedArea:  models.AreaRawCodebase,
+					RelativePath: "raw/codebase/files/main.go.md",
+					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
+				},
+			}
+		},
+		renderBaseFiles: func(metrics models.MetricsResult) []models.BaseFile {
+			return nil
+		},
+		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
+			return vault.WriteVaultResult{RawDocumentsWritten: 6, WikiDocumentsWritten: 10, IndexDocumentsWritten: 3}, nil
+		},
+		now: func() time.Time {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
+		RootPath: "/repo/demo-repo",
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	if summary.FilesScanned != 3 {
+		t.Fatalf("FilesScanned = %d, want 3", summary.FilesScanned)
+	}
+	if summary.FilesParsed != 2 {
+		t.Fatalf("FilesParsed = %d, want 2", summary.FilesParsed)
+	}
+	if summary.FilesSkipped != 1 {
+		t.Fatalf("FilesSkipped = %d, want 1", summary.FilesSkipped)
+	}
+	if summary.SymbolsExtracted != 4 {
+		t.Fatalf("SymbolsExtracted = %d, want 4", summary.SymbolsExtracted)
+	}
+	if summary.RelationsEmitted != 5 {
+		t.Fatalf("RelationsEmitted = %d, want 5", summary.RelationsEmitted)
+	}
+	if summary.RawDocumentsWritten != 6 || summary.WikiDocumentsWritten != 10 || summary.IndexDocumentsWritten != 3 {
+		t.Fatalf("unexpected document counts: %#v", summary)
+	}
+	if summary.TopicSlug != "demo-repo" {
+		t.Fatalf("TopicSlug = %q, want demo-repo", summary.TopicSlug)
+	}
+}
+
+func TestGenerateRequiresRootPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := Generate(context.Background(), models.GenerateOptions{})
+	if err == nil {
+		t.Fatal("expected error for missing root path")
+	}
+	if !strings.Contains(err.Error(), "root path is required") {
+		t.Fatalf("expected descriptive root path error, got %v", err)
+	}
+}
+
+func TestGenerateRespectsCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := Generate(ctx, models.GenerateOptions{RootPath: "."})
+	if err == nil {
+		t.Fatal("expected canceled context error")
+	}
+	if !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+}
+
+func testClock(instants ...time.Time) func() time.Time {
+	index := 0
+
+	return func() time.Time {
+		if len(instants) == 0 {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		}
+		if index >= len(instants) {
+			return instants[len(instants)-1]
+		}
+
+		value := instants[index]
+		index++
+		return value
+	}
+}

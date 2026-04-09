@@ -273,6 +273,18 @@ type GenerateOptions struct {
 	Semantic        bool     `json:"semantic,omitempty"`
 }
 
+// GenerationTimings reports the elapsed wall-clock time for each pipeline stage.
+type GenerationTimings struct {
+	ScanMillis           int64 `json:"scanMillis"`
+	SelectAdaptersMillis int64 `json:"selectAdaptersMillis"`
+	ParseMillis          int64 `json:"parseMillis"`
+	NormalizeMillis      int64 `json:"normalizeMillis"`
+	MetricsMillis        int64 `json:"metricsMillis"`
+	RenderMillis         int64 `json:"renderMillis"`
+	WriteMillis          int64 `json:"writeMillis"`
+	TotalMillis          int64 `json:"totalMillis"`
+}
+
 // GenerationSummary reports the outcome of a generation run.
 type GenerationSummary struct {
 	Command               string                 `json:"command"`
@@ -288,6 +300,7 @@ type GenerationSummary struct {
 	RawDocumentsWritten   int                    `json:"rawDocumentsWritten"`
 	WikiDocumentsWritten  int                    `json:"wikiDocumentsWritten"`
 	IndexDocumentsWritten int                    `json:"indexDocumentsWritten"`
+	Timings               GenerationTimings      `json:"timings"`
 	Diagnostics           []StructuredDiagnostic `json:"diagnostics"`
 }
 
