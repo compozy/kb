@@ -24,6 +24,7 @@ type VaultRelation struct {
 type VaultDocument struct {
 	RelativePath      string                 `json:"relativePath"`
 	Frontmatter       map[string]interface{} `json:"frontmatter"`
+	Body              string                 `json:"body"`
 	Backlinks         []VaultRelation        `json:"backlinks"`
 	OutgoingRelations []VaultRelation        `json:"outgoingRelations"`
 }
@@ -241,6 +242,7 @@ func parseVaultDocument(markdown, relativePath string, warn func(string)) (Vault
 	return VaultDocument{
 		RelativePath:      relativePath,
 		Frontmatter:       normalizedFrontmatter,
+		Body:              body,
 		OutgoingRelations: parseRelations(ExtractSection(body, "Outgoing Relations"), outgoingRelationPattern),
 		Backlinks:         parseBacklinks(ExtractSection(body, "Backlinks")),
 	}, true

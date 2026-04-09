@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -56,6 +57,11 @@ func newInspectCommand() *cobra.Command {
 		newInspectComplexityCommand(options),
 		newInspectBlastRadiusCommand(options),
 		newInspectCouplingCommand(options),
+		newInspectSymbolCommand(options),
+		newInspectFileCommand(options),
+		newInspectBacklinksCommand(options),
+		newInspectDepsCommand(options),
+		newInspectCircularDepsCommand(options),
 	)
 
 	return command
@@ -284,4 +290,163 @@ func inspectFrontmatterFloat(document vault.VaultDocument, key string) float64 {
 	}
 
 	return 0
+}
+
+type inspectDetailEntry struct {
+	Field string
+	Value any
+}
+
+func createInspectDetailOutput(entries ...inspectDetailEntry) inspectOutput {
+	data := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		data = append(data, map[string]any{
+			"field": entry.Field,
+			"value": entry.Value,
+		})
+	}
+
+	return inspectOutput{
+		Columns: []string{"field", "value"},
+		Data:    data,
+	}
+}
+
+func createInspectRelationRows(relations []vault.VaultRelation) []map[string]any {
+	ordered := append([]vault.VaultRelation(nil), relations...)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].TargetPath != ordered[j].TargetPath {
+			return ordered[i].TargetPath < ordered[j].TargetPath
+		}
+		if ordered[i].Type != ordered[j].Type {
+			return ordered[i].Type < ordered[j].Type
+		}
+		return ordered[i].Confidence < ordered[j].Confidence
+	})
+
+	rows := make([]map[string]any, 0, len(ordered))
+	for _, relation := range ordered {
+		rows = append(rows, map[string]any{
+			"target_path": relation.TargetPath,
+			"type":        relation.Type,
+			"confidence":  relation.Confidence,
+		})
+	}
+
+	return rows
+}
+
+func findInspectFileBySourcePath(snapshot vault.VaultSnapshot, sourcePath string) (vault.VaultDocument, error) {
+	normalizedPath := strings.TrimSpace(sourcePath)
+	for _, document := range snapshot.Files {
+		if inspectFrontmatterString(document, "source_path") == normalizedPath {
+			return document, nil
+		}
+	}
+
+	return vault.VaultDocument{}, fmt.Errorf("no file matched %q", sourcePath)
+}
+
+func findSingleInspectSymbolMatch(snapshot vault.VaultSnapshot, query string) (vault.VaultDocument, error) {
+	matches := vault.FindSymbolsByName(snapshot, query)
+	if len(matches) == 0 {
+		return vault.VaultDocument{}, fmt.Errorf(
+			"no symbols matched %q. Use `kodebase inspect smells` or `kodebase inspect complexity` to discover candidates",
+			query,
+		)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+
+	matchedNames := make([]string, 0, len(matches))
+	for _, match := range matches {
+		symbolName := inspectFrontmatterString(match, "symbol_name")
+		if symbolName != "" {
+			matchedNames = append(matchedNames, symbolName)
+		}
+	}
+
+	return vault.VaultDocument{}, fmt.Errorf(
+		"multiple symbols matched %q: %s. Re-run with a more specific query",
+		query,
+		strings.Join(matchedNames, ", "),
+	)
+}
+
+func resolveInspectEntity(snapshot vault.VaultSnapshot, query string) (vault.VaultDocument, string, error) {
+	if document, err := findInspectFileBySourcePath(snapshot, query); err == nil {
+		return document, "file", nil
+	}
+
+	document, err := findSingleInspectSymbolMatch(snapshot, query)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "no symbols matched") {
+			return vault.VaultDocument{}, "", fmt.Errorf(
+				"no symbol or file matched %q. Re-run with a more specific symbol name or an exact source path",
+				query,
+			)
+		}
+
+		return vault.VaultDocument{}, "", err
+	}
+
+	return document, "symbol", nil
+}
+
+func inspectSectionText(document vault.VaultDocument, heading string) string {
+	section := strings.TrimSpace(vault.ExtractSection(document.Body, heading))
+	if section == "" {
+		return ""
+	}
+
+	lines := strings.Split(section, "\n")
+	if len(lines) >= 3 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+		return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+	}
+
+	return section
+}
+
+func inspectSymbolsForFile(snapshot vault.VaultSnapshot, sourcePath string) []string {
+	type symbolEntry struct {
+		Name      string
+		Kind      string
+		StartLine int
+	}
+
+	entries := make([]symbolEntry, 0)
+	for _, document := range snapshot.Symbols {
+		if inspectFrontmatterString(document, "source_path") != sourcePath {
+			continue
+		}
+
+		entries = append(entries, symbolEntry{
+			Name:      inspectFrontmatterString(document, "symbol_name"),
+			Kind:      inspectFrontmatterString(document, "symbol_kind"),
+			StartLine: inspectFrontmatterInt(document, "start_line"),
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].StartLine != entries[j].StartLine {
+			return entries[i].StartLine < entries[j].StartLine
+		}
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].Kind < entries[j].Kind
+	})
+
+	symbols := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Kind != "" {
+			symbols = append(symbols, fmt.Sprintf("%s (%s)", entry.Name, entry.Kind))
+			continue
+		}
+
+		symbols = append(symbols, entry.Name)
+	}
+
+	return symbols
 }

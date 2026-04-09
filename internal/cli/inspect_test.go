@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -196,6 +197,313 @@ func TestToCouplingOutputSortsByInstability(t *testing.T) {
 	}
 }
 
+func TestToSymbolLookupOutputReturnsDetailForSingleMatch(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Symbols: []vault.VaultDocument{
+			{
+				RelativePath: "raw/codebase/symbols/alpha.md",
+				Frontmatter: map[string]any{
+					"blast_radius":             4,
+					"centrality":               0.75,
+					"cyclomatic_complexity":    9,
+					"end_line":                 18,
+					"exported":                 true,
+					"external_reference_count": 2,
+					"is_dead_export":           false,
+					"is_long_function":         true,
+					"language":                 "go",
+					"loc":                      12,
+					"smells":                   []string{"bottleneck"},
+					"source_path":              "src/alpha.go",
+					"start_line":               7,
+					"symbol_kind":              "function",
+					"symbol_name":              "Alpha",
+				},
+				Body: strings.Join([]string{
+					"# Codebase Symbol: Alpha",
+					"",
+					"## Signature",
+					"```text",
+					"func Alpha(input string) string",
+					"```",
+				}, "\n"),
+				OutgoingRelations: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/symbols/beta", Type: "calls", Confidence: "semantic"},
+				},
+				Backlinks: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/symbols/gamma", Type: "references", Confidence: "syntactic"},
+				},
+			},
+		},
+	}
+
+	output, err := toSymbolLookupOutput(snapshot, "alpha")
+	if err != nil {
+		t.Fatalf("toSymbolLookupOutput returned error: %v", err)
+	}
+
+	if got := detailOutputValue(t, output, "signature"); got != "func Alpha(input string) string" {
+		t.Fatalf("signature = %#v, want func Alpha(input string) string", got)
+	}
+	if got := detailOutputValue(t, output, "symbol_name"); got != "Alpha" {
+		t.Fatalf("symbol_name = %#v, want Alpha", got)
+	}
+	if got := detailOutputValue(t, output, "cyclomatic_complexity"); got != 9 {
+		t.Fatalf("cyclomatic_complexity = %#v, want 9", got)
+	}
+
+	outgoingRelations, ok := detailOutputValue(t, output, "outgoing_relations").([]map[string]any)
+	if !ok || len(outgoingRelations) != 1 {
+		t.Fatalf("unexpected outgoing_relations %#v", detailOutputValue(t, output, "outgoing_relations"))
+	}
+	if outgoingRelations[0]["target_path"] != "demo-topic/raw/codebase/symbols/beta" {
+		t.Fatalf("unexpected outgoing relation %#v", outgoingRelations[0])
+	}
+}
+
+func TestToSymbolLookupOutputReturnsSummaryForMultipleMatches(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Symbols: []vault.VaultDocument{
+			{Frontmatter: map[string]any{
+				"language":    "go",
+				"source_path": "src/zeta.go",
+				"start_line":  18,
+				"symbol_kind": "function",
+				"symbol_name": "AlphaWorker",
+			}},
+			{Frontmatter: map[string]any{
+				"language":    "go",
+				"source_path": "src/alpha.go",
+				"start_line":  4,
+				"symbol_kind": "method",
+				"symbol_name": "AlphaThing",
+			}},
+		},
+	}
+
+	output, err := toSymbolLookupOutput(snapshot, "alpha")
+	if err != nil {
+		t.Fatalf("toSymbolLookupOutput returned error: %v", err)
+	}
+	if len(output.Data) != 2 {
+		t.Fatalf("expected 2 summary rows, got %d", len(output.Data))
+	}
+	if output.Data[0]["symbol_name"] != "AlphaThing" || output.Data[1]["symbol_name"] != "AlphaWorker" {
+		t.Fatalf("unexpected symbol summary order %#v", output.Data)
+	}
+}
+
+func TestToSymbolLookupOutputReturnsDescriptiveErrorForUnknownName(t *testing.T) {
+	t.Parallel()
+
+	_, err := toSymbolLookupOutput(vault.VaultSnapshot{}, "missing")
+	if err == nil {
+		t.Fatal("expected symbol lookup error")
+	}
+	if !strings.Contains(err.Error(), `no symbols matched "missing"`) {
+		t.Fatalf("unexpected error %q", err)
+	}
+}
+
+func TestToFileLookupOutputIncludesContainedSymbolsAndMetrics(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Files: []vault.VaultDocument{
+			{
+				RelativePath: "raw/codebase/files/src/alpha.go.md",
+				Frontmatter: map[string]any{
+					"afferent_coupling":       2,
+					"efferent_coupling":       5,
+					"has_circular_dependency": true,
+					"instability":             0.7143,
+					"is_god_file":             false,
+					"is_orphan_file":          false,
+					"language":                "go",
+					"smells":                  []string{"god-file"},
+					"source_path":             "src/alpha.go",
+					"symbol_count":            2,
+				},
+				OutgoingRelations: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/files/src/beta.go", Type: "imports", Confidence: "semantic"},
+				},
+				Backlinks: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/files/src/main.go", Type: "imports", Confidence: "semantic"},
+				},
+			},
+		},
+		Symbols: []vault.VaultDocument{
+			{Frontmatter: map[string]any{
+				"source_path": "src/alpha.go",
+				"start_line":  10,
+				"symbol_kind": "function",
+				"symbol_name": "Alpha",
+			}},
+			{Frontmatter: map[string]any{
+				"source_path": "src/alpha.go",
+				"start_line":  20,
+				"symbol_kind": "method",
+				"symbol_name": "Beta",
+			}},
+		},
+	}
+
+	output, err := toFileLookupOutput(snapshot, "src/alpha.go")
+	if err != nil {
+		t.Fatalf("toFileLookupOutput returned error: %v", err)
+	}
+
+	if got := detailOutputValue(t, output, "source_path"); got != "src/alpha.go" {
+		t.Fatalf("source_path = %#v, want src/alpha.go", got)
+	}
+	if got := detailOutputValue(t, output, "instability"); got != 0.7143 {
+		t.Fatalf("instability = %#v, want 0.7143", got)
+	}
+
+	symbols := detailOutputStringSlice(t, output, "symbols")
+	if want := []string{"Alpha (function)", "Beta (method)"}; !reflect.DeepEqual(symbols, want) {
+		t.Fatalf("symbols = %#v, want %#v", symbols, want)
+	}
+}
+
+func TestToFileLookupOutputReturnsDescriptiveErrorForUnknownPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := toFileLookupOutput(vault.VaultSnapshot{}, "missing.go")
+	if err == nil {
+		t.Fatal("expected file lookup error")
+	}
+	if !strings.Contains(err.Error(), `no file matched "missing.go"`) {
+		t.Fatalf("unexpected error %q", err)
+	}
+}
+
+func TestToBacklinksOutputListsIncomingReferencesForSymbol(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Symbols: []vault.VaultDocument{
+			{
+				Frontmatter: map[string]any{
+					"symbol_name": "Alpha",
+				},
+				Backlinks: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/symbols/beta", Type: "calls", Confidence: "semantic"},
+					{TargetPath: "demo-topic/raw/codebase/files/src/main.go", Type: "references", Confidence: "syntactic"},
+				},
+			},
+		},
+	}
+
+	output, err := toBacklinksOutput(snapshot, "alpha")
+	if err != nil {
+		t.Fatalf("toBacklinksOutput returned error: %v", err)
+	}
+	if len(output.Data) != 2 {
+		t.Fatalf("expected 2 backlink rows, got %d", len(output.Data))
+	}
+	if output.Data[0]["target_path"] != "demo-topic/raw/codebase/files/src/main.go" {
+		t.Fatalf("unexpected backlink order %#v", output.Data)
+	}
+}
+
+func TestToDependencyOutputListsOutgoingDependenciesForSymbol(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Symbols: []vault.VaultDocument{
+			{
+				Frontmatter: map[string]any{
+					"symbol_name": "Alpha",
+				},
+				OutgoingRelations: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/symbols/beta", Type: "calls", Confidence: "semantic"},
+				},
+			},
+		},
+	}
+
+	output, err := toDependencyOutput(snapshot, "alpha")
+	if err != nil {
+		t.Fatalf("toDependencyOutput returned error: %v", err)
+	}
+	if len(output.Data) != 1 {
+		t.Fatalf("expected 1 dependency row, got %d", len(output.Data))
+	}
+	if output.Data[0]["type"] != "calls" {
+		t.Fatalf("unexpected dependency row %#v", output.Data[0])
+	}
+}
+
+func TestToDependencyOutputSupportsExactFilePathLookup(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		Files: []vault.VaultDocument{
+			{
+				Frontmatter: map[string]any{
+					"source_path": "src/alpha.go",
+				},
+				OutgoingRelations: []vault.VaultRelation{
+					{TargetPath: "demo-topic/raw/codebase/files/src/beta.go", Type: "imports", Confidence: "semantic"},
+				},
+			},
+		},
+	}
+
+	output, err := toDependencyOutput(snapshot, "src/alpha.go")
+	if err != nil {
+		t.Fatalf("toDependencyOutput returned error: %v", err)
+	}
+	if len(output.Data) != 1 || output.Data[0]["target_path"] != "demo-topic/raw/codebase/files/src/beta.go" {
+		t.Fatalf("unexpected file dependency rows %#v", output.Data)
+	}
+}
+
+func TestToCircularDepsOutputListsAllDetectedCycles(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		TopicSlug: "demo-topic",
+		Files: []vault.VaultDocument{
+			testFileDocumentForCycle("raw/codebase/files/src/a.go.md", "src/a.go", "demo-topic/raw/codebase/files/src/b.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/b.go.md", "src/b.go", "demo-topic/raw/codebase/files/src/a.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/c.go.md", "src/c.go", "demo-topic/raw/codebase/files/src/d.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/d.go.md", "src/d.go", "demo-topic/raw/codebase/files/src/e.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/e.go.md", "src/e.go", "demo-topic/raw/codebase/files/src/c.go"),
+		},
+	}
+
+	output := toCircularDepsOutput(snapshot)
+	if len(output.Data) != 2 {
+		t.Fatalf("expected 2 circular dependency rows, got %d", len(output.Data))
+	}
+
+	firstCycle, ok := output.Data[0]["files"].([]string)
+	if !ok {
+		t.Fatalf("unexpected first cycle payload %#v", output.Data[0]["files"])
+	}
+	if want := []string{"src/a.go", "src/b.go"}; !reflect.DeepEqual(firstCycle, want) {
+		t.Fatalf("first cycle = %#v, want %#v", firstCycle, want)
+	}
+}
+
+func TestToCircularDepsOutputShowsMessageWhenNoCycles(t *testing.T) {
+	t.Parallel()
+
+	output := toCircularDepsOutput(vault.VaultSnapshot{TopicSlug: "demo-topic"})
+	if len(output.Data) != 1 {
+		t.Fatalf("expected single message row, got %d", len(output.Data))
+	}
+	if output.Data[0]["message"] != "no circular dependencies found" {
+		t.Fatalf("unexpected empty-cycle output %#v", output.Data[0])
+	}
+}
+
 func TestInspectCommandJSONFormatProducesValidJSON(t *testing.T) {
 	t.Parallel()
 
@@ -260,7 +568,7 @@ func TestInspectCommandReturnsDescriptiveErrorForMissingVault(t *testing.T) {
 func TestInspectSubcommandsRespondToHelp(t *testing.T) {
 	t.Parallel()
 
-	subcommands := []string{"smells", "dead-code", "complexity", "blast-radius", "coupling"}
+	subcommands := []string{"smells", "dead-code", "complexity", "blast-radius", "coupling", "symbol", "file", "backlinks", "deps", "circular-deps"}
 	for _, subcommand := range subcommands {
 		subcommand := subcommand
 		t.Run(subcommand, func(t *testing.T) {
@@ -298,26 +606,46 @@ func createInspectTestVault(t *testing.T) string {
 	writeInspectMarkdown(t, topicPath, "raw/codebase/symbols/alpha.md", strings.Join([]string{
 		"---",
 		`source_kind: "codebase-symbol"`,
+		`language: "go"`,
 		`symbol_name: "Alpha"`,
 		`symbol_kind: "function"`,
 		`source_path: "src/alpha.go"`,
+		"exported: true",
+		"start_line: 9",
+		"end_line: 21",
 		"blast_radius: 6",
 		"centrality: 0.75",
 		"external_reference_count: 2",
 		"cyclomatic_complexity: 9",
 		"loc: 21",
 		"is_dead_export: true",
+		"is_long_function: true",
 		`smells: ["bottleneck", "dead-export"]`,
 		"---",
 		"",
 		"# Alpha",
+		"",
+		"## Signature",
+		"```text",
+		"func Alpha(name string) string",
+		"```",
+		"",
+		"## Outgoing Relations",
+		"- `calls` (semantic) -> [[demo-topic/raw/codebase/symbols/beta]]",
+		"",
+		"## Backlinks",
+		"- [[demo-topic/raw/codebase/symbols/gamma]] via `references` (syntactic)",
 	}, "\n"))
 	writeInspectMarkdown(t, topicPath, "raw/codebase/symbols/beta.md", strings.Join([]string{
 		"---",
 		`source_kind: "codebase-symbol"`,
+		`language: "go"`,
 		`symbol_name: "Beta"`,
 		`symbol_kind: "method"`,
 		`source_path: "src/beta.go"`,
+		"exported: false",
+		"start_line: 14",
+		"end_line: 18",
 		"blast_radius: 3",
 		"centrality: 0.25",
 		"external_reference_count: 1",
@@ -327,29 +655,88 @@ func createInspectTestVault(t *testing.T) string {
 		"---",
 		"",
 		"# Beta",
+		"",
+		"## Signature",
+		"```text",
+		"func (Service) Beta()",
+		"```",
+	}, "\n"))
+	writeInspectMarkdown(t, topicPath, "raw/codebase/symbols/gamma.md", strings.Join([]string{
+		"---",
+		`source_kind: "codebase-symbol"`,
+		`language: "go"`,
+		`symbol_name: "Gamma"`,
+		`symbol_kind: "function"`,
+		`source_path: "src/gamma.go"`,
+		"start_line: 3",
+		"end_line: 6",
+		"blast_radius: 1",
+		"centrality: 0.1",
+		"external_reference_count: 0",
+		"loc: 4",
+		`smells: []`,
+		"---",
+		"",
+		"# Gamma",
 	}, "\n"))
 	writeInspectMarkdown(t, topicPath, "raw/codebase/files/src/alpha.go.md", strings.Join([]string{
 		"---",
 		`source_kind: "codebase-file"`,
+		`language: "go"`,
 		`source_path: "src/alpha.go"`,
+		"symbol_count: 1",
 		"afferent_coupling: 2",
 		"efferent_coupling: 5",
 		"instability: 0.7142857143",
 		"has_circular_dependency: true",
+		"is_god_file: false",
 		"is_orphan_file: true",
 		`smells: ["orphan-file"]`,
 		"---",
 		"",
 		"# File",
+		"",
+		"## Symbols",
+		"- [[demo-topic/raw/codebase/symbols/alpha|Alpha (function)]] · exported=true",
+		"",
+		"## Outgoing Relations",
+		"- `imports` (semantic) -> [[demo-topic/raw/codebase/files/src/beta.go]]",
+		"",
+		"## Backlinks",
+		"- [[demo-topic/raw/codebase/files/src/main.go]] via `imports` (semantic)",
 	}, "\n"))
 	writeInspectMarkdown(t, topicPath, "raw/codebase/files/src/beta.go.md", strings.Join([]string{
 		"---",
 		`source_kind: "codebase-file"`,
+		`language: "go"`,
 		`source_path: "src/beta.go"`,
+		"symbol_count: 1",
 		"afferent_coupling: 3",
 		"efferent_coupling: 1",
 		"instability: 0.25",
 		"has_circular_dependency: false",
+		"is_god_file: false",
+		"is_orphan_file: false",
+		`smells: []`,
+		"---",
+		"",
+		"# File",
+		"",
+		"## Symbols",
+		"- [[demo-topic/raw/codebase/symbols/beta|Beta (method)]] · exported=false",
+	}, "\n"))
+	writeInspectMarkdown(t, topicPath, "raw/codebase/files/src/main.go.md", strings.Join([]string{
+		"---",
+		`source_kind: "codebase-file"`,
+		`language: "go"`,
+		`source_path: "src/main.go"`,
+		"symbol_count: 0",
+		"afferent_coupling: 0",
+		"efferent_coupling: 1",
+		"instability: 1",
+		"has_circular_dependency: false",
+		"is_god_file: false",
+		"is_orphan_file: false",
 		`smells: []`,
 		"---",
 		"",
@@ -374,5 +761,56 @@ func mkdirAll(t *testing.T, path string) {
 
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func detailOutputValue(t *testing.T, output inspectOutput, field string) any {
+	t.Helper()
+
+	for _, row := range output.Data {
+		if row["field"] == field {
+			return row["value"]
+		}
+	}
+
+	t.Fatalf("field %q not found in output %#v", field, output.Data)
+	return nil
+}
+
+func detailOutputStringSlice(t *testing.T, output inspectOutput, field string) []string {
+	t.Helper()
+
+	value := detailOutputValue(t, output, field)
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, entry := range typed {
+			if text, ok := entry.(string); ok {
+				values = append(values, text)
+			}
+		}
+		return values
+	default:
+		t.Fatalf("field %q was not a string slice: %#v", field, value)
+		return nil
+	}
+}
+
+func testFileDocumentForCycle(relativePath, sourcePath string, targets ...string) vault.VaultDocument {
+	relations := make([]vault.VaultRelation, 0, len(targets))
+	for _, target := range targets {
+		relations = append(relations, vault.VaultRelation{
+			TargetPath: target,
+			Type:       "imports",
+			Confidence: "semantic",
+		})
+	}
+
+	return vault.VaultDocument{
+		RelativePath:      relativePath,
+		Frontmatter:       map[string]any{"source_path": sourcePath},
+		OutgoingRelations: relations,
 	}
 }

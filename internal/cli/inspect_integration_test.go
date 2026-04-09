@@ -32,15 +32,21 @@ func TestInspectCommandsAgainstGeneratedFixtureVault(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name    string
-		args    []string
-		minRows int
+		name          string
+		args          []string
+		minRows       int
+		expectMessage string
 	}{
 		{name: "smells", args: []string{"inspect", "smells", "--format", "json", "--vault", summary.VaultPath}, minRows: 0},
 		{name: "dead-code", args: []string{"inspect", "dead-code", "--format", "json", "--vault", summary.VaultPath}, minRows: 0},
 		{name: "complexity", args: []string{"inspect", "complexity", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
 		{name: "blast-radius", args: []string{"inspect", "blast-radius", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
 		{name: "coupling", args: []string{"inspect", "coupling", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
+		{name: "symbol", args: []string{"inspect", "symbol", "Hello", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
+		{name: "file", args: []string{"inspect", "file", "internal/greeter/greeter.go", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
+		{name: "backlinks", args: []string{"inspect", "backlinks", "Hello", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
+		{name: "deps", args: []string{"inspect", "deps", "internal/greeter/greeter.go", "--format", "json", "--vault", summary.VaultPath}, minRows: 1},
+		{name: "circular-deps", args: []string{"inspect", "circular-deps", "--format", "json", "--vault", summary.VaultPath}, minRows: 1, expectMessage: "no circular dependencies found"},
 	}
 
 	for _, testCase := range testCases {
@@ -62,6 +68,11 @@ func TestInspectCommandsAgainstGeneratedFixtureVault(t *testing.T) {
 			}
 			if len(decoded) < testCase.minRows {
 				t.Fatalf("expected at least %d rows, got %d", testCase.minRows, len(decoded))
+			}
+			if testCase.expectMessage != "" {
+				if len(decoded) != 1 || decoded[0]["message"] != testCase.expectMessage {
+					t.Fatalf("expected message %q, got %#v", testCase.expectMessage, decoded)
+				}
 			}
 		})
 	}

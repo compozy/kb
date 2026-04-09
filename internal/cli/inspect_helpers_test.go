@@ -257,7 +257,7 @@ func TestInspectCommandValidationErrors(t *testing.T) {
 	}
 }
 
-func TestInspectParentHelpListsAnalysisSubcommands(t *testing.T) {
+func TestInspectParentHelpListsAllSubcommands(t *testing.T) {
 	t.Parallel()
 
 	command := newRootCommand()
@@ -271,7 +271,7 @@ func TestInspectParentHelpListsAnalysisSubcommands(t *testing.T) {
 	}
 
 	helpText := stdout.String()
-	for _, subcommand := range []string{"smells", "dead-code", "complexity", "blast-radius", "coupling"} {
+	for _, subcommand := range []string{"smells", "dead-code", "complexity", "blast-radius", "coupling", "symbol", "file", "backlinks", "deps", "circular-deps"} {
 		if !bytes.Contains(stdout.Bytes(), []byte(subcommand)) {
 			t.Fatalf("expected inspect help to list %s, got:\n%s", subcommand, helpText)
 		}
