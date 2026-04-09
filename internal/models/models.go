@@ -165,3 +165,42 @@ type LanguageAdapter interface {
 	Supports(lang SupportedLanguage) bool
 	ParseFiles(files []ScannedSourceFile, rootPath string) ([]ParsedFile, error)
 }
+
+// SymbolMetrics stores computed metrics for an individual symbol.
+type SymbolMetrics struct {
+	BlastRadius            int      `json:"blastRadius"`
+	Centrality             float64  `json:"centrality"`
+	DirectDependents       int      `json:"directDependents"`
+	ExternalReferenceCount int      `json:"externalReferenceCount"`
+	IsDeadExport           bool     `json:"isDeadExport"`
+	IsLongFunction         bool     `json:"isLongFunction"`
+	LOC                    int      `json:"loc"`
+	Smells                 []string `json:"smells"`
+}
+
+// FileMetrics stores computed metrics for an individual file.
+type FileMetrics struct {
+	AfferentCoupling      int      `json:"afferentCoupling"`
+	EfferentCoupling      int      `json:"efferentCoupling"`
+	HasCircularDependency bool     `json:"hasCircularDependency"`
+	Instability           float64  `json:"instability"`
+	IsEntryPoint          bool     `json:"isEntryPoint"`
+	IsGodFile             bool     `json:"isGodFile"`
+	IsOrphanFile          bool     `json:"isOrphanFile"`
+	Smells                []string `json:"smells"`
+}
+
+// DirectoryMetrics stores aggregated metrics for a directory.
+type DirectoryMetrics struct {
+	AfferentCoupling int     `json:"afferentCoupling"`
+	EfferentCoupling int     `json:"efferentCoupling"`
+	Instability      float64 `json:"instability"`
+}
+
+// MetricsResult contains every computed metrics view for a graph snapshot.
+type MetricsResult struct {
+	CircularDependencies [][]string                  `json:"circularDependencies"`
+	Directories          map[string]DirectoryMetrics `json:"directories"`
+	Files                map[string]FileMetrics      `json:"files"`
+	Symbols              map[string]SymbolMetrics    `json:"symbols"`
+}
