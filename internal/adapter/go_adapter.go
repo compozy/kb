@@ -55,6 +55,15 @@ func (GoAdapter) Supports(language models.SupportedLanguage) bool {
 
 // ParseFiles parses Go source files into graph nodes, relations, and diagnostics.
 func (adapter GoAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath string) ([]models.ParsedFile, error) {
+	return adapter.ParseFilesWithProgress(files, rootPath, nil)
+}
+
+// ParseFilesWithProgress parses Go files and reports one progress tick per file.
+func (adapter GoAdapter) ParseFilesWithProgress(
+	files []models.ScannedSourceFile,
+	rootPath string,
+	report func(models.ScannedSourceFile),
+) ([]models.ParsedFile, error) {
 	_ = rootPath
 
 	parser, err := newParser(goLanguage())
@@ -100,6 +109,9 @@ func (adapter GoAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath s
 		}
 
 		parsedEntries = append(parsedEntries, entry)
+		if report != nil {
+			report(file)
+		}
 	}
 
 	parsedFiles := make([]models.ParsedFile, 0, len(parsedEntries))

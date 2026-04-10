@@ -84,12 +84,12 @@ func ComputeMetrics(graph models.GraphSnapshot) models.MetricsResult {
 		}
 	}
 
-	circularDependencies := detectCircularDependencies(graph.Files, graph.Relations)
-	result.CircularDependencies = circularDependencies
+	circularDependencyGroups := detectCircularDependencyGroups(graph.Files, graph.Relations)
+	result.CircularDependencies = circularDependencyGroups
 
 	filesInCircularDependencies := make(map[string]struct{})
-	for _, cycle := range circularDependencies {
-		for _, filePath := range cycle {
+	for _, group := range circularDependencyGroups {
+		for _, filePath := range group {
 			filesInCircularDependencies[createFileID(filePath)] = struct{}{}
 		}
 	}
@@ -365,13 +365,113 @@ func computeApproxCentrality(
 	return centralityBySymbolID
 }
 
-func detectCircularDependencies(files []models.GraphFile, relations []models.RelationEdge) [][]string {
-	adjacency := make(map[string]map[string]struct{}, len(files))
-	filePaths := make([]string, 0, len(files))
+func detectCircularDependencyGroups(files []models.GraphFile, relations []models.RelationEdge) [][]string {
+	return FindCircularDependencyGroups(buildFileImportAdjacency(files, relations))
+}
+
+// FindCircularDependencyGroups returns deterministic strongly connected file
+// groups for the provided adjacency list. Groups with a single node are
+// ignored, so self-referential files are not treated as circular components.
+func FindCircularDependencyGroups(adjacency map[string][]string) [][]string {
+	nodeIDs := make([]string, 0, len(adjacency))
+	for nodeID := range adjacency {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	sort.Strings(nodeIDs)
+
+	if len(nodeIDs) == 0 {
+		return [][]string{}
+	}
+
+	normalizedAdjacency := make(map[string][]string, len(nodeIDs))
+	for _, nodeID := range nodeIDs {
+		neighbors := uniqueSortedStrings(adjacency[nodeID])
+		filtered := make([]string, 0, len(neighbors))
+		for _, neighborID := range neighbors {
+			if neighborID == nodeID {
+				continue
+			}
+			if _, exists := adjacency[neighborID]; !exists {
+				continue
+			}
+			filtered = append(filtered, neighborID)
+		}
+		normalizedAdjacency[nodeID] = filtered
+	}
+
+	index := 0
+	indexByNode := make(map[string]int, len(nodeIDs))
+	lowLinkByNode := make(map[string]int, len(nodeIDs))
+	onStack := make(map[string]bool, len(nodeIDs))
+	stack := make([]string, 0, len(nodeIDs))
+	components := make([][]string, 0)
+
+	var strongConnect func(string)
+	strongConnect = func(nodeID string) {
+		indexByNode[nodeID] = index
+		lowLinkByNode[nodeID] = index
+		index++
+
+		stack = append(stack, nodeID)
+		onStack[nodeID] = true
+
+		for _, neighborID := range normalizedAdjacency[nodeID] {
+			if _, visited := indexByNode[neighborID]; !visited {
+				strongConnect(neighborID)
+				if lowLinkByNode[neighborID] < lowLinkByNode[nodeID] {
+					lowLinkByNode[nodeID] = lowLinkByNode[neighborID]
+				}
+				continue
+			}
+
+			if onStack[neighborID] && indexByNode[neighborID] < lowLinkByNode[nodeID] {
+				lowLinkByNode[nodeID] = indexByNode[neighborID]
+			}
+		}
+
+		if lowLinkByNode[nodeID] != indexByNode[nodeID] {
+			return
+		}
+
+		component := make([]string, 0)
+		for {
+			lastIndex := len(stack) - 1
+			memberID := stack[lastIndex]
+			stack = stack[:lastIndex]
+			onStack[memberID] = false
+			component = append(component, memberID)
+			if memberID == nodeID {
+				break
+			}
+		}
+
+		if len(component) <= 1 {
+			return
+		}
+
+		sort.Strings(component)
+		components = append(components, component)
+	}
+
+	for _, nodeID := range nodeIDs {
+		if _, visited := indexByNode[nodeID]; visited {
+			continue
+		}
+		strongConnect(nodeID)
+	}
+
+	sort.Slice(components, func(i, j int) bool {
+		return strings.Join(components[i], "\x00") < strings.Join(components[j], "\x00")
+	})
+
+	return components
+}
+
+func buildFileImportAdjacency(files []models.GraphFile, relations []models.RelationEdge) map[string][]string {
+	adjacency := make(map[string][]string, len(files))
 
 	for _, file := range files {
-		adjacency[file.FilePath] = map[string]struct{}{}
-		filePaths = append(filePaths, file.FilePath)
+		adjacency[file.FilePath] = []string{}
 	}
 
 	for _, relation := range relations {
@@ -381,6 +481,9 @@ func detectCircularDependencies(files []models.GraphFile, relations []models.Rel
 
 		sourcePath := strings.TrimPrefix(relation.FromID, "file:")
 		targetPath := strings.TrimPrefix(relation.ToID, "file:")
+		if sourcePath == targetPath {
+			continue
+		}
 		if _, exists := adjacency[sourcePath]; !exists {
 			continue
 		}
@@ -388,81 +491,29 @@ func detectCircularDependencies(files []models.GraphFile, relations []models.Rel
 			continue
 		}
 
-		addToSetMap(adjacency, sourcePath, targetPath)
+		adjacency[sourcePath] = append(adjacency[sourcePath], targetPath)
 	}
 
-	sort.Strings(filePaths)
-	cyclesByKey := make(map[string][]string)
-
-	for _, startPath := range filePaths {
-		pathStack := []string{startPath}
-		visited := map[string]struct{}{startPath: {}}
-
-		var visit func(string)
-		visit = func(currentPath string) {
-			for _, neighborPath := range sortedSetValues(adjacency[currentPath]) {
-				if neighborPath == startPath {
-					cycle := canonicalizeCycle(append([]string(nil), pathStack...))
-					cyclesByKey[strings.Join(cycle, " -> ")] = cycle
-					continue
-				}
-
-				if neighborPath < startPath {
-					continue
-				}
-				if _, seen := visited[neighborPath]; seen {
-					continue
-				}
-
-				visited[neighborPath] = struct{}{}
-				pathStack = append(pathStack, neighborPath)
-				visit(neighborPath)
-				pathStack = pathStack[:len(pathStack)-1]
-				delete(visited, neighborPath)
-			}
-		}
-
-		visit(startPath)
-	}
-
-	if len(cyclesByKey) == 0 {
-		return [][]string{}
-	}
-
-	keys := make([]string, 0, len(cyclesByKey))
-	for key := range cyclesByKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	cycles := make([][]string, 0, len(keys))
-	for _, key := range keys {
-		cycles = append(cycles, cyclesByKey[key])
-	}
-
-	return cycles
+	return adjacency
 }
 
-func canonicalizeCycle(cycle []string) []string {
-	if len(cycle) <= 1 {
-		return cycle
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
 	}
 
-	bestCycle := append([]string(nil), cycle...)
-	bestKey := strings.Join(bestCycle, "\x00")
-
-	for index := 1; index < len(cycle); index++ {
-		rotatedCycle := append([]string(nil), cycle[index:]...)
-		rotatedCycle = append(rotatedCycle, cycle[:index]...)
-		rotatedKey := strings.Join(rotatedCycle, "\x00")
-
-		if rotatedKey < bestKey {
-			bestCycle = rotatedCycle
-			bestKey = rotatedKey
-		}
+	unique := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		unique[value] = struct{}{}
 	}
 
-	return bestCycle
+	ordered := make([]string, 0, len(unique))
+	for value := range unique {
+		ordered = append(ordered, value)
+	}
+	sort.Strings(ordered)
+
+	return ordered
 }
 
 func getNodeFileID(

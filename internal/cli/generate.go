@@ -3,19 +3,19 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 
 	"github.com/spf13/cobra"
 
 	kgenerate "github.com/user/go-devstack/internal/generate"
-	"github.com/user/go-devstack/internal/logger"
 	"github.com/user/go-devstack/internal/models"
 )
 
-var runGenerate = kgenerate.Generate
+var runGenerate = kgenerate.GenerateWithObserver
 
 func newGenerateCommand() *cobra.Command {
 	options := models.GenerateOptions{}
+	progressModeValue := string(generateProgressAuto)
+	logFormatValue := string(generateLogFormatText)
 
 	command := &cobra.Command{
 		Use:   "generate <path>",
@@ -24,21 +24,22 @@ func newGenerateCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.RootPath = args[0]
 
-			log, err := logger.New("info", logger.WithWriter(cmd.ErrOrStderr()))
-			if err != nil {
-				return err
-			}
-
-			previous := slog.Default()
-			slog.SetDefault(log)
-			defer slog.SetDefault(previous)
-
 			ctx := cmd.Context()
 			if ctx == nil {
 				ctx = context.Background()
 			}
 
-			summary, err := runGenerate(ctx, options)
+			progressMode, err := parseGenerateProgressMode(progressModeValue)
+			if err != nil {
+				return err
+			}
+
+			logFormat, err := parseGenerateLogFormat(logFormatValue)
+			if err != nil {
+				return err
+			}
+
+			summary, err := runGenerate(ctx, options, newGenerateObserver(cmd.ErrOrStderr(), progressMode, logFormat))
 			if err != nil {
 				return err
 			}
@@ -58,6 +59,8 @@ func newGenerateCommand() *cobra.Command {
 	command.Flags().StringArrayVar(&options.IncludePatterns, "include", nil, "Re-include a path pattern that would otherwise be ignored; repeatable")
 	command.Flags().StringArrayVar(&options.ExcludePatterns, "exclude", nil, "Exclude an additional path pattern from scanning; repeatable")
 	command.Flags().BoolVar(&options.Semantic, "semantic", false, "Enable semantic analysis when the underlying adapters support it")
+	command.Flags().StringVar(&progressModeValue, "progress", progressModeValue, "Progress rendering mode: auto, always, or never")
+	command.Flags().StringVar(&logFormatValue, "log-format", logFormatValue, "Stderr event format: text or json")
 
 	return command
 }

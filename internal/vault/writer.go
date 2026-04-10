@@ -24,9 +24,10 @@ var (
 // WriteVaultOptions bundles the rendered vault payload written to disk.
 type WriteVaultOptions struct {
 	BaseFiles []models.BaseFile
-	Topic     models.TopicMetadata
-	Graph     models.GraphSnapshot
 	Documents []models.RenderedDocument
+	Graph     models.GraphSnapshot
+	Progress  func(WriteProgress)
+	Topic     models.TopicMetadata
 }
 
 // WriteVaultResult reports how many managed markdown documents were written.
@@ -34,6 +35,13 @@ type WriteVaultResult struct {
 	RawDocumentsWritten   int
 	WikiDocumentsWritten  int
 	IndexDocumentsWritten int
+}
+
+// WriteProgress reports one successful persisted file within the write stage.
+type WriteProgress struct {
+	Completed int
+	Path      string
+	Total     int
 }
 
 type fileWriteRequest struct {
@@ -73,16 +81,19 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	if err := ensureDirectories(renderedFiles); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure document directories: %w", err)
 	}
-	if err := writeFilesInBatches(ctx, renderedFiles); err != nil {
+	progressReporter := newWriteProgressReporter(options.Progress, len(renderedFiles)+2)
+	if err := writeFilesInBatches(ctx, renderedFiles, progressReporter.Report); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: persist rendered files: %w", err)
 	}
 
+	claudePath := filepath.Join(options.Topic.TopicPath, "CLAUDE.md")
 	if err := writeTextFile(
-		filepath.Join(options.Topic.TopicPath, "CLAUDE.md"),
+		claudePath,
 		buildTopicClaude(options.Topic, options.Graph, options.Documents),
 	); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: write topic manifest: %w", err)
 	}
+	progressReporter.Report(claudePath)
 	if err := ensureAgentsSymlink(options.Topic.TopicPath); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure topic agents symlink: %w", err)
 	}
@@ -94,6 +105,7 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	if err := appendLog(options.Topic, counts); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: append audit log: %w", err)
 	}
+	progressReporter.Report(filepath.Join(options.Topic.TopicPath, "log.md"))
 
 	return counts, nil
 }
@@ -291,7 +303,7 @@ func ensureDirectories(files []fileWriteRequest) error {
 	return nil
 }
 
-func writeFilesInBatches(ctx context.Context, files []fileWriteRequest) error {
+func writeFilesInBatches(ctx context.Context, files []fileWriteRequest, report func(string)) error {
 	for index := 0; index < len(files); index += fileWriteBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -309,10 +321,39 @@ func writeFilesInBatches(ctx context.Context, files []fileWriteRequest) error {
 			if err := writeTextFile(file.TargetPath, file.Body); err != nil {
 				return fmt.Errorf("write %q: %w", file.TargetPath, err)
 			}
+			if report != nil {
+				report(file.TargetPath)
+			}
 		}
 	}
 
 	return nil
+}
+
+type writeProgressReporter struct {
+	completed int
+	report    func(WriteProgress)
+	total     int
+}
+
+func newWriteProgressReporter(report func(WriteProgress), total int) *writeProgressReporter {
+	return &writeProgressReporter{
+		report: report,
+		total:  total,
+	}
+}
+
+func (r *writeProgressReporter) Report(path string) {
+	if r == nil || r.report == nil {
+		return
+	}
+
+	r.completed++
+	r.report(WriteProgress{
+		Completed: r.completed,
+		Path:      path,
+		Total:     r.total,
+	})
 }
 
 func buildTopicClaude(

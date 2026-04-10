@@ -871,19 +871,19 @@ func createCircularDependenciesArticle(
 
 	if len(metrics.CircularDependencies) > 0 {
 		cycles = make([]string, 0, len(metrics.CircularDependencies))
-		for index, cycle := range metrics.CircularDependencies {
-			links := make([]string, 0, len(cycle))
-			for _, filePath := range cycle {
+		for index, group := range metrics.CircularDependencies {
+			links := make([]string, 0, len(group))
+			for _, filePath := range group {
 				sources = append(sources, GetRawFileDocumentPath(filePath))
 				links = append(links, toSourceWikiLink(topic, GetRawFileDocumentPath(filePath), filePath))
 			}
-			cycles = append(cycles, fmt.Sprintf("%d. %s", index+1, strings.Join(links, " -> ")))
+			cycles = append(cycles, fmt.Sprintf("%d. %s", index+1, strings.Join(links, " · ")))
 		}
 	}
 
 	return starterWikiArticle{
 		Title:   "Circular Dependencies",
-		Summary: "Detected file-level import cycles, listed as ordered loops with links back to the raw file snapshots.",
+		Summary: "Detected file-level cyclic groups, listed as sets of files that participate in the same import component.",
 		Sources: uniqueStrings(sources),
 		Body:    strings.Join(append([]string{"# Circular Dependencies", ""}, cycles...), "\n"),
 	}

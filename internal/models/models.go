@@ -235,6 +235,8 @@ type DirectoryMetrics struct {
 
 // MetricsResult contains every computed metrics view for a graph snapshot.
 type MetricsResult struct {
+	// CircularDependencies stores cyclic file groups, one per strongly connected
+	// component with more than one file.
 	CircularDependencies [][]string                  `json:"circularDependencies"`
 	Directories          map[string]DirectoryMetrics `json:"directories"`
 	Files                map[string]FileMetrics      `json:"files"`

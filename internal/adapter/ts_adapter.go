@@ -86,6 +86,15 @@ func (TSAdapter) Supports(language models.SupportedLanguage) bool {
 
 // ParseFiles parses TS/JS source files into graph nodes, relations, and diagnostics.
 func (adapter TSAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath string) ([]models.ParsedFile, error) {
+	return adapter.ParseFilesWithProgress(files, rootPath, nil)
+}
+
+// ParseFilesWithProgress parses TS/JS files and reports one progress tick per file.
+func (adapter TSAdapter) ParseFilesWithProgress(
+	files []models.ScannedSourceFile,
+	rootPath string,
+	report func(models.ScannedSourceFile),
+) ([]models.ParsedFile, error) {
 	_ = rootPath
 
 	if len(files) == 0 {
@@ -117,6 +126,9 @@ func (adapter TSAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath s
 			return nil, err
 		}
 		parsedEntries = append(parsedEntries, entry)
+		if report != nil {
+			report(file)
+		}
 	}
 
 	localSymbolsByFilePath := make(map[string]map[string]string, len(parsedEntries))

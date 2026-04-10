@@ -464,17 +464,29 @@ func TestToDependencyOutputSupportsExactFilePathLookup(t *testing.T) {
 	}
 }
 
-func TestToCircularDepsOutputListsAllDetectedCycles(t *testing.T) {
+func TestToCircularDepsOutputListsFilesWithCircularDependencyFlag(t *testing.T) {
 	t.Parallel()
 
 	snapshot := vault.VaultSnapshot{
 		TopicSlug: "demo-topic",
 		Files: []vault.VaultDocument{
-			testFileDocumentForCycle("raw/codebase/files/src/a.go.md", "src/a.go", "demo-topic/raw/codebase/files/src/b.go"),
-			testFileDocumentForCycle("raw/codebase/files/src/b.go.md", "src/b.go", "demo-topic/raw/codebase/files/src/a.go"),
-			testFileDocumentForCycle("raw/codebase/files/src/c.go.md", "src/c.go", "demo-topic/raw/codebase/files/src/d.go"),
-			testFileDocumentForCycle("raw/codebase/files/src/d.go.md", "src/d.go", "demo-topic/raw/codebase/files/src/e.go"),
-			testFileDocumentForCycle("raw/codebase/files/src/e.go.md", "src/e.go", "demo-topic/raw/codebase/files/src/c.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/a.go.md", "src/a.go", map[string]any{
+				"afferent_coupling":       1,
+				"efferent_coupling":       2,
+				"has_circular_dependency": true,
+				"instability":             0.6667,
+				"smells":                  []string{"god-file"},
+			}),
+			testFileDocumentForCycle("raw/codebase/files/src/b.go.md", "src/b.go", map[string]any{
+				"afferent_coupling":       2,
+				"efferent_coupling":       1,
+				"has_circular_dependency": true,
+				"instability":             0.3333,
+				"smells":                  []string{"orphan-file"},
+			}),
+			testFileDocumentForCycle("raw/codebase/files/src/c.go.md", "src/c.go", map[string]any{
+				"has_circular_dependency": false,
+			}),
 		},
 	}
 
@@ -482,13 +494,44 @@ func TestToCircularDepsOutputListsAllDetectedCycles(t *testing.T) {
 	if len(output.Data) != 2 {
 		t.Fatalf("expected 2 circular dependency rows, got %d", len(output.Data))
 	}
-
-	firstCycle, ok := output.Data[0]["files"].([]string)
-	if !ok {
-		t.Fatalf("unexpected first cycle payload %#v", output.Data[0]["files"])
+	if want := []string{"source_path", "afferent_coupling", "efferent_coupling", "instability", "smells"}; !reflect.DeepEqual(output.Columns, want) {
+		t.Fatalf("columns = %#v, want %#v", output.Columns, want)
 	}
-	if want := []string{"src/a.go", "src/b.go"}; !reflect.DeepEqual(firstCycle, want) {
-		t.Fatalf("first cycle = %#v, want %#v", firstCycle, want)
+	if got := []string{output.Data[0]["source_path"].(string), output.Data[1]["source_path"].(string)}; !reflect.DeepEqual(got, []string{"src/a.go", "src/b.go"}) {
+		t.Fatalf("source paths = %#v, want [src/a.go src/b.go]", got)
+	}
+	if got := output.Data[0]["smells"].([]string); !reflect.DeepEqual(got, []string{"god-file"}) {
+		t.Fatalf("unexpected first smells %#v", got)
+	}
+}
+
+func TestToCircularDepsOutputFallsBackToSCCDetectionForLegacyVaults(t *testing.T) {
+	t.Parallel()
+
+	snapshot := vault.VaultSnapshot{
+		TopicSlug: "demo-topic",
+		Files: []vault.VaultDocument{
+			testFileDocumentForCycle("raw/codebase/files/src/a.go.md", "src/a.go", nil, "demo-topic/raw/codebase/files/src/b.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/b.go.md", "src/b.go", nil, "demo-topic/raw/codebase/files/src/a.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/c.go.md", "src/c.go", nil, "demo-topic/raw/codebase/files/src/d.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/d.go.md", "src/d.go", nil, "demo-topic/raw/codebase/files/src/e.go"),
+			testFileDocumentForCycle("raw/codebase/files/src/e.go.md", "src/e.go", nil, "demo-topic/raw/codebase/files/src/c.go"),
+		},
+	}
+
+	output := toCircularDepsOutput(snapshot)
+	if len(output.Data) != 5 {
+		t.Fatalf("expected 5 circular dependency rows, got %d", len(output.Data))
+	}
+
+	got := make([]string, 0, len(output.Data))
+	for _, row := range output.Data {
+		got = append(got, row["source_path"].(string))
+	}
+
+	want := []string{"src/a.go", "src/b.go", "src/c.go", "src/d.go", "src/e.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("source paths = %#v, want %#v", got, want)
 	}
 }
 
@@ -798,7 +841,7 @@ func detailOutputStringSlice(t *testing.T, output inspectOutput, field string) [
 	}
 }
 
-func testFileDocumentForCycle(relativePath, sourcePath string, targets ...string) vault.VaultDocument {
+func testFileDocumentForCycle(relativePath, sourcePath string, frontmatter map[string]any, targets ...string) vault.VaultDocument {
 	relations := make([]vault.VaultRelation, 0, len(targets))
 	for _, target := range targets {
 		relations = append(relations, vault.VaultRelation{
@@ -808,9 +851,14 @@ func testFileDocumentForCycle(relativePath, sourcePath string, targets ...string
 		})
 	}
 
+	mergedFrontmatter := map[string]any{"source_path": sourcePath}
+	for key, value := range frontmatter {
+		mergedFrontmatter[key] = value
+	}
+
 	return vault.VaultDocument{
 		RelativePath:      relativePath,
-		Frontmatter:       map[string]any{"source_path": sourcePath},
+		Frontmatter:       mergedFrontmatter,
 		OutgoingRelations: relations,
 	}
 }

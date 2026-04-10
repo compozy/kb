@@ -139,14 +139,14 @@ func TestRenderDocumentsDependencyHotspotsListsTopFiles(t *testing.T) {
 	}
 }
 
-func TestRenderDocumentsCircularDependenciesListsCycles(t *testing.T) {
+func TestRenderDocumentsCircularDependenciesListsGroups(t *testing.T) {
 	t.Parallel()
 
 	documents := renderFixtureDocuments(t)
 	document := findDocument(t, documents, "wiki/concepts/Circular Dependencies.md")
 
-	if !strings.Contains(document.Body, "[[demo-repo/raw/codebase/files/src/alpha.ts|src/alpha.ts]] -> [[demo-repo/raw/codebase/files/src/beta.ts|src/beta.ts]]") {
-		t.Fatalf("expected cycle links in circular dependency article, got:\n%s", document.Body)
+	if !strings.Contains(document.Body, "[[demo-repo/raw/codebase/files/src/alpha.ts|src/alpha.ts]] · [[demo-repo/raw/codebase/files/src/beta.ts|src/beta.ts]]") {
+		t.Fatalf("expected cyclic group links in circular dependency article, got:\n%s", document.Body)
 	}
 }
 

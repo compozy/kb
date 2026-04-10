@@ -2,8 +2,6 @@ package generate
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,6 +34,25 @@ func (a fakeAdapter) ParseFiles(files []models.ScannedSourceFile, rootPath strin
 	}
 
 	return a.parseResult, nil
+}
+
+func (a fakeAdapter) ParseFilesWithProgress(
+	files []models.ScannedSourceFile,
+	rootPath string,
+	report func(models.ScannedSourceFile),
+) ([]models.ParsedFile, error) {
+	parsedFiles, err := a.ParseFiles(files, rootPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range files {
+		if report != nil {
+			report(file)
+		}
+	}
+
+	return parsedFiles, nil
 }
 
 func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
@@ -129,7 +146,6 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 			time.Date(2026, 4, 9, 12, 0, 2, 300000000, time.UTC),
 			time.Date(2026, 4, 9, 12, 0, 2, 400000000, time.UTC),
 		),
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
 	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
@@ -274,7 +290,6 @@ func TestRunnerGenerateSummaryReportsCounts(t *testing.T) {
 		now: func() time.Time {
 			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
 		},
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
 	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
@@ -332,6 +347,132 @@ func TestGenerateRespectsCanceledContext(t *testing.T) {
 	if !strings.Contains(err.Error(), context.Canceled.Error()) {
 		t.Fatalf("expected context canceled error, got %v", err)
 	}
+}
+
+func TestRunnerGenerateEmitsParseAndWriteProgressEvents(t *testing.T) {
+	t.Parallel()
+
+	var events []Event
+	observer := ObserverFunc(func(_ context.Context, event Event) {
+		events = append(events, event)
+	})
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files: []models.ScannedSourceFile{
+					{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+					{AbsolutePath: "/repo/helper.go", RelativePath: "helper.go", Language: models.LangGo},
+				},
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+					models.LangGo: {
+						{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+						{AbsolutePath: "/repo/helper.go", RelativePath: "helper.go", Language: models.LangGo},
+					},
+				},
+			}, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:      "go",
+				supported: map[models.SupportedLanguage]bool{models.LangGo: true},
+				parseResult: []models.ParsedFile{
+					{File: models.GraphFile{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo}},
+					{File: models.GraphFile{ID: "file:helper.go", FilePath: "helper.go", Language: models.LangGo}},
+				},
+			},
+		},
+		normalizeGraph: func(rootPath string, parsedFiles []models.ParsedFile) models.GraphSnapshot {
+			return models.GraphSnapshot{
+				RootPath: rootPath,
+				Files: []models.GraphFile{
+					{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo},
+					{ID: "file:helper.go", FilePath: "helper.go", Language: models.LangGo},
+				},
+			}
+		},
+		computeMetrics: func(graph models.GraphSnapshot) models.MetricsResult {
+			return models.MetricsResult{}
+		},
+		renderDocuments: func(graph models.GraphSnapshot, metrics models.MetricsResult, topic models.TopicMetadata) []models.RenderedDocument {
+			return []models.RenderedDocument{
+				{
+					Kind:         models.DocRaw,
+					ManagedArea:  models.AreaRawCodebase,
+					RelativePath: "raw/codebase/files/main.go.md",
+					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
+				},
+			}
+		},
+		renderBaseFiles: func(metrics models.MetricsResult) []models.BaseFile {
+			return []models.BaseFile{{RelativePath: "bases/module-health.base"}}
+		},
+		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
+			if options.Progress == nil {
+				t.Fatal("expected write progress callback to be wired")
+			}
+
+			options.Progress(vault.WriteProgress{Completed: 1, Total: 4, Path: "raw/codebase/files/main.go.md"})
+			options.Progress(vault.WriteProgress{Completed: 2, Total: 4, Path: "bases/module-health.base"})
+			options.Progress(vault.WriteProgress{Completed: 3, Total: 4, Path: "CLAUDE.md"})
+			options.Progress(vault.WriteProgress{Completed: 4, Total: 4, Path: "log.md"})
+
+			return vault.WriteVaultResult{RawDocumentsWritten: 1}, nil
+		},
+		now: func() time.Time {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+
+	if _, err := generator.GenerateWithObserver(context.Background(), models.GenerateOptions{RootPath: "/repo"}, observer); err != nil {
+		t.Fatalf("GenerateWithObserver returned error: %v", err)
+	}
+
+	parseStarted := firstEvent(events, EventStageStarted, "parse")
+	if parseStarted.Total != 2 {
+		t.Fatalf("parse start total = %d, want 2", parseStarted.Total)
+	}
+
+	parseProgress := filterEvents(events, EventStageProgress, "parse")
+	if len(parseProgress) != 2 {
+		t.Fatalf("parse progress events = %d, want 2", len(parseProgress))
+	}
+	if parseProgress[0].Completed != 1 || parseProgress[1].Completed != 2 {
+		t.Fatalf("unexpected parse progress events: %#v", parseProgress)
+	}
+
+	writeStarted := firstEvent(events, EventStageStarted, "write")
+	if writeStarted.Total != 4 {
+		t.Fatalf("write start total = %d, want 4", writeStarted.Total)
+	}
+
+	writeProgress := filterEvents(events, EventStageProgress, "write")
+	if len(writeProgress) != 4 {
+		t.Fatalf("write progress events = %d, want 4", len(writeProgress))
+	}
+	if writeProgress[3].Completed != 4 || writeProgress[3].Total != 4 {
+		t.Fatalf("unexpected write progress events: %#v", writeProgress)
+	}
+}
+
+func filterEvents(events []Event, kind EventKind, stage string) []Event {
+	filtered := make([]Event, 0, len(events))
+	for _, event := range events {
+		if event.Kind == kind && event.Stage == stage {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
+}
+
+func firstEvent(events []Event, kind EventKind, stage string) Event {
+	for _, event := range events {
+		if event.Kind == kind && event.Stage == stage {
+			return event
+		}
+	}
+	return Event{}
 }
 
 func testClock(instants ...time.Time) func() time.Time {

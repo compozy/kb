@@ -4,8 +4,6 @@ package generate
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +17,6 @@ func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {
 	fixtureRoot := filepath.Join("testdata", "fixture-go-repo")
 	outputRoot := filepath.Join(t.TempDir(), "vault")
 	generator := newRunner()
-	generator.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
 		RootPath:   fixtureRoot,

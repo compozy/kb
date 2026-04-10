@@ -217,6 +217,41 @@ func TestComputeMetricsDetectsCircularDependencies(t *testing.T) {
 	}
 }
 
+func TestFindCircularDependencyGroupsMergesOverlappingCyclesIntoSingleComponent(t *testing.T) {
+	t.Parallel()
+
+	got := FindCircularDependencyGroups(map[string][]string{
+		"d.ts": {"a.ts"},
+		"a.ts": {"b.ts"},
+		"c.ts": {"a.ts", "d.ts"},
+		"b.ts": {"c.ts"},
+	})
+
+	want := [][]string{{"a.ts", "b.ts", "c.ts", "d.ts"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("circular dependency groups = %#v, want %#v", got, want)
+	}
+}
+
+func TestFindCircularDependencyGroupsReturnsStableSortedComponents(t *testing.T) {
+	t.Parallel()
+
+	got := FindCircularDependencyGroups(map[string][]string{
+		"d.ts": {"c.ts"},
+		"c.ts": {"d.ts"},
+		"b.ts": {"a.ts"},
+		"a.ts": {"b.ts"},
+	})
+
+	want := [][]string{
+		{"a.ts", "b.ts"},
+		{"c.ts", "d.ts"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("circular dependency groups = %#v, want %#v", got, want)
+	}
+}
+
 func TestComputeMetricsReturnsNoCircularDependenciesForAcyclicGraph(t *testing.T) {
 	t.Parallel()
 

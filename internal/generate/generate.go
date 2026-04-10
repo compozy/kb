@@ -3,7 +3,6 @@ package generate
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,6 +26,14 @@ type renderDocumentsFunc func(
 type renderBaseFilesFunc func(metrics models.MetricsResult) []models.BaseFile
 type writeVaultFunc func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error)
 
+type progressAwareLanguageAdapter interface {
+	ParseFilesWithProgress(
+		files []models.ScannedSourceFile,
+		rootPath string,
+		report func(models.ScannedSourceFile),
+	) ([]models.ParsedFile, error)
+}
+
 type runner struct {
 	scanWorkspace   scanWorkspaceFunc
 	adapters        []models.LanguageAdapter
@@ -36,13 +43,19 @@ type runner struct {
 	renderBaseFiles renderBaseFilesFunc
 	writeVault      writeVaultFunc
 	now             func() time.Time
-	logger          *slog.Logger
+	observer        Observer
 }
 
 // Generate runs the full repository-to-vault pipeline and returns a structured
 // summary of the generated topic.
 func Generate(ctx context.Context, opts models.GenerateOptions) (models.GenerationSummary, error) {
-	return newRunner().Generate(ctx, opts)
+	return GenerateWithObserver(ctx, opts, nil)
+}
+
+// GenerateWithObserver runs the full pipeline and emits structured events to
+// the provided observer while returning the final summary.
+func GenerateWithObserver(ctx context.Context, opts models.GenerateOptions, observer Observer) (models.GenerationSummary, error) {
+	return newRunner().GenerateWithObserver(ctx, opts, observer)
 }
 
 func newRunner() runner {
@@ -60,18 +73,27 @@ func newRunner() runner {
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
-		logger: slog.Default(),
+		observer: noopObserver{},
 	}
 }
 
 // Generate runs the full repository-to-vault pipeline using the configured
 // runner dependencies. Tests use this to substitute stage implementations.
 func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (models.GenerationSummary, error) {
+	return r.GenerateWithObserver(ctx, opts, nil)
+}
+
+// GenerateWithObserver runs the configured pipeline and reports structured
+// events to the provided observer.
+func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOptions, observer Observer) (models.GenerationSummary, error) {
 	if ctx == nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: nil context")
 	}
 
 	r = r.withDefaults()
+	if observer != nil {
+		r.observer = observer
+	}
 
 	rootPath, vaultPath, err := resolvePaths(opts)
 	if err != nil {
@@ -86,7 +108,7 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("scan", "root_path", rootPath, "vault_path", vaultPath)
+	r.emitStageStarted(ctx, "scan", 0, "root_path", rootPath, "vault_path", vaultPath)
 	stageStartedAt := r.now()
 	scannedWorkspace, err := r.scanWorkspace(
 		rootPath,
@@ -96,14 +118,17 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 	)
 	timings.ScanMillis = elapsedMillis(r.now().Sub(stageStartedAt))
 	if err != nil {
-		r.logStageFailed("scan", err, timings.ScanMillis)
+		r.emitStageFailed(ctx, "scan", err, timings.ScanMillis, 0, 0)
 		return models.GenerationSummary{}, fmt.Errorf("generate: scan workspace: %w", err)
 	}
 
 	languages := workspaceLanguages(scannedWorkspace)
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"scan",
 		timings.ScanMillis,
+		0,
+		0,
 		"files_scanned", len(scannedWorkspace.Files),
 		"languages", languageNames(languages),
 	)
@@ -112,13 +137,16 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("select_adapters", "languages", languageNames(languages))
+	r.emitStageStarted(ctx, "select_adapters", 0, "languages", languageNames(languages))
 	stageStartedAt = r.now()
 	selectedAdapters := selectAdapters(languages, r.adapters)
 	timings.SelectAdaptersMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"select_adapters",
 		timings.SelectAdaptersMillis,
+		0,
+		0,
 		"adapter_count", len(selectedAdapters),
 		"adapters", adapterNames(selectedAdapters),
 	)
@@ -127,38 +155,57 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("parse", "adapter_count", len(selectedAdapters))
+	parseTotal := len(scannedWorkspace.Files)
+	parseCompleted := 0
+	r.emitStageStarted(ctx, "parse", parseTotal, "adapter_count", len(selectedAdapters))
 	stageStartedAt = r.now()
 	parsedFiles := make([]models.ParsedFile, 0, len(scannedWorkspace.Files))
+	reportParseProgress := func(file models.ScannedSourceFile) {
+		parseCompleted++
+		r.emitStageProgress(ctx, "parse", parseCompleted, parseTotal, "path", file.RelativePath)
+	}
 	for _, languageAdapter := range selectedAdapters {
 		files := filesForAdapter(scannedWorkspace.Files, languageAdapter)
 		if len(files) == 0 {
 			continue
 		}
 
-		entries, err := languageAdapter.ParseFiles(files, rootPath)
+		var entries []models.ParsedFile
+		progressAdapter, supportsProgress := languageAdapter.(progressAwareLanguageAdapter)
+		if supportsProgress {
+			entries, err = progressAdapter.ParseFilesWithProgress(files, rootPath, reportParseProgress)
+		} else {
+			entries, err = languageAdapter.ParseFiles(files, rootPath)
+			if err == nil && len(files) > 0 {
+				parseCompleted += len(files)
+				r.emitStageProgress(ctx, "parse", parseCompleted, parseTotal)
+			}
+		}
 		if err != nil {
 			parseElapsed := elapsedMillis(r.now().Sub(stageStartedAt))
-			r.logStageFailed("parse", err, parseElapsed)
+			r.emitStageFailed(ctx, "parse", err, parseElapsed, parseCompleted, parseTotal)
 			return models.GenerationSummary{}, fmt.Errorf("generate: parse files: %w", err)
 		}
 
 		parsedFiles = append(parsedFiles, entries...)
 	}
 	timings.ParseMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.logStageCompleted("parse", timings.ParseMillis, "parsed_files", len(parsedFiles))
+	r.emitStageCompleted(ctx, "parse", timings.ParseMillis, parseCompleted, parseTotal, "parsed_files", len(parsedFiles))
 
 	if err := ctx.Err(); err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("normalize", "parsed_files", len(parsedFiles))
+	r.emitStageStarted(ctx, "normalize", 0, "parsed_files", len(parsedFiles))
 	stageStartedAt = r.now()
 	graphSnapshot := r.normalizeGraph(rootPath, parsedFiles)
 	timings.NormalizeMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"normalize",
 		timings.NormalizeMillis,
+		0,
+		0,
 		"files", len(graphSnapshot.Files),
 		"symbols", len(graphSnapshot.Symbols),
 		"relations", len(graphSnapshot.Relations),
@@ -169,13 +216,16 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("metrics", "files", len(graphSnapshot.Files), "symbols", len(graphSnapshot.Symbols))
+	r.emitStageStarted(ctx, "metrics", 0, "files", len(graphSnapshot.Files), "symbols", len(graphSnapshot.Symbols))
 	stageStartedAt = r.now()
 	metricResult := r.computeMetrics(graphSnapshot)
 	timings.MetricsMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"metrics",
 		timings.MetricsMillis,
+		0,
+		0,
 		"directories", len(metricResult.Directories),
 		"file_metrics", len(metricResult.Files),
 		"symbol_metrics", len(metricResult.Symbols),
@@ -185,14 +235,17 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("render", "topic_slug", topic.Slug)
+	r.emitStageStarted(ctx, "render", 0, "topic_slug", topic.Slug)
 	stageStartedAt = r.now()
 	documents := r.renderDocuments(graphSnapshot, metricResult, topic)
 	baseFiles := r.renderBaseFiles(metricResult)
 	timings.RenderMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"render",
 		timings.RenderMillis,
+		0,
+		0,
 		"documents", len(documents),
 		"base_files", len(baseFiles),
 	)
@@ -201,22 +254,29 @@ func (r runner) Generate(ctx context.Context, opts models.GenerateOptions) (mode
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.logStageStarted("write", "topic_path", topic.TopicPath)
+	writeTotal := len(documents) + len(baseFiles) + 2
+	r.emitStageStarted(ctx, "write", writeTotal, "topic_path", topic.TopicPath)
 	stageStartedAt = r.now()
 	writeResult, err := r.writeVault(ctx, vault.WriteVaultOptions{
 		Topic:     topic,
 		Graph:     graphSnapshot,
 		Documents: documents,
 		BaseFiles: baseFiles,
+		Progress: func(progress vault.WriteProgress) {
+			r.emitStageProgress(ctx, "write", progress.Completed, progress.Total, "path", progress.Path)
+		},
 	})
 	timings.WriteMillis = elapsedMillis(r.now().Sub(stageStartedAt))
 	if err != nil {
-		r.logStageFailed("write", err, timings.WriteMillis)
+		r.emitStageFailed(ctx, "write", err, timings.WriteMillis, 0, writeTotal)
 		return models.GenerationSummary{}, fmt.Errorf("generate: write vault: %w", err)
 	}
-	r.logStageCompleted(
+	r.emitStageCompleted(
+		ctx,
 		"write",
 		timings.WriteMillis,
+		writeTotal,
+		writeTotal,
 		"raw_documents", writeResult.RawDocumentsWritten,
 		"wiki_documents", writeResult.WikiDocumentsWritten,
 		"index_documents", writeResult.IndexDocumentsWritten,
@@ -270,8 +330,8 @@ func (r runner) withDefaults() runner {
 			return time.Now().UTC()
 		}
 	}
-	if r.logger == nil {
-		r.logger = slog.Default()
+	if r.observer == nil {
+		r.observer = noopObserver{}
 	}
 
 	return r
@@ -399,15 +459,64 @@ func elapsedMillis(duration time.Duration) int64 {
 	return duration.Milliseconds()
 }
 
-func (r runner) logStageStarted(stage string, attrs ...any) {
-	r.logger.Info("generate stage started", append([]any{"stage", stage}, attrs...)...)
+func (r runner) emitStageStarted(ctx context.Context, stage string, total int, attrs ...any) {
+	r.observer.ObserveGenerateEvent(ctx, Event{
+		Kind:   EventStageStarted,
+		Stage:  stage,
+		Fields: eventFields(attrs...),
+		Total:  total,
+	})
 }
 
-func (r runner) logStageCompleted(stage string, durationMillis int64, attrs ...any) {
-	base := []any{"stage", stage, "duration_ms", durationMillis}
-	r.logger.Info("generate stage completed", append(base, attrs...)...)
+func (r runner) emitStageProgress(ctx context.Context, stage string, completed int, total int, attrs ...any) {
+	r.observer.ObserveGenerateEvent(ctx, Event{
+		Kind:      EventStageProgress,
+		Stage:     stage,
+		Completed: completed,
+		Fields:    eventFields(attrs...),
+		Total:     total,
+	})
 }
 
-func (r runner) logStageFailed(stage string, err error, durationMillis int64) {
-	r.logger.Error("generate stage failed", "stage", stage, "duration_ms", durationMillis, "error", err)
+func (r runner) emitStageCompleted(ctx context.Context, stage string, durationMillis int64, completed int, total int, attrs ...any) {
+	r.observer.ObserveGenerateEvent(ctx, Event{
+		Kind:           EventStageCompleted,
+		Stage:          stage,
+		Completed:      completed,
+		DurationMillis: durationMillis,
+		Fields:         eventFields(attrs...),
+		Total:          total,
+	})
+}
+
+func (r runner) emitStageFailed(ctx context.Context, stage string, err error, durationMillis int64, completed int, total int) {
+	r.observer.ObserveGenerateEvent(ctx, Event{
+		Kind:           EventStageFailed,
+		Stage:          stage,
+		Completed:      completed,
+		DurationMillis: durationMillis,
+		Error:          err.Error(),
+		Total:          total,
+	})
+}
+
+func eventFields(attrs ...any) map[string]any {
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	fields := make(map[string]any, len(attrs)/2)
+	for index := 0; index+1 < len(attrs); index += 2 {
+		key, ok := attrs[index].(string)
+		if !ok || strings.TrimSpace(key) == "" {
+			continue
+		}
+		fields[key] = attrs[index+1]
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	return fields
 }

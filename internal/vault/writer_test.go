@@ -154,6 +154,36 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	}
 }
 
+func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
+	t.Parallel()
+
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	var progress []vault.WriteProgress
+
+	_, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     topic,
+		Graph:     graph,
+		Documents: documents,
+		BaseFiles: baseFiles,
+		Progress: func(update vault.WriteProgress) {
+			progress = append(progress, update)
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	expectedTotal := len(documents) + len(baseFiles) + 2
+	if len(progress) != expectedTotal {
+		t.Fatalf("progress events = %d, want %d", len(progress), expectedTotal)
+	}
+
+	last := progress[len(progress)-1]
+	if last.Completed != expectedTotal || last.Total != expectedTotal {
+		t.Fatalf("last progress event = %#v, want completed/total %d", last, expectedTotal)
+	}
+}
+
 func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
 	t.Parallel()
 
