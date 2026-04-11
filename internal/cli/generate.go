@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/spf13/cobra"
@@ -19,33 +18,19 @@ func newGenerateCommand() *cobra.Command {
 	logFormatValue := string(generateLogFormatText)
 
 	command := &cobra.Command{
-		Use:   "generate <path>",
-		Short: "Generate an Obsidian-compatible knowledge vault from a repository",
-		Args:  cobra.ExactArgs(1),
+		Use:    "generate <path>",
+		Short:  "Generate an Obsidian-compatible knowledge vault from a repository",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.RootPath = args[0]
-
-			ctx := cmd.Context()
-			if ctx == nil {
-				ctx = context.Background()
-			}
-
-			progressMode, err := parseGenerateProgressMode(progressModeValue)
-			if err != nil {
-				return err
-			}
-
-			logFormat, err := parseGenerateLogFormat(logFormatValue)
-			if err != nil {
-				return err
-			}
 
 			options.VaultPath = commandVaultValue(cmd, options.VaultPath)
 			if options.VaultPath == "" && legacyOutputPath != "" {
 				options.VaultPath = legacyOutputPath
 			}
 
-			summary, err := runGenerate(ctx, options, newGenerateObserver(cmd.ErrOrStderr(), progressMode, logFormat))
+			summary, err := runGeneratePipeline(cmd, options, progressModeValue, logFormatValue)
 			if err != nil {
 				return err
 			}
@@ -70,4 +55,27 @@ func newGenerateCommand() *cobra.Command {
 	command.Flags().StringVar(&logFormatValue, "log-format", logFormatValue, "Stderr event format: text or json")
 
 	return command
+}
+
+func runGeneratePipeline(
+	cmd *cobra.Command,
+	options models.GenerateOptions,
+	progressModeValue string,
+	logFormatValue string,
+) (models.GenerationSummary, error) {
+	progressMode, err := parseGenerateProgressMode(progressModeValue)
+	if err != nil {
+		return models.GenerationSummary{}, err
+	}
+
+	logFormat, err := parseGenerateLogFormat(logFormatValue)
+	if err != nil {
+		return models.GenerationSummary{}, err
+	}
+
+	return runGenerate(
+		commandContext(cmd),
+		options,
+		newGenerateObserver(cmd.ErrOrStderr(), progressMode, logFormat),
+	)
 }
