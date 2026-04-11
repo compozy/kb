@@ -25,12 +25,18 @@ func TestNewRegistryRegistersDefaultConvertersInPriorityOrder(t *testing.T) {
 		{name: "html", ext: ".html", wantType: HTMLConverter{}},
 		{name: "htm", ext: ".htm", wantType: HTMLConverter{}},
 		{name: "pdf", ext: ".pdf", wantType: PDFConverter{}},
+		{name: "docx", ext: ".docx", wantType: DOCXConverter{}},
+		{name: "pptx", ext: ".pptx", wantType: PPTXConverter{}},
+		{name: "xlsx", ext: ".xlsx", wantType: XLSXConverter{}},
 		{name: "csv", ext: ".csv", wantType: CSVConverter{}},
 		{name: "json", ext: ".json", wantType: JSONConverter{}},
 		{name: "xml", ext: ".xml", wantType: XMLConverter{}},
 		{name: "markdown by mime", ext: "", mimeType: "text/markdown", wantType: TextConverter{}},
 		{name: "html by mime", ext: "", mimeType: "text/html", wantType: HTMLConverter{}},
 		{name: "pdf by mime", ext: "", mimeType: "application/pdf", wantType: PDFConverter{}},
+		{name: "docx by mime", ext: "", mimeType: docxMIMEType, wantType: DOCXConverter{}},
+		{name: "pptx by mime", ext: "", mimeType: pptxMIMEType, wantType: PPTXConverter{}},
+		{name: "xlsx by mime", ext: "", mimeType: xlsxMIMEType, wantType: XLSXConverter{}},
 	}
 
 	for _, tc := range cases {
@@ -53,7 +59,7 @@ func TestRegistryMatchReturnsNilForUnsupportedInput(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	if got := registry.Match(".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"); got != nil {
+	if got := registry.Match(".bin", "application/octet-stream"); got != nil {
 		t.Fatalf("Match returned %T, want nil", got)
 	}
 }
@@ -65,9 +71,9 @@ func TestRegistryConvertReturnsUnsupportedInputError(t *testing.T) {
 
 	_, err := registry.Convert(context.Background(), models.ConvertInput{
 		Reader:   strings.NewReader("binary"),
-		FilePath: "report.docx",
+		FilePath: "report.bin",
 		Options: map[string]any{
-			"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"mimeType": "application/octet-stream",
 		},
 	})
 	if err == nil {
@@ -78,7 +84,7 @@ func TestRegistryConvertReturnsUnsupportedInputError(t *testing.T) {
 	if !errors.As(err, &unsupportedErr) {
 		t.Fatalf("expected UnsupportedInputError, got %T", err)
 	}
-	if !strings.Contains(err.Error(), ".docx") {
+	if !strings.Contains(err.Error(), ".bin") {
 		t.Fatalf("error %q does not mention extension", err)
 	}
 }
