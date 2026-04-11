@@ -22,10 +22,13 @@ func TestNewRegistryRegistersDefaultConvertersInPriorityOrder(t *testing.T) {
 		mimeType string
 	}{
 		{name: "text", ext: ".txt", wantType: TextConverter{}},
+		{name: "html", ext: ".html", wantType: HTMLConverter{}},
+		{name: "htm", ext: ".htm", wantType: HTMLConverter{}},
 		{name: "csv", ext: ".csv", wantType: CSVConverter{}},
 		{name: "json", ext: ".json", wantType: JSONConverter{}},
 		{name: "xml", ext: ".xml", wantType: XMLConverter{}},
 		{name: "markdown by mime", ext: "", mimeType: "text/markdown", wantType: TextConverter{}},
+		{name: "html by mime", ext: "", mimeType: "text/html", wantType: HTMLConverter{}},
 	}
 
 	for _, tc := range cases {

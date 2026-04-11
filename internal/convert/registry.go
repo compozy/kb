@@ -54,6 +54,7 @@ func NewRegistry(converters ...models.Converter) *Registry {
 	if len(converters) == 0 {
 		converters = []models.Converter{
 			TextConverter{},
+			HTMLConverter{},
 			CSVConverter{},
 			JSONConverter{},
 			XMLConverter{},
