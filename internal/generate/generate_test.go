@@ -127,6 +127,15 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 		},
 		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
 			calls = append(calls, "write")
+			if options.Topic.VaultPath != "/vault" {
+				t.Fatalf("topic vault path = %q, want /vault", options.Topic.VaultPath)
+			}
+			if options.Topic.TopicPath != "/vault/fixture" {
+				t.Fatalf("topic path = %q, want /vault/fixture", options.Topic.TopicPath)
+			}
+			if options.Topic.Slug != "fixture" {
+				t.Fatalf("topic slug = %q, want fixture", options.Topic.Slug)
+			}
 			return vault.WriteVaultResult{RawDocumentsWritten: 1, WikiDocumentsWritten: 1, IndexDocumentsWritten: 0}, nil
 		},
 		now: testClock(
@@ -149,8 +158,9 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 	}
 
 	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
-		RootPath:   "/repo",
-		OutputPath: "/vault",
+		RootPath:  "/repo",
+		VaultPath: "/vault",
+		TopicSlug: "fixture",
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
@@ -163,6 +173,9 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 
 	if summary.FilesScanned != 1 || summary.FilesParsed != 1 || summary.SymbolsExtracted != 1 {
 		t.Fatalf("unexpected summary counts: %#v", summary)
+	}
+	if summary.VaultPath != "/vault" || summary.TopicPath != "/vault/fixture" || summary.TopicSlug != "fixture" {
+		t.Fatalf("unexpected summary paths: %#v", summary)
 	}
 	if summary.Timings.TotalMillis <= 0 {
 		t.Fatalf("expected total timing to be recorded, got %#v", summary.Timings)
@@ -331,6 +344,45 @@ func TestGenerateRequiresRootPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "root path is required") {
 		t.Fatalf("expected descriptive root path error, got %v", err)
+	}
+}
+
+func TestResolveTargetUsesExplicitVaultPathAndTopicSlug(t *testing.T) {
+	t.Parallel()
+
+	target, err := resolveTarget(models.GenerateOptions{
+		RootPath:  "/repo/source",
+		VaultPath: "/vault/root",
+		TopicSlug: "Custom Topic",
+	})
+	if err != nil {
+		t.Fatalf("resolveTarget returned error: %v", err)
+	}
+
+	if target.RootPath != "/repo/source" {
+		t.Fatalf("root path = %q, want /repo/source", target.RootPath)
+	}
+	if target.VaultPath != "/vault/root" {
+		t.Fatalf("vault path = %q, want /vault/root", target.VaultPath)
+	}
+	if target.TopicSlug != "custom-topic" {
+		t.Fatalf("topic slug = %q, want custom-topic", target.TopicSlug)
+	}
+}
+
+func TestResolveTargetDefaultsVaultPathAndTopicSlugFromRootPath(t *testing.T) {
+	t.Parallel()
+
+	target, err := resolveTarget(models.GenerateOptions{RootPath: "/repo/source/demo-app"})
+	if err != nil {
+		t.Fatalf("resolveTarget returned error: %v", err)
+	}
+
+	if target.VaultPath != "/repo/source/demo-app/.kodebase/vault" {
+		t.Fatalf("vault path = %q, want /repo/source/demo-app/.kodebase/vault", target.VaultPath)
+	}
+	if target.TopicSlug != "demo-app" {
+		t.Fatalf("topic slug = %q, want demo-app", target.TopicSlug)
 	}
 }
 

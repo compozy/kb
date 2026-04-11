@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/user/go-devstack/internal/models"
@@ -20,8 +21,9 @@ func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {
 	generator := newRunner()
 
 	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
-		RootPath:   fixtureRoot,
-		OutputPath: outputRoot,
+		RootPath:  fixtureRoot,
+		VaultPath: outputRoot,
+		TopicSlug: "fixture-go-repo",
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)
@@ -64,4 +66,25 @@ func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {
 			t.Fatalf("expected generated path %s: %v", expectedPath, err)
 		}
 	}
+
+	logContent, err := os.ReadFile(filepath.Join(summary.TopicPath, "log.md"))
+	if err != nil {
+		t.Fatalf("read log.md: %v", err)
+	}
+	if got := string(logContent); !containsAll(got,
+		"## [",
+		"ingest | codebase (2 files, 4 symbols)",
+	) {
+		t.Fatalf("expected codebase ingest log entry, got:\n%s", got)
+	}
+}
+
+func containsAll(value string, parts ...string) bool {
+	for _, part := range parts {
+		if !strings.Contains(value, part) {
+			return false
+		}
+	}
+
+	return true
 }

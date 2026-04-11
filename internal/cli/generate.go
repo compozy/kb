@@ -14,6 +14,7 @@ var runGenerate = kgenerate.GenerateWithObserver
 
 func newGenerateCommand() *cobra.Command {
 	options := models.GenerateOptions{}
+	var legacyOutputPath string
 	progressModeValue := string(generateProgressAuto)
 	logFormatValue := string(generateLogFormatText)
 
@@ -38,6 +39,9 @@ func newGenerateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if options.VaultPath == "" && legacyOutputPath != "" {
+				options.VaultPath = legacyOutputPath
+			}
 
 			summary, err := runGenerate(ctx, options, newGenerateObserver(cmd.ErrOrStderr(), progressMode, logFormat))
 			if err != nil {
@@ -52,8 +56,10 @@ func newGenerateCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&options.OutputPath, "output", "", "Vault root where the generated topic will be written")
-	command.Flags().StringVar(&options.Topic, "topic", "", "Override the generated topic slug")
+	command.Flags().StringVar(&options.VaultPath, "vault", "", "Vault root containing the generated topic")
+	command.Flags().StringVar(&legacyOutputPath, "output", "", "Deprecated alias for --vault")
+	_ = command.Flags().MarkDeprecated("output", "use --vault instead")
+	command.Flags().StringVar(&options.TopicSlug, "topic", "", "Override the generated topic slug")
 	command.Flags().StringVar(&options.Title, "title", "", "Override the generated topic title")
 	command.Flags().StringVar(&options.Domain, "domain", "", "Override the generated topic domain")
 	command.Flags().StringArrayVar(&options.IncludePatterns, "include", nil, "Re-include a path pattern that would otherwise be ignored; repeatable")

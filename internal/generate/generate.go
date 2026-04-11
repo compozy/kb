@@ -46,6 +46,12 @@ type runner struct {
 	observer        Observer
 }
 
+type generationTarget struct {
+	RootPath  string
+	TopicSlug string
+	VaultPath string
+}
+
 // Generate runs the full repository-to-vault pipeline and returns a structured
 // summary of the generated topic.
 func Generate(ctx context.Context, opts models.GenerateOptions) (models.GenerationSummary, error) {
@@ -95,24 +101,24 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		r.observer = observer
 	}
 
-	rootPath, vaultPath, err := resolvePaths(opts)
+	target, err := resolveTarget(opts)
 	if err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
 	totalStartedAt := r.now()
-	topic := r.createTopicMetadata(rootPath, vaultPath, opts)
+	topic := r.createTopicMetadata(target, opts)
 	timings := models.GenerationTimings{}
 
 	if err := ctx.Err(); err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.emitStageStarted(ctx, "scan", 0, "root_path", rootPath, "vault_path", vaultPath)
+	r.emitStageStarted(ctx, "scan", 0, "root_path", target.RootPath, "vault_path", target.VaultPath, "topic_slug", target.TopicSlug)
 	stageStartedAt := r.now()
 	scannedWorkspace, err := r.scanWorkspace(
-		rootPath,
-		scanner.WithOutputPath(vaultPath),
+		target.RootPath,
+		scanner.WithOutputPath(target.VaultPath),
 		scanner.WithIncludePatterns(opts.IncludePatterns...),
 		scanner.WithExcludePatterns(opts.ExcludePatterns...),
 	)
@@ -173,9 +179,9 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		var entries []models.ParsedFile
 		progressAdapter, supportsProgress := languageAdapter.(progressAwareLanguageAdapter)
 		if supportsProgress {
-			entries, err = progressAdapter.ParseFilesWithProgress(files, rootPath, reportParseProgress)
+			entries, err = progressAdapter.ParseFilesWithProgress(files, target.RootPath, reportParseProgress)
 		} else {
-			entries, err = languageAdapter.ParseFiles(files, rootPath)
+			entries, err = languageAdapter.ParseFiles(files, target.RootPath)
 			if err == nil && len(files) > 0 {
 				parseCompleted += len(files)
 				r.emitStageProgress(ctx, "parse", parseCompleted, parseTotal)
@@ -198,7 +204,7 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 
 	r.emitStageStarted(ctx, "normalize", 0, "parsed_files", len(parsedFiles))
 	stageStartedAt = r.now()
-	graphSnapshot := r.normalizeGraph(rootPath, parsedFiles)
+	graphSnapshot := r.normalizeGraph(target.RootPath, parsedFiles)
 	timings.NormalizeMillis = elapsedMillis(r.now().Sub(stageStartedAt))
 	r.emitStageCompleted(
 		ctx,
@@ -286,10 +292,10 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 
 	return models.GenerationSummary{
 		Command:               "generate",
-		RootPath:              rootPath,
-		VaultPath:             vaultPath,
+		RootPath:              target.RootPath,
+		VaultPath:             target.VaultPath,
 		TopicPath:             topic.TopicPath,
-		TopicSlug:             topic.Slug,
+		TopicSlug:             target.TopicSlug,
 		FilesScanned:          len(scannedWorkspace.Files),
 		FilesParsed:           len(graphSnapshot.Files),
 		FilesSkipped:          len(scannedWorkspace.Files) - len(graphSnapshot.Files),
@@ -337,53 +343,57 @@ func (r runner) withDefaults() runner {
 	return r
 }
 
-func resolvePaths(opts models.GenerateOptions) (string, string, error) {
+func resolveTarget(opts models.GenerateOptions) (generationTarget, error) {
 	if strings.TrimSpace(opts.RootPath) == "" {
-		return "", "", fmt.Errorf("root path is required")
+		return generationTarget{}, fmt.Errorf("root path is required")
 	}
 
 	rootPath, err := filepath.Abs(opts.RootPath)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve root path: %w", err)
+		return generationTarget{}, fmt.Errorf("resolve root path: %w", err)
 	}
 
-	if strings.TrimSpace(opts.OutputPath) == "" {
-		return rootPath, filepath.Join(rootPath, ".kodebase", "vault"), nil
+	vaultPath := strings.TrimSpace(opts.VaultPath)
+	if vaultPath == "" {
+		vaultPath = filepath.Join(rootPath, ".kodebase", "vault")
 	}
 
-	outputPath, err := filepath.Abs(opts.OutputPath)
+	resolvedVaultPath, err := filepath.Abs(vaultPath)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve output path: %w", err)
+		return generationTarget{}, fmt.Errorf("resolve vault path: %w", err)
 	}
 
-	return rootPath, outputPath, nil
+	topicSlugSource := strings.TrimSpace(opts.TopicSlug)
+	if topicSlugSource == "" {
+		topicSlugSource = rootPath
+	}
+
+	return generationTarget{
+		RootPath:  rootPath,
+		TopicSlug: vault.DeriveTopicSlug(topicSlugSource),
+		VaultPath: resolvedVaultPath,
+	}, nil
 }
 
-func (r runner) createTopicMetadata(rootPath string, vaultPath string, opts models.GenerateOptions) models.TopicMetadata {
-	slugSource := rootPath
-	if strings.TrimSpace(opts.Topic) != "" {
-		slugSource = opts.Topic
-	}
-
-	slug := vault.DeriveTopicSlug(slugSource)
+func (r runner) createTopicMetadata(target generationTarget, opts models.GenerateOptions) models.TopicMetadata {
 	title := strings.TrimSpace(opts.Title)
 	if title == "" {
-		title = vault.DeriveTopicTitle(slug)
+		title = vault.DeriveTopicTitle(target.TopicSlug)
 	}
 
-	domainSource := slug
+	domainSource := target.TopicSlug
 	if strings.TrimSpace(opts.Domain) != "" {
 		domainSource = opts.Domain
 	}
 
 	return models.TopicMetadata{
-		RootPath:  rootPath,
+		RootPath:  target.RootPath,
 		Title:     title,
-		Slug:      slug,
+		Slug:      target.TopicSlug,
 		Domain:    vault.DeriveTopicDomain(domainSource),
 		Today:     r.now().Format("2006-01-02"),
-		VaultPath: vaultPath,
-		TopicPath: filepath.Join(vaultPath, slug),
+		VaultPath: target.VaultPath,
+		TopicPath: filepath.Join(target.VaultPath, target.TopicSlug),
 	}
 }
 

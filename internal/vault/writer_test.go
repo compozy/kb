@@ -134,7 +134,7 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	if !strings.Contains(firstLog, "## [2026-04-09] bootstrap | topic scaffolded") {
 		t.Fatalf("expected bootstrap entry in log, got:\n%s", firstLog)
 	}
-	if !strings.Contains(firstLog, "## [2026-04-09] ingest | refreshed codebase snapshots") {
+	if !strings.Contains(firstLog, "## [2026-04-09] ingest | codebase (4 files, 4 symbols)") {
 		t.Fatalf("expected ingest entry in log, got:\n%s", firstLog)
 	}
 
@@ -146,7 +146,7 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	if len(secondLog) <= len(firstLog) {
 		t.Fatalf("expected second log write to append content")
 	}
-	if got := strings.Count(secondLog, "## [2026-04-09] ingest | refreshed codebase snapshots"); got != 2 {
+	if got := strings.Count(secondLog, "## [2026-04-09] ingest | codebase (4 files, 4 symbols)"); got != 2 {
 		t.Fatalf("expected two ingest entries after second write, got %d\n%s", got, secondLog)
 	}
 	if got := strings.Count(secondLog, "## [2026-04-09] compile | refreshed starter wiki"); got != 2 {

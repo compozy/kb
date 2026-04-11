@@ -36,8 +36,9 @@ func TestSearchCommandReturnsResultsAgainstIndexedVault(t *testing.T) {
 	defer slog.SetDefault(previous)
 
 	summary, err := kgenerate.Generate(context.Background(), models.GenerateOptions{
-		RootPath:   fixtureRoot,
-		OutputPath: vaultRoot,
+		RootPath:  fixtureRoot,
+		VaultPath: vaultRoot,
+		TopicSlug: "fixture-go-repo",
 	})
 	if err != nil {
 		t.Fatalf("Generate returned error: %v", err)

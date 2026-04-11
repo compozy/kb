@@ -266,8 +266,8 @@ type TopicMetadata struct {
 // GenerateOptions configures a full knowledge-base generation run.
 type GenerateOptions struct {
 	RootPath        string   `json:"rootPath"`
-	OutputPath      string   `json:"outputPath,omitempty"`
-	Topic           string   `json:"topic,omitempty"`
+	VaultPath       string   `json:"vaultPath,omitempty"`
+	TopicSlug       string   `json:"topicSlug,omitempty"`
 	Title           string   `json:"title,omitempty"`
 	Domain          string   `json:"domain,omitempty"`
 	IncludePatterns []string `json:"includePatterns,omitempty"`

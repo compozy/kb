@@ -40,7 +40,7 @@ func TestGenerateCommandPassesFlagsAndPrintsJSONSummary(t *testing.T) {
 	command.SetArgs([]string{
 		"generate",
 		"/tmp/repo",
-		"--output", "/tmp/vault",
+		"--vault", "/tmp/vault",
 		"--topic", "fixture",
 		"--title", "Fixture Repo",
 		"--domain", "demo",
@@ -56,8 +56,8 @@ func TestGenerateCommandPassesFlagsAndPrintsJSONSummary(t *testing.T) {
 
 	expectedOptions := models.GenerateOptions{
 		RootPath:        "/tmp/repo",
-		OutputPath:      "/tmp/vault",
-		Topic:           "fixture",
+		VaultPath:       "/tmp/vault",
+		TopicSlug:       "fixture",
 		Title:           "Fixture Repo",
 		Domain:          "demo",
 		IncludePatterns: []string{"src/**/*.go", "web/**/*.ts"},
@@ -161,6 +161,77 @@ func TestGenerateCommandWritesJSONEventsWhenRequested(t *testing.T) {
 	}
 	if progress.Kind != kgenerate.EventStageProgress || progress.Completed != 1 || progress.Total != 2 {
 		t.Fatalf("unexpected progress event: %#v", progress)
+	}
+}
+
+func TestGenerateCommandSupportsDeprecatedOutputAlias(t *testing.T) {
+	original := runGenerate
+	t.Cleanup(func() {
+		runGenerate = original
+	})
+
+	var got models.GenerateOptions
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		got = opts
+		return models.GenerationSummary{Command: "generate", TopicSlug: "fixture"}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"generate", "/tmp/repo", "--output", "/tmp/legacy-vault"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if got.VaultPath != "/tmp/legacy-vault" {
+		t.Fatalf("VaultPath = %q, want /tmp/legacy-vault", got.VaultPath)
+	}
+}
+
+func TestGenerateTextObserverReportsCompletedCountsAndFailures(t *testing.T) {
+	var stderr bytes.Buffer
+
+	observer := &generateTextObserver{
+		writer:       &stderr,
+		liveProgress: false,
+	}
+
+	observer.ObserveGenerateEvent(context.Background(), kgenerate.Event{
+		Kind:  kgenerate.EventStageStarted,
+		Stage: "write",
+		Total: 4,
+	})
+	observer.ObserveGenerateEvent(context.Background(), kgenerate.Event{
+		Kind:      kgenerate.EventStageProgress,
+		Stage:     "write",
+		Completed: 2,
+		Total:     4,
+	})
+	observer.ObserveGenerateEvent(context.Background(), kgenerate.Event{
+		Kind:           kgenerate.EventStageCompleted,
+		Stage:          "write",
+		Completed:      4,
+		Total:          4,
+		DurationMillis: 12,
+	})
+	observer.ObserveGenerateEvent(context.Background(), kgenerate.Event{
+		Kind:           kgenerate.EventStageFailed,
+		Stage:          "select_adapters",
+		DurationMillis: 5,
+		Error:          "boom",
+	})
+
+	output := stderr.String()
+	if !strings.Contains(output, "generate: write started") {
+		t.Fatalf("expected write start message, got:\n%s", output)
+	}
+	if !strings.Contains(output, "generate: write completed in 12ms (4/4)") {
+		t.Fatalf("expected write completion counts, got:\n%s", output)
+	}
+	if !strings.Contains(output, "generate: select adapters failed after 5ms: boom") {
+		t.Fatalf("expected failure message, got:\n%s", output)
 	}
 }
 

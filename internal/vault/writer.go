@@ -102,7 +102,7 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	}
 
 	counts := countWrittenDocuments(options.Documents)
-	if err := appendLog(options.Topic, counts); err != nil {
+	if err := appendLog(options.Topic, options.Graph, counts); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: append audit log: %w", err)
 	}
 	progressReporter.Report(filepath.Join(options.Topic.TopicPath, "log.md"))
@@ -534,7 +534,7 @@ func hasManagedGenerator(content string) bool {
 	return managedGeneratorPattern.MatchString(match[1])
 }
 
-func appendLog(topic models.TopicMetadata, counts WriteVaultResult) error {
+func appendLog(topic models.TopicMetadata, graph models.GraphSnapshot, counts WriteVaultResult) error {
 	logPath := filepath.Join(topic.TopicPath, "log.md")
 
 	if _, err := os.Stat(logPath); errors.Is(err, os.ErrNotExist) {
@@ -557,7 +557,14 @@ func appendLog(topic models.TopicMetadata, counts WriteVaultResult) error {
 	}
 
 	entry := strings.Join([]string{
-		fmt.Sprintf("## [%s] ingest | refreshed codebase snapshots (%d raw notes)", topic.Today, counts.RawDocumentsWritten),
+		fmt.Sprintf(
+			"## [%s] ingest | codebase (%d files, %d symbols)",
+			topic.Today,
+			len(graph.Files),
+			len(graph.Symbols),
+		),
+		"",
+		fmt.Sprintf("Refreshed `%s/raw/codebase/` from `%s`.", topic.Slug, topic.RootPath),
 		"",
 		fmt.Sprintf(
 			"## [%s] compile | refreshed starter wiki (%d concept pages, %d index pages)",
