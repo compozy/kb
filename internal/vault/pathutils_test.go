@@ -137,7 +137,7 @@ func TestDocumentPathDerivationHelpers(t *testing.T) {
 		t.Fatalf("unexpected language index path %q", got)
 	}
 
-	if got := vault.GetWikiConceptPath("Codebase Overview"); got != "wiki/concepts/Codebase Overview.md" {
+	if got := vault.GetWikiConceptPath("Codebase Overview"); got != "wiki/concepts/Kodebase - Codebase Overview.md" {
 		t.Fatalf("unexpected wiki concept path %q", got)
 	}
 
@@ -181,11 +181,11 @@ func TestTopicHelpers(t *testing.T) {
 func TestTopicWikiLinkHelpers(t *testing.T) {
 	t.Parallel()
 
-	if got := vault.StripMarkdownExtension("wiki/concepts/Codebase Overview.md"); got != "wiki/concepts/Codebase Overview" {
+	if got := vault.StripMarkdownExtension("wiki/concepts/Kodebase - Codebase Overview.md"); got != "wiki/concepts/Kodebase - Codebase Overview" {
 		t.Fatalf("unexpected stripped markdown path %q", got)
 	}
 
-	if got := vault.ToTopicWikiLink("topic-slug", "wiki/concepts/Codebase Overview.md", "Overview"); got != "[[topic-slug/wiki/concepts/Codebase Overview|Overview]]" {
+	if got := vault.ToTopicWikiLink("topic-slug", "wiki/concepts/Kodebase - Codebase Overview.md", "Overview"); got != "[[topic-slug/wiki/concepts/Kodebase - Codebase Overview|Overview]]" {
 		t.Fatalf("unexpected labeled wiki link %q", got)
 	}
 

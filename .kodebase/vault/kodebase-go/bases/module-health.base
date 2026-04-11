@@ -1,0 +1,13 @@
+filters:
+  and:
+    - "file.hasTag(\"file\")"
+views:
+  - name: "Module Health"
+    order:
+      - "file.name"
+      - "afferent_coupling"
+      - "efferent_coupling"
+      - "instability"
+    summaries:
+      instability: "Average"
+    type: "table"

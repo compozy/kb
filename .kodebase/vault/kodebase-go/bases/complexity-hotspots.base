@@ -1,0 +1,14 @@
+filters:
+  and:
+    - "file.hasTag(\"function\")"
+    - "cyclomatic_complexity > 5"
+views:
+  - name: "Complexity Hotspots"
+    order:
+      - "file.name"
+      - "cyclomatic_complexity"
+      - "loc"
+      - "source_path"
+    summaries:
+      cyclomatic_complexity: "Average"
+    type: "table"

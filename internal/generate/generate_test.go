@@ -116,7 +116,7 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 				{
 					Kind:         models.DocWiki,
 					ManagedArea:  models.AreaWikiConcept,
-					RelativePath: "wiki/concepts/Codebase Overview.md",
+					RelativePath: vault.GetWikiConceptPath("Codebase Overview"),
 					Frontmatter:  map[string]interface{}{"title": "Codebase Overview"},
 					Body:         "---\ntitle: \"Codebase Overview\"\n---\n\n# Codebase Overview\n",
 				},

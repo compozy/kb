@@ -1,0 +1,13 @@
+filters:
+  and:
+    - "file.hasTag(\"symbol\")"
+    - "exported == true"
+    - "external_reference_count <= 0"
+views:
+  - name: "Isolated Symbols"
+    order:
+      - "file.name"
+      - "symbol_kind"
+      - "source_path"
+      - "external_reference_count"
+    type: "table"

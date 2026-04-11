@@ -1,0 +1,15 @@
+filters:
+  and:
+    - "file.hasTag(\"symbol\")"
+    - "exported == true"
+views:
+  - groupBy:
+      direction: "ASC"
+      property: "source_path"
+    name: "Entry Points"
+    order:
+      - "file.name"
+      - "symbol_kind"
+      - "source_path"
+      - "incoming_relation_count"
+    type: "table"

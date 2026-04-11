@@ -32,8 +32,8 @@ func TestRenderDocumentsIntegrationProducesFullDocumentSet(t *testing.T) {
 		"raw/codebase/symbols/alpha--src-alpha-ts-l10.md",
 		"raw/codebase/indexes/directories/src.md",
 		"raw/codebase/indexes/languages/ts.md",
-		"wiki/concepts/Codebase Overview.md",
-		"wiki/concepts/Circular Dependencies.md",
+		vault.GetWikiConceptPath("Codebase Overview"),
+		vault.GetWikiConceptPath("Circular Dependencies"),
 		"wiki/index/Dashboard.md",
 	}
 

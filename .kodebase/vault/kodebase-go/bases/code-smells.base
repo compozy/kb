@@ -1,0 +1,11 @@
+filters:
+  and:
+    - "has_smells == true"
+views:
+  - name: "Code Smells"
+    order:
+      - "file.name"
+      - "smells"
+      - "source_path"
+      - "symbol_kind"
+    type: "table"

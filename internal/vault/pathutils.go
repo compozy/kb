@@ -11,6 +11,8 @@ import (
 
 var windowsDriveRootPattern = regexp.MustCompile(`^[A-Za-z]:/?$`)
 
+const wikiConceptFilePrefix = "Kodebase - "
+
 // ToPosixPath normalizes path separators to forward slashes and trims trailing slashes.
 func ToPosixPath(value string) string {
 	if value == "" {
@@ -206,7 +208,12 @@ func GetRawLanguageIndexPath(language string) string {
 
 // GetWikiConceptPath derives the vault document path for a generated wiki concept article.
 func GetWikiConceptPath(articleTitle string) string {
-	return fmt.Sprintf("wiki/concepts/%s.md", articleTitle)
+	normalizedTitle := strings.TrimSpace(articleTitle)
+	if !strings.HasPrefix(normalizedTitle, wikiConceptFilePrefix) {
+		normalizedTitle = wikiConceptFilePrefix + normalizedTitle
+	}
+
+	return fmt.Sprintf("wiki/concepts/%s.md", normalizedTitle)
 }
 
 // GetWikiIndexPath derives the vault document path for a generated wiki index page.
@@ -232,6 +239,11 @@ func ToTopicWikiLink(topicSlug, documentPath, label string) string {
 	}
 
 	return fmt.Sprintf("[[%s]]", target)
+}
+
+func stripWikiConceptFilePrefix(articleTitle string) string {
+	normalizedTitle := strings.TrimSpace(articleTitle)
+	return strings.TrimSpace(strings.TrimPrefix(normalizedTitle, wikiConceptFilePrefix))
 }
 
 func cleanComparablePath(value string) string {

@@ -372,7 +372,7 @@ func buildTopicClaude(
 			continue
 		}
 
-		conceptDocuments = append(conceptDocuments, strings.TrimSuffix(path.Base(document.RelativePath), ".md"))
+		conceptDocuments = append(conceptDocuments, renderedConceptTitle(document))
 	}
 
 	sort.Strings(conceptDocuments)
@@ -437,6 +437,14 @@ func buildTopicClaude(
 	)
 
 	return strings.Join(lines, "\n")
+}
+
+func renderedConceptTitle(document models.RenderedDocument) string {
+	if title, ok := document.Frontmatter["title"].(string); ok && strings.TrimSpace(title) != "" {
+		return strings.TrimSpace(title)
+	}
+
+	return stripWikiConceptFilePrefix(strings.TrimSuffix(path.Base(document.RelativePath), ".md"))
 }
 
 func ensureAgentsSymlink(topicPath string) error {

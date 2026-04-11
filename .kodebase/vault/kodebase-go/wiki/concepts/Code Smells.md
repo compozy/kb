@@ -1,0 +1,1381 @@
+---
+created: "2026-04-11"
+domain: "kodebase-go"
+generator: "kodebase"
+sources:
+  - "[[kodebase-go/raw/codebase/files/.agents/skills/systematic-debugging/condition-based-waiting-example.ts]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/go_adapter.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/go_adapter_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/go_adapter_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/treesitter_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/ts_adapter.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/adapter/ts_adapter_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/generate_output.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/generate_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/index_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/inspect.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/inspect_helpers_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/inspect_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/inspect_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/search_index_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/cli/search_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/config/config_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/generate/events.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/generate/generate.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/generate/generate_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/generate/generate_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/generate/testdata/fixture-go-repo/internal/greeter/greeter.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/graph/normalize_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/graph/normalize_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/logger/logger_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/metrics/compute.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/metrics/compute_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/metrics/compute_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/models/models.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/models/models_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/output/formatter.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/output/formatter_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/qmd/client.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/qmd/client_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/qmd/client_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/scanner/scanner.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/scanner/scanner_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/scanner/scanner_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/pathutils.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/pathutils_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/query.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/query_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/reader.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/reader_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/reader_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/render.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/render_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/render_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/render_wiki.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/textutils.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/textutils_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/writer.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/vault/writer_integration_test.go]]"
+  - "[[kodebase-go/raw/codebase/files/internal/version/version.go]]"
+  - "[[kodebase-go/raw/codebase/symbols/appconfig--internal-config-config-go-l23]]"
+  - "[[kodebase-go/raw/codebase/symbols/appendlog--internal-vault-writer-go-l529]]"
+  - "[[kodebase-go/raw/codebase/symbols/attachsymbolids--internal-graph-normalize-go-l87]]"
+  - "[[kodebase-go/raw/codebase/symbols/basedefinition--internal-models-models-go-l339]]"
+  - "[[kodebase-go/raw/codebase/symbols/basefile--internal-models-models-go-l347]]"
+  - "[[kodebase-go/raw/codebase/symbols/basefilter--internal-models-models-go-l310]]"
+  - "[[kodebase-go/raw/codebase/symbols/basegroupby--internal-models-models-go-l323]]"
+  - "[[kodebase-go/raw/codebase/symbols/baseproperty--internal-models-models-go-l318]]"
+  - "[[kodebase-go/raw/codebase/symbols/baseview--internal-models-models-go-l329]]"
+  - "[[kodebase-go/raw/codebase/symbols/baseviewtype--internal-models-models-go-l103]]"
+  - "[[kodebase-go/raw/codebase/symbols/bindinspectsharedflags--internal-cli-inspect-go-l70]]"
+  - "[[kodebase-go/raw/codebase/symbols/buildinspectimportadjacency--internal-cli-inspect-circulardeps-go-l103]]"
+  - "[[kodebase-go/raw/codebase/symbols/buildldflags--magefile-go-l170]]"
+  - "[[kodebase-go/raw/codebase/symbols/buildrules--internal-scanner-scanner-go-l344]]"
+  - "[[kodebase-go/raw/codebase/symbols/buildtopicclaude--internal-vault-writer-go-l359]]"
+  - "[[kodebase-go/raw/codebase/symbols/capitalize--internal-graph-normalize-test-go-l365]]"
+  - "[[kodebase-go/raw/codebase/symbols/circulardependencyrows--internal-cli-inspect-circulardeps-go-l44]]"
+  - "[[kodebase-go/raw/codebase/symbols/cleandiagnostics--internal-qmd-client-go-l740]]"
+  - "[[kodebase-go/raw/codebase/symbols/cleanoutput--internal-qmd-client-go-l736]]"
+  - "[[kodebase-go/raw/codebase/symbols/cleantopicrelativepath--internal-vault-writer-go-l270]]"
+  - "[[kodebase-go/raw/codebase/symbols/clientoption--internal-qmd-client-go-l142]]"
+  - "[[kodebase-go/raw/codebase/symbols/collectioninfo--internal-qmd-client-go-l116]]"
+  - "[[kodebase-go/raw/codebase/symbols/collecttscalltargets--internal-adapter-ts-adapter-go-l1018]]"
+  - "[[kodebase-go/raw/codebase/symbols/comparestrings--internal-graph-normalize-go-l134]]"
+  - "[[kodebase-go/raw/codebase/symbols/computeapproxcentrality--internal-metrics-compute-go-l261]]"
+  - "[[kodebase-go/raw/codebase/symbols/computemetrics--internal-metrics-compute-go-l23]]"
+  - "[[kodebase-go/raw/codebase/symbols/computetscyclomaticcomplexity--internal-adapter-ts-adapter-go-l1069]]"
+  - "[[kodebase-go/raw/codebase/symbols/config--internal-config-config-go-l15]]"
+  - "[[kodebase-go/raw/codebase/symbols/createcodebaseoverviewarticle--internal-vault-render-wiki-go-l230]]"
+  - "[[kodebase-go/raw/codebase/symbols/createcodesmellsarticle--internal-vault-render-wiki-go-l784]]"
+  - "[[kodebase-go/raw/codebase/symbols/createcomplexityhotspotsarticle--internal-vault-render-wiki-go-l547]]"
+  - "[[kodebase-go/raw/codebase/symbols/createdeadcodereportarticle--internal-vault-render-wiki-go-l622]]"
+  - "[[kodebase-go/raw/codebase/symbols/createdependencyhotspotsarticle--internal-vault-render-wiki-go-l471]]"
+  - "[[kodebase-go/raw/codebase/symbols/createdirectorymaparticle--internal-vault-render-wiki-go-l349]]"
+  - "[[kodebase-go/raw/codebase/symbols/createdocumentlookup--internal-vault-render-go-l177]]"
+  - "[[kodebase-go/raw/codebase/symbols/createexternalid--internal-vault-pathutils-go-l82]]"
+  - "[[kodebase-go/raw/codebase/symbols/createfileid--internal-metrics-compute-go-l597]]"
+  - "[[kodebase-go/raw/codebase/symbols/createfileid--internal-vault-pathutils-go-l77]]"
+  - "[[kodebase-go/raw/codebase/symbols/createhighimpactsymbolsarticle--internal-vault-render-wiki-go-l892]]"
+  - "[[kodebase-go/raw/codebase/symbols/createinspectrelationrows--internal-cli-inspect-go-l315]]"
+  - "[[kodebase-go/raw/codebase/symbols/createinspecttestvault--internal-cli-inspect-test-go-l641]]"
+  - "[[kodebase-go/raw/codebase/symbols/createmodulehealtharticle--internal-vault-render-wiki-go-l692]]"
+  - "[[kodebase-go/raw/codebase/symbols/createresolvedvault--internal-vault-reader-test-go-l247]]"
+  - "[[kodebase-go/raw/codebase/symbols/createsymbolid--internal-vault-pathutils-go-l169]]"
+  - "[[kodebase-go/raw/codebase/symbols/createsymboltaxonomyarticle--internal-vault-render-wiki-go-l405]]"
+  - "[[kodebase-go/raw/codebase/symbols/createtssymbolmatch--internal-adapter-ts-adapter-go-l766]]"
+  - "[[kodebase-go/raw/codebase/symbols/decodefile--internal-config-config-go-l72]]"
+  - "[[kodebase-go/raw/codebase/symbols/default--internal-config-config-go-l40]]"
+  - "[[kodebase-go/raw/codebase/symbols/dereferencevalue--internal-output-formatter-go-l248]]"
+  - "[[kodebase-go/raw/codebase/symbols/derivetopicdomain--internal-vault-pathutils-go-l164]]"
+  - "[[kodebase-go/raw/codebase/symbols/derivetopicslug--internal-vault-pathutils-go-l140]]"
+  - "[[kodebase-go/raw/codebase/symbols/derivetopictitle--internal-vault-pathutils-go-l155]]"
+  - "[[kodebase-go/raw/codebase/symbols/detailoutputvalue--internal-cli-inspect-test-go-l810]]"
+  - "[[kodebase-go/raw/codebase/symbols/diagnosticseverity--internal-models-models-go-l53]]"
+  - "[[kodebase-go/raw/codebase/symbols/diagnosticstage--internal-models-models-go-l63]]"
+  - "[[kodebase-go/raw/codebase/symbols/directorymetrics--internal-models-models-go-l230]]"
+  - "[[kodebase-go/raw/codebase/symbols/discovervaultpath--internal-vault-query-go-l28]]"
+  - "[[kodebase-go/raw/codebase/symbols/documentkind--internal-models-models-go-l79]]"
+  - "[[kodebase-go/raw/codebase/symbols/embedresult--internal-qmd-client-go-l108]]"
+  - "[[kodebase-go/raw/codebase/symbols/enabled--internal-logger-logger-go-l83]]"
+  - "[[kodebase-go/raw/codebase/symbols/event--internal-generate-events-go-l16]]"
+  - "[[kodebase-go/raw/codebase/symbols/eventfields--internal-generate-generate-go-l503]]"
+  - "[[kodebase-go/raw/codebase/symbols/eventkind--internal-generate-events-go-l6]]"
+  - "[[kodebase-go/raw/codebase/symbols/executecontext--internal-cli-root-go-l10]]"
+  - "[[kodebase-go/raw/codebase/symbols/externalnode--internal-models-models-go-l152]]"
+  - "[[kodebase-go/raw/codebase/symbols/extractattachedcomment--internal-adapter-go-adapter-go-l395]]"
+  - "[[kodebase-go/raw/codebase/symbols/extractcommonjsexports--internal-adapter-ts-adapter-go-l583]]"
+  - "[[kodebase-go/raw/codebase/symbols/extractleadingcomment--internal-vault-textutils-go-l40]]"
+  - "[[kodebase-go/raw/codebase/symbols/extractrequirebindings--internal-adapter-ts-adapter-go-l644]]"
+  - "[[kodebase-go/raw/codebase/symbols/extractsection--internal-vault-reader-go-l112]]"
+  - "[[kodebase-go/raw/codebase/symbols/extracttsdoccomment--internal-adapter-ts-adapter-go-l1004]]"
+  - "[[kodebase-go/raw/codebase/symbols/extracttsexports--internal-adapter-ts-adapter-go-l484]]"
+  - "[[kodebase-go/raw/codebase/symbols/extracttsimports--internal-adapter-ts-adapter-go-l391]]"
+  - "[[kodebase-go/raw/codebase/symbols/filemetrics--internal-models-models-go-l218]]"
+  - "[[kodebase-go/raw/codebase/symbols/filenode--internal-metrics-compute-test-go-l326]]"
+  - "[[kodebase-go/raw/codebase/symbols/findchildbykind--internal-adapter-ts-adapter-go-l1333]]"
+  - "[[kodebase-go/raw/codebase/symbols/findcirculardependencygroups--internal-metrics-compute-go-l375]]"
+  - "[[kodebase-go/raw/codebase/symbols/finddocument--internal-vault-render-test-go-l240]]"
+  - "[[kodebase-go/raw/codebase/symbols/findinspectfilebysourcepath--internal-cli-inspect-go-l339]]"
+  - "[[kodebase-go/raw/codebase/symbols/findsingleinspectsymbolmatch--internal-cli-inspect-go-l350]]"
+  - "[[kodebase-go/raw/codebase/symbols/findsymbolsbyname--internal-vault-reader-go-l146]]"
+  - "[[kodebase-go/raw/codebase/symbols/firstnonempty--internal-qmd-client-go-l746]]"
+  - "[[kodebase-go/raw/codebase/symbols/formatjson--internal-output-formatter-go-l87]]"
+  - "[[kodebase-go/raw/codebase/symbols/formatoptions--internal-output-formatter-go-l29]]"
+  - "[[kodebase-go/raw/codebase/symbols/formatoutput--internal-output-formatter-go-l36]]"
+  - "[[kodebase-go/raw/codebase/symbols/formattsreturntype--internal-adapter-ts-adapter-go-l968]]"
+  - "[[kodebase-go/raw/codebase/symbols/formattssignature--internal-adapter-ts-adapter-go-l929]]"
+  - "[[kodebase-go/raw/codebase/symbols/formattsvariabletypesuffix--internal-adapter-ts-adapter-go-l986]]"
+  - "[[kodebase-go/raw/codebase/symbols/frontmatterint--internal-vault-reader-go-l376]]"
+  - "[[kodebase-go/raw/codebase/symbols/frontmatterstring--internal-vault-reader-go-l360]]"
+  - "[[kodebase-go/raw/codebase/symbols/generate--internal-generate-generate-go-l51]]"
+  - "[[kodebase-go/raw/codebase/symbols/generate--internal-generate-generate-go-l82]]"
+  - "[[kodebase-go/raw/codebase/symbols/generateoptions--internal-models-models-go-l267]]"
+  - "[[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l57]]"
+  - "[[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l88]]"
+  - "[[kodebase-go/raw/codebase/symbols/generationsummary--internal-models-models-go-l291]]"
+  - "[[kodebase-go/raw/codebase/symbols/generationtimings--internal-models-models-go-l279]]"
+  - "[[kodebase-go/raw/codebase/symbols/getrawfiledocumentpath--internal-vault-pathutils-go-l181]]"
+  - "[[kodebase-go/raw/codebase/symbols/getrawsymboldocumentpath--internal-vault-pathutils-go-l186]]"
+  - "[[kodebase-go/raw/codebase/symbols/getwikiconceptpath--internal-vault-pathutils-go-l208]]"
+  - "[[kodebase-go/raw/codebase/symbols/getwikiindexpath--internal-vault-pathutils-go-l213]]"
+  - "[[kodebase-go/raw/codebase/symbols/gitoutput--magefile-go-l190]]"
+  - "[[kodebase-go/raw/codebase/symbols/goadapter--internal-adapter-go-adapter-go-l35]]"
+  - "[[kodebase-go/raw/codebase/symbols/graphfile--internal-models-models-go-l126]]"
+  - "[[kodebase-go/raw/codebase/symbols/graphsnapshot--internal-models-models-go-l177]]"
+  - "[[kodebase-go/raw/codebase/symbols/handle--internal-logger-logger-go-l87]]"
+  - "[[kodebase-go/raw/codebase/symbols/hasrelation--internal-adapter-go-adapter-test-go-l405]]"
+  - "[[kodebase-go/raw/codebase/symbols/haswindowsdriveprefix--internal-vault-pathutils-go-l246]]"
+  - "[[kodebase-go/raw/codebase/symbols/hello--internal-generate-testdata-fixture-go-repo-internal-greeter-greeter-go-l6]]"
+  - "[[kodebase-go/raw/codebase/symbols/humanizeslug--internal-vault-pathutils-go-l120]]"
+  - "[[kodebase-go/raw/codebase/symbols/humanstagelabel--internal-cli-generate-output-go-l203]]"
+  - "[[kodebase-go/raw/codebase/symbols/index--internal-cli-index-test-go-l220]]"
+  - "[[kodebase-go/raw/codebase/symbols/index--internal-qmd-client-go-l232]]"
+  - "[[kodebase-go/raw/codebase/symbols/indexoperation--internal-qmd-client-go-l58]]"
+  - "[[kodebase-go/raw/codebase/symbols/indexoptions--internal-qmd-client-go-l88]]"
+  - "[[kodebase-go/raw/codebase/symbols/indexresult--internal-qmd-client-go-l134]]"
+  - "[[kodebase-go/raw/codebase/symbols/indexstatus--internal-qmd-client-go-l125]]"
+  - "[[kodebase-go/raw/codebase/symbols/inspectfrontmatterbool--internal-cli-inspect-go-l193]]"
+  - "[[kodebase-go/raw/codebase/symbols/inspectfrontmatterfloat--internal-cli-inspect-go-l254]]"
+  - "[[kodebase-go/raw/codebase/symbols/inspectfrontmatterint--internal-cli-inspect-go-l213]]"
+  - "[[kodebase-go/raw/codebase/symbols/inspectfrontmatterstring--internal-cli-inspect-go-l156]]"
+  - "[[kodebase-go/raw/codebase/symbols/inspectfrontmatterstringarray--internal-cli-inspect-go-l170]]"
+  - "[[kodebase-go/raw/codebase/symbols/isdefaultexport--internal-adapter-ts-adapter-go-l1285]]"
+  - "[[kodebase-go/raw/codebase/symbols/isdirectorypath--internal-vault-query-go-l210]]"
+  - "[[kodebase-go/raw/codebase/symbols/isnegatedpattern--internal-scanner-scanner-go-l383]]"
+  - "[[kodebase-go/raw/codebase/symbols/isrenderablefile--internal-graph-normalize-go-l79]]"
+  - "[[kodebase-go/raw/codebase/symbols/languageadapter--internal-models-models-go-l200]]"
+  - "[[kodebase-go/raw/codebase/symbols/languageforpath--internal-adapter-ts-adapter-test-go-l390]]"
+  - "[[kodebase-go/raw/codebase/symbols/linkfornode--internal-vault-render-go-l199]]"
+  - "[[kodebase-go/raw/codebase/symbols/listavailabletopics--internal-vault-query-go-l116]]"
+  - "[[kodebase-go/raw/codebase/symbols/load--internal-config-config-go-l59]]"
+  - "[[kodebase-go/raw/codebase/symbols/loaddotenvifpresent--internal-config-env-go-l47]]"
+  - "[[kodebase-go/raw/codebase/symbols/loadsecretsfromenv--internal-config-env-go-l33]]"
+  - "[[kodebase-go/raw/codebase/symbols/logconfig--internal-config-config-go-l35]]"
+  - "[[kodebase-go/raw/codebase/symbols/logobserver--internal-logger-logger-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/makewikifrontmatter--internal-vault-render-wiki-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/managedarea--internal-models-models-go-l91]]"
+  - "[[kodebase-go/raw/codebase/symbols/matchcommonjsexporttarget--internal-adapter-ts-adapter-go-l1290]]"
+  - "[[kodebase-go/raw/codebase/symbols/maxint--internal-vault-render-go-l811]]"
+  - "[[kodebase-go/raw/codebase/symbols/metricsresult--internal-models-models-go-l237]]"
+  - "[[kodebase-go/raw/codebase/symbols/mkdirall--internal-cli-inspect-test-go-l802]]"
+  - "[[kodebase-go/raw/codebase/symbols/mkdirall--internal-vault-query-test-go-l206]]"
+  - "[[kodebase-go/raw/codebase/symbols/mustfindsymbol--internal-adapter-go-adapter-test-go-l379]]"
+  - "[[kodebase-go/raw/codebase/symbols/namedchildren--internal-adapter-go-adapter-go-l566]]"
+  - "[[kodebase-go/raw/codebase/symbols/new--internal-logger-logger-go-l45]]"
+  - "[[kodebase-go/raw/codebase/symbols/newclient--internal-qmd-client-go-l154]]"
+  - "[[kodebase-go/raw/codebase/symbols/newgeneratecommand--internal-cli-generate-go-l15]]"
+  - "[[kodebase-go/raw/codebase/symbols/newindexcommand--internal-cli-index-go-l37]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectbacklinkscommand--internal-cli-inspect-backlinks-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectblastradiuscommand--internal-cli-inspect-blastradius-go-l20]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectcirculardepscommand--internal-cli-inspect-circulardeps-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectcommand--internal-cli-inspect-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectcomplexitycommand--internal-cli-inspect-complexity-go-l21]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectcouplingcommand--internal-cli-inspect-coupling-go-l19]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectdeadcodecommand--internal-cli-inspect-deadcode-go-l19]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectdepscommand--internal-cli-inspect-deps-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectfilecommand--internal-cli-inspect-file-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectsmellscommand--internal-cli-inspect-smells-go-l19]]"
+  - "[[kodebase-go/raw/codebase/symbols/newinspectsymbolcommand--internal-cli-inspect-symbol-go-l21]]"
+  - "[[kodebase-go/raw/codebase/symbols/newparser--internal-adapter-treesitter-go-l31]]"
+  - "[[kodebase-go/raw/codebase/symbols/newrootcommand--internal-cli-root-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/newrunner--internal-generate-generate-go-l61]]"
+  - "[[kodebase-go/raw/codebase/symbols/newscanner--internal-scanner-scanner-go-l57]]"
+  - "[[kodebase-go/raw/codebase/symbols/newsearchcommand--internal-cli-search-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/newversioncommand--internal-cli-version-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizecomment--internal-adapter-go-adapter-go-l607]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizecomment--internal-vault-textutils-go-l18]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizedocumentpathsegment--internal-vault-pathutils-go-l250]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizefrontmattermap--internal-vault-reader-go-l314]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizefrontmattervalue--internal-vault-reader-go-l322]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizegraph--internal-graph-normalize-go-l17]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizejsonvalue--internal-output-formatter-go-l214]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizelinecomment--internal-adapter-go-adapter-go-l631]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizelinecommentblock--internal-vault-textutils-go-l78]]"
+  - "[[kodebase-go/raw/codebase/symbols/normalizesearchmode--internal-qmd-client-go-l476]]"
+  - "[[kodebase-go/raw/codebase/symbols/observe--internal-logger-logger-test-go-l143]]"
+  - "[[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-cli-generate-output-go-l112]]"
+  - "[[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-cli-generate-output-go-l94]]"
+  - "[[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-generate-events-go-l35]]"
+  - "[[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-generate-events-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/observer--internal-generate-events-go-l27]]"
+  - "[[kodebase-go/raw/codebase/symbols/observerfunc--internal-generate-events-go-l32]]"
+  - "[[kodebase-go/raw/codebase/symbols/option--internal-logger-logger-go-l19]]"
+  - "[[kodebase-go/raw/codebase/symbols/option--internal-scanner-scanner-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/outputformat--internal-output-formatter-go-l17]]"
+  - "[[kodebase-go/raw/codebase/symbols/padright--internal-output-formatter-go-l318]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsedfile--internal-models-models-go-l168]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsedfilefixture--internal-graph-normalize-test-go-l294]]"
+  - "[[kodebase-go/raw/codebase/symbols/parseembedresult--internal-qmd-client-go-l555]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefiles--internal-adapter-go-adapter-go-l57]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefiles--internal-adapter-ts-adapter-go-l88]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefiles--internal-generate-generate-test-go-l27]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-go-adapter-go-l62]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-ts-adapter-go-l93]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-generate-generate-test-go-l39]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsegofile--internal-adapter-go-adapter-go-l161]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsegosources--internal-adapter-go-adapter-test-go-l342]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsehumandurationmilliseconds--internal-qmd-client-go-l701]]"
+  - "[[kodebase-go/raw/codebase/symbols/parseindexstatus--internal-qmd-client-go-l598]]"
+  - "[[kodebase-go/raw/codebase/symbols/parseinspectoutputformat--internal-cli-inspect-go-l134]]"
+  - "[[kodebase-go/raw/codebase/symbols/parselevel--internal-logger-logger-go-l108]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsesinglegofile--internal-adapter-go-adapter-test-go-l331]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsesingleinteger--internal-qmd-client-go-l688]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsesingletslikefile--internal-adapter-ts-adapter-test-go-l329]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsetsfile--internal-adapter-ts-adapter-go-l299]]"
+  - "[[kodebase-go/raw/codebase/symbols/parsetslikesources--internal-adapter-ts-adapter-test-go-l340]]"
+  - "[[kodebase-go/raw/codebase/symbols/parseupdateresult--internal-qmd-client-go-l502]]"
+  - "[[kodebase-go/raw/codebase/symbols/projectstringrows--internal-output-formatter-go-l157]]"
+  - "[[kodebase-go/raw/codebase/symbols/qmdclient--internal-qmd-client-go-l145]]"
+  - "[[kodebase-go/raw/codebase/symbols/readinvocationlog--internal-qmd-client-test-go-l537]]"
+  - "[[kodebase-go/raw/codebase/symbols/readvaultoptions--internal-vault-reader-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/readvaultsnapshot--internal-vault-reader-go-l62]]"
+  - "[[kodebase-go/raw/codebase/symbols/relation--internal-metrics-compute-test-go-l355]]"
+  - "[[kodebase-go/raw/codebase/symbols/relationconfidence--internal-models-models-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/relationedge--internal-models-models-go-l160]]"
+  - "[[kodebase-go/raw/codebase/symbols/relationkey--internal-adapter-ts-adapter-go-l1348]]"
+  - "[[kodebase-go/raw/codebase/symbols/relationtype--internal-models-models-go-l25]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderbasefiles--internal-vault-render-base-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderconceptindex--internal-vault-render-wiki-go-l134]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderdashboard--internal-vault-render-wiki-go-l75]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderdocuments--internal-vault-render-go-l20]]"
+  - "[[kodebase-go/raw/codebase/symbols/rendereddocument--internal-models-models-go-l247]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderfixturedocuments--internal-vault-render-test-go-l232]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderfrontmatter--internal-vault-render-go-l130]]"
+  - "[[kodebase-go/raw/codebase/symbols/rendergroupedlinks--internal-vault-render-wiki-go-l964]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderrawdirectoryindex--internal-vault-render-go-l524]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderrawfiledocument--internal-vault-render-go-l312]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderrawlanguageindex--internal-vault-render-go-l600]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderrawsymboldocument--internal-vault-render-go-l449]]"
+  - "[[kodebase-go/raw/codebase/symbols/rendersourceindex--internal-vault-render-wiki-go-l178]]"
+  - "[[kodebase-go/raw/codebase/symbols/renderyamlvalue--internal-vault-render-base-go-l295]]"
+  - "[[kodebase-go/raw/codebase/symbols/report--internal-vault-writer-go-l346]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolveabsolutepath--internal-vault-query-go-l155]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolvedvault--internal-vault-query-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolveinspectentity--internal-cli-inspect-go-l377]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolvereexports--internal-adapter-ts-adapter-go-l1170]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolvetssymbolname--internal-adapter-ts-adapter-go-l880]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolvetsvariablename--internal-adapter-ts-adapter-go-l916]]"
+  - "[[kodebase-go/raw/codebase/symbols/resolvevaultquery--internal-vault-query-go-l56]]"
+  - "[[kodebase-go/raw/codebase/symbols/runecount--internal-output-formatter-go-l327]]"
+  - "[[kodebase-go/raw/codebase/symbols/rungotests--magefile-go-l200]]"
+  - "[[kodebase-go/raw/codebase/symbols/runindexcommand--internal-cli-index-go-l63]]"
+  - "[[kodebase-go/raw/codebase/symbols/runsearchcommand--internal-cli-search-go-l71]]"
+  - "[[kodebase-go/raw/codebase/symbols/scannedpaths--internal-scanner-scanner-test-go-l250]]"
+  - "[[kodebase-go/raw/codebase/symbols/scannedsourcefile--internal-models-models-go-l187]]"
+  - "[[kodebase-go/raw/codebase/symbols/scannedworkspace--internal-models-models-go-l194]]"
+  - "[[kodebase-go/raw/codebase/symbols/scanner--internal-scanner-scanner-go-l46]]"
+  - "[[kodebase-go/raw/codebase/symbols/scanoptions--internal-scanner-scanner-go-l36]]"
+  - "[[kodebase-go/raw/codebase/symbols/scantestworkspace--internal-scanner-scanner-test-go-l218]]"
+  - "[[kodebase-go/raw/codebase/symbols/scanworkspace--internal-scanner-scanner-go-l90]]"
+  - "[[kodebase-go/raw/codebase/symbols/scanworkspace--internal-scanner-scanner-go-l95]]"
+  - "[[kodebase-go/raw/codebase/symbols/search--internal-cli-search-test-go-l303]]"
+  - "[[kodebase-go/raw/codebase/symbols/search--internal-qmd-client-go-l198]]"
+  - "[[kodebase-go/raw/codebase/symbols/searchmode--internal-qmd-client-go-l46]]"
+  - "[[kodebase-go/raw/codebase/symbols/searchoptions--internal-qmd-client-go-l68]]"
+  - "[[kodebase-go/raw/codebase/symbols/searchresult--internal-qmd-client-go-l79]]"
+  - "[[kodebase-go/raw/codebase/symbols/secrets--internal-config-env-go-l26]]"
+  - "[[kodebase-go/raw/codebase/symbols/selectadapters--internal-generate-generate-go-l407]]"
+  - "[[kodebase-go/raw/codebase/symbols/selecttslanguage--internal-adapter-ts-adapter-go-l378]]"
+  - "[[kodebase-go/raw/codebase/symbols/serverconfig--internal-config-config-go-l29]]"
+  - "[[kodebase-go/raw/codebase/symbols/shellquote--internal-qmd-client-test-go-l572]]"
+  - "[[kodebase-go/raw/codebase/symbols/shouldkeeppattern--internal-scanner-scanner-go-l374]]"
+  - "[[kodebase-go/raw/codebase/symbols/slugifysegment--internal-adapter-go-adapter-go-l688]]"
+  - "[[kodebase-go/raw/codebase/symbols/slugifysegment--internal-vault-pathutils-go-l87]]"
+  - "[[kodebase-go/raw/codebase/symbols/snapshot--internal-metrics-compute-test-go-l305]]"
+  - "[[kodebase-go/raw/codebase/symbols/sortedmapkeys--internal-vault-render-go-l798]]"
+  - "[[kodebase-go/raw/codebase/symbols/status--internal-cli-index-test-go-l213]]"
+  - "[[kodebase-go/raw/codebase/symbols/status--internal-qmd-client-go-l183]]"
+  - "[[kodebase-go/raw/codebase/symbols/string--internal-version-version-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/stripmarkdownextension--internal-vault-pathutils-go-l223]]"
+  - "[[kodebase-go/raw/codebase/symbols/stripquotes--internal-vault-textutils-go-l58]]"
+  - "[[kodebase-go/raw/codebase/symbols/structureddiagnostic--internal-models-models-go-l115]]"
+  - "[[kodebase-go/raw/codebase/symbols/supportedlanguage--internal-models-models-go-l4]]"
+  - "[[kodebase-go/raw/codebase/symbols/supports--internal-adapter-go-adapter-go-l52]]"
+  - "[[kodebase-go/raw/codebase/symbols/supports--internal-adapter-ts-adapter-go-l78]]"
+  - "[[kodebase-go/raw/codebase/symbols/supports--internal-generate-generate-test-go-l23]]"
+  - "[[kodebase-go/raw/codebase/symbols/symbolmetrics--internal-models-models-go-l206]]"
+  - "[[kodebase-go/raw/codebase/symbols/symbolnode--internal-models-models-go-l136]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsaggregatesdirectorymetrics--internal-metrics-compute-test-go-l276]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricscomputesbalancedinstability--internal-metrics-compute-test-go-l129]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricscountsblastradiusacrossdependents--internal-metrics-compute-test-go-l49]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricscountsfileafferentcoupling--internal-metrics-compute-test-go-l103]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricscountsfileefferentcoupling--internal-metrics-compute-test-go-l81]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsdetectscirculardependencies--internal-metrics-compute-test-go-l191]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsflagsdeadexports--internal-metrics-compute-test-go-l151]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsflagslongfunctions--internal-metrics-compute-test-go-l171]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsintegrationonmultidirectoryproject--internal-metrics-compute-integration-test-go-l16]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsreturnsemptyresultforemptygraph--internal-metrics-compute-test-go-l10]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricsreturnsnocirculardependenciesforacyclicgraph--internal-metrics-compute-test-go-l255]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcomputemetricssinglesymbolhaszeroblastradius--internal-metrics-compute-test-go-l32]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcreatefileiddeterministic--internal-vault-pathutils-test-go-l10]]"
+  - "[[kodebase-go/raw/codebase/symbols/testcreatesymboliddeterministicandunique--internal-vault-pathutils-test-go-l25]]"
+  - "[[kodebase-go/raw/codebase/symbols/testdefaultconfighasvaliddefaults--internal-config-config-test-go-l9]]"
+  - "[[kodebase-go/raw/codebase/symbols/testdocumentandbaseconstants--internal-models-models-test-go-l26]]"
+  - "[[kodebase-go/raw/codebase/symbols/testdocumentpathderivationhelpers--internal-vault-pathutils-test-go-l107]]"
+  - "[[kodebase-go/raw/codebase/symbols/testextractleadingcommentfromgosource--internal-vault-textutils-test-go-l24]]"
+  - "[[kodebase-go/raw/codebase/symbols/testextractleadingcommentfromtssource--internal-vault-textutils-test-go-l40]]"
+  - "[[kodebase-go/raw/codebase/symbols/testextractleadingcommentignoresnonleadingcomments--internal-vault-textutils-test-go-l56]]"
+  - "[[kodebase-go/raw/codebase/symbols/testextractsectionreturnsemptystringwhenmissing--internal-vault-reader-test-go-l192]]"
+  - "[[kodebase-go/raw/codebase/symbols/testextractsectionreturnsheadingbody--internal-vault-reader-test-go-l171]]"
+  - "[[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsmergesoverlappingcyclesintosinglecomponent--internal-metrics-compute-test-go-l220]]"
+  - "[[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsreturnsstablesortedcomponents--internal-metrics-compute-test-go-l236]]"
+  - "[[kodebase-go/raw/codebase/symbols/testfindsymbolsbynameusescaseinsensitivepartialmatch--internal-vault-reader-test-go-l200]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputdefaultsunsupportedformatstotable--internal-output-formatter-test-go-l262]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputemptydata--internal-output-formatter-test-go-l161]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputjsonproducesvalidprojectedobjects--internal-output-formatter-test-go-l97]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputsinglerowinallformats--internal-output-formatter-test-go-l192]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputspecialcharactersremainvalidjson--internal-output-formatter-test-go-l229]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputtablealignscolumns--internal-output-formatter-test-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputtablehandlesvariablewidthsandtruncation--internal-output-formatter-test-go-l69]]"
+  - "[[kodebase-go/raw/codebase/symbols/testformatoutputtsvrendersheaderandsanitizescells--internal-output-formatter-test-go-l144]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneratecommandpassesflagsandprintsjsonsummary--internal-cli-generate-test-go-l15]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidlogformat--internal-cli-generate-test-go-l182]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidprogressmode--internal-cli-generate-test-go-l167]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneratecommandwritesjsoneventswhenrequested--internal-cli-generate-test-go-l111]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneratecommandwritestexteventstostderrbydefault--internal-cli-generate-test-go-l80]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgenerateintegrationbuildsvaultfromfixturerepository--internal-generate-generate-integration-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneraterequiresrootpath--internal-generate-generate-test-go-l325]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgeneraterespectscanceledcontext--internal-generate-generate-test-go-l337]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterbuildscrossfilecallrelations--internal-adapter-go-adapter-integration-test-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadaptercomputescyclomaticcomplexity--internal-adapter-go-adapter-test-go-l218]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterextractscallrelationsfordirectidentifiers--internal-adapter-go-adapter-test-go-l196]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterextractsdoccomments--internal-adapter-go-adapter-test-go-l287]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterextractsimportrelations--internal-adapter-go-adapter-test-go-l157]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterextractsmethodsignaturewithreceiver--internal-adapter-go-adapter-test-go-l136]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterextractstypedeclarations--internal-adapter-go-adapter-test-go-l108]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadaptermoduledocusesonlyleadingcomment--internal-adapter-go-adapter-test-go-l312]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterparsessimplegofile--internal-adapter-go-adapter-test-go-l29]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadapterproducesdiagnosticsforparseerrors--internal-adapter-go-adapter-test-go-l260]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadaptersetsexportedflags--internal-adapter-go-adapter-test-go-l88]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgoadaptersupportsonlygo--internal-adapter-go-adapter-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testgraphfixture--internal-vault-render-test-go-l287]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexaddconstructsexpectedarguments--internal-qmd-client-test-go-l27]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexcommandhandlesqmdunavailable--internal-cli-index-test-go-l147]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexcommandhelpshowsflags--internal-cli-index-test-go-l190]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexcommandresolvestopicpathbeforecallingqmd--internal-cli-index-test-go-l15]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexcommandupdatesexistingcollection--internal-cli-index-test-go-l100]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexrejectsinvalidinputs--internal-qmd-client-test-go-l150]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexupdateconstructsexpectedarguments--internal-qmd-client-test-go-l64]]"
+  - "[[kodebase-go/raw/codebase/symbols/testindexwithcontextandembedrunsexpectedcommands--internal-qmd-client-test-go-l97]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectcommandjsonformatproducesvalidjson--internal-cli-inspect-test-go-l550]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectcommandreturnsdescriptiveerrorformissingvault--internal-cli-inspect-test-go-l594]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectcommandsagainstgeneratedfixturevault--internal-cli-inspect-integration-test-go-l18]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectcommandtsvformatproducesheaderandrows--internal-cli-inspect-test-go-l572]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectcommandvalidationerrors--internal-cli-inspect-helpers-test-go-l214]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectfrontmatterhelpers--internal-cli-inspect-helpers-test-go-l51]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectparenthelplistsallsubcommands--internal-cli-inspect-helpers-test-go-l260]]"
+  - "[[kodebase-go/raw/codebase/symbols/testinspectsubcommandsrespondtohelp--internal-cli-inspect-test-go-l611]]"
+  - "[[kodebase-go/raw/codebase/symbols/testispathinside--internal-vault-pathutils-test-go-l79]]"
+  - "[[kodebase-go/raw/codebase/symbols/testlanguagesinitialize--internal-adapter-treesitter-test-go-l10]]"
+  - "[[kodebase-go/raw/codebase/symbols/testlistavailabletopicsreturnssortedtopics--internal-vault-query-test-go-l178]]"
+  - "[[kodebase-go/raw/codebase/symbols/testloadconfigroundtrip--internal-config-config-test-go-l33]]"
+  - "[[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentloadsvalues--internal-config-config-test-go-l157]]"
+  - "[[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentmissingfileisok--internal-config-config-test-go-l174]]"
+  - "[[kodebase-go/raw/codebase/symbols/testloademptypathusesdefaults--internal-config-config-test-go-l74]]"
+  - "[[kodebase-go/raw/codebase/symbols/testloadrejectsunknownkeys--internal-config-config-test-go-l86]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnew--internal-logger-logger-test-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnewlevelfiltering--internal-logger-logger-test-go-l122]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnewparserrejectsnillanguage--internal-adapter-treesitter-test-go-l120]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnewuppercaselevelkey--internal-logger-logger-test-go-l76]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnewwithobserver--internal-logger-logger-test-go-l100]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnewwritesjson--internal-logger-logger-test-go-l53]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizecomment--internal-vault-textutils-test-go-l9]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphattachessymbolidstoparentfiles--internal-graph-normalize-test-go-l105]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphdeduplicatesfilessymbolsexternalnodesandrelations--internal-graph-normalize-test-go-l58]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphmergesoverlappingimportsacrossparsedfiles--internal-graph-normalize-integration-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphomitsdiagnosticonlyfiles--internal-graph-normalize-test-go-l203]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphordersdiagnosticsbystagefilepathandmessage--internal-graph-normalize-test-go-l173]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphpassesthroughsingleparsedfile--internal-graph-normalize-test-go-l22]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphreturnsemptysnapshotfornoparsedfiles--internal-graph-normalize-test-go-l10]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizegraphsortscollectionsdeterministically--internal-graph-normalize-test-go-l132]]"
+  - "[[kodebase-go/raw/codebase/symbols/testnormalizesearchmoderejectsunsupportedmode--internal-qmd-client-test-go-l476]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparseembedresultparsessuccessandnowork--internal-qmd-client-test-go-l408]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparsehumandurationmillisecondsparsesmultipleunits--internal-qmd-client-test-go-l463]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparseindexstatusacceptsemptyindex--internal-qmd-client-test-go-l447]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparseindexstatusparsescollectionsandhealth--internal-qmd-client-test-go-l428]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparseinspectoutputformat--internal-cli-inspect-helpers-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparsersparsetrivialsources--internal-adapter-treesitter-test-go-l52]]"
+  - "[[kodebase-go/raw/codebase/symbols/testparseupdateresultparsesaddandupdatesummaries--internal-qmd-client-test-go-l388]]"
+  - "[[kodebase-go/raw/codebase/symbols/testpathhelpershandleemptyinputs--internal-vault-pathutils-test-go-l197]]"
+  - "[[kodebase-go/raw/codebase/symbols/testqmdclientindexesandsearchestempvault--internal-qmd-client-integration-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesfrontmatterandclassifiesdocuments--internal-vault-reader-test-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesrelationsections--internal-vault-reader-test-go-l81]]"
+  - "[[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotroundtripswriteroutput--internal-vault-reader-integration-test-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotskipsmalformedyamlandwarns--internal-vault-reader-test-go-l137]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderbasedefinitionsproducevalidyaml--internal-vault-render-test-go-l178]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsbodieshavevalidfrontmatterandkinds--internal-vault-render-test-go-l196]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentscirculardependencieslistsgroups--internal-vault-render-test-go-l142]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentscodebaseoverviewcontainssummary--internal-vault-render-test-go-l116]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsdashboardlinkstoallconceptarticles--internal-vault-render-test-go-l153]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsdependencyhotspotsliststopfiles--internal-vault-render-test-go-l131]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsdirectoryindexuseswikilinks--internal-vault-render-test-go-l97]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsintegrationproducesfulldocumentset--internal-vault-render-integration-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsproducesrawwikiandbasesurfaces--internal-vault-render-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsrawfilefrontmatterandbody--internal-vault-render-test-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsrawsymbolfrontmatterandsignature--internal-vault-render-test-go-l70]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrenderdocumentsusetopicwikilinksyntax--internal-vault-render-test-go-l221]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryautoresolvessingletopic--internal-vault-query-test-go-l72]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorsclearlywhennovaultisfound--internal-vault-query-test-go-l164]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorswhenexplicittopicismissing--internal-vault-query-test-go-l144]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorswhenmultipletopicsexist--internal-vault-query-test-go-l95]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryfindsvaultbywalkingup--internal-vault-query-test-go-l12]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryprefersexplicitvault--internal-vault-query-test-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/testresolvevaultqueryusesexplicittopic--internal-vault-query-test-go-l119]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrunnergeneratecallspipelinestagesinorder--internal-generate-generate-test-go-l58]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrunnergenerateemitsparseandwriteprogressevents--internal-generate-generate-test-go-l352]]"
+  - "[[kodebase-go/raw/codebase/symbols/testrunnergeneratesummaryreportscounts--internal-generate-generate-test-go-l210]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceemptydirectoryreturnsemptyworkspace--internal-scanner-scanner-test-go-l176]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludepatternremovesmatches--internal-scanner-scanner-test-go-l144]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludesgitdirectorybydefault--internal-scanner-scanner-test-go-l71]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludesnodemodulesbydefault--internal-scanner-scanner-test-go-l55]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspacegroupsfilesbylanguage--internal-scanner-scanner-test-go-l196]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceignoresunsupportedextensions--internal-scanner-scanner-test-go-l160]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceincludepatternrestrictsresults--internal-scanner-scanner-test-go-l123]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceintegrationnestedproject--internal-scanner-scanner-integration-test-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspacerespectsgitignorepatterns--internal-scanner-scanner-test-go-l87]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspacerespectsnestedgitignorepatterns--internal-scanner-scanner-test-go-l104]]"
+  - "[[kodebase-go/raw/codebase/symbols/testscanworkspaceroutessupportedfilesbylanguage--internal-scanner-scanner-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchallomitslimitandacceptsmodealias--internal-qmd-client-test-go-l216]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommanddefaultstohybridmode--internal-cli-search-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommanddisplayspathscoreandpreview--internal-cli-search-test-go-l158]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommandhandlesqmdunavailable--internal-cli-search-test-go-l242]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommandhelpshowsflags--internal-cli-search-test-go-l281]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommandpasseslimitflag--internal-cli-search-test-go-l204]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommandreturnsresultsagainstindexedvault--internal-cli-search-index-integration-test-go-l21]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommanduseslexicalmode--internal-cli-search-test-go-l82]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcommandusesvectormode--internal-cli-search-test-go-l120]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchcontextcancellationstopsrunningcommand--internal-qmd-client-test-go-l343]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchfailureincludesstderrdiagnostics--internal-qmd-client-test-go-l365]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchfullusesbodywhenpresent--internal-qmd-client-test-go-l318]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchhybridmodeusesquerycommand--internal-qmd-client-test-go-l183]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchparsesjsonandnormalizesresults--internal-qmd-client-test-go-l283]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchpasseslimitminscoreandfullflags--internal-qmd-client-test-go-l246]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsearchreturnserrqmdunavailableformissingbinary--internal-qmd-client-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testselectadaptersforgoonlyworkspace--internal-generate-generate-test-go-l172]]"
+  - "[[kodebase-go/raw/codebase/symbols/testselectadaptersformixedworkspace--internal-generate-generate-test-go-l191]]"
+  - "[[kodebase-go/raw/codebase/symbols/teststripquotes--internal-vault-textutils-test-go-l70]]"
+  - "[[kodebase-go/raw/codebase/symbols/testsupportedlanguages--internal-models-models-test-go-l5]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtobacklinksoutputlistsincomingreferencesforsymbol--internal-cli-inspect-test-go-l385]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtoblastradiusoutputrespectsminimumandtop--internal-cli-inspect-helpers-test-go-l178]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtoblastradiusoutputsortsbydescendingblastradius--internal-cli-inspect-test-go-l132]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputfallsbacktosccdetectionforlegacyvaults--internal-cli-inspect-test-go-l508]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputlistsfileswithcirculardependencyflag--internal-cli-inspect-test-go-l467]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputshowsmessagewhennocycles--internal-cli-inspect-test-go-l538]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocomplexityoutputsortsbydescendingcomplexity--internal-cli-inspect-test-go-l90]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocouplingoutputfiltersunstableonly--internal-cli-inspect-helpers-test-go-l198]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtocouplingoutputsortsbyinstability--internal-cli-inspect-test-go-l166]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtodeadcodeoutputlistsdeadexportsandorphanfiles--internal-cli-inspect-test-go-l55]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtodependencyoutputlistsoutgoingdependenciesforsymbol--internal-cli-inspect-test-go-l414]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtodependencyoutputsupportsexactfilepathlookup--internal-cli-inspect-test-go-l442]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtofilelookupoutputincludescontainedsymbolsandmetrics--internal-cli-inspect-test-go-l312]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtofilelookupoutputreturnsdescriptiveerrorforunknownpath--internal-cli-inspect-test-go-l373]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtopicfixture--internal-vault-render-test-go-l275]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtopichelpers--internal-vault-pathutils-test-go-l153]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtopicwikilinkhelpers--internal-vault-pathutils-test-go-l181]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtoposixpath--internal-vault-pathutils-test-go-l52]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtosmelloutputfiltersbytype--internal-cli-inspect-helpers-test-go-l152]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtosmelloutputlistssymbolsandfileswithsmells--internal-cli-inspect-test-go-l16]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdescriptiveerrorforunknownname--internal-cli-inspect-test-go-l300]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdetailforsinglematch--internal-cli-inspect-test-go-l200]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnssummaryformultiplematches--internal-cli-inspect-test-go-l266]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterbuildsimportbindingsfordefaultnamedandnamespaceimports--internal-adapter-ts-adapter-test-go-l177]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadaptercomputescyclomaticcomplexity--internal-adapter-ts-adapter-test-go-l285]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterextractsclassandmethodsymbols--internal-adapter-ts-adapter-test-go-l140]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterhandlesnamedandstarreexports--internal-adapter-ts-adapter-test-go-l236]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterintegrationparsesmultifileproject--internal-adapter-ts-adapter-integration-test-go-l11]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterparsesjavascriptrequireimports--internal-adapter-ts-adapter-test-go-l99]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterparsessimpletypescriptfile--internal-adapter-ts-adapter-test-go-l29]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterparsestsxcomponent--internal-adapter-ts-adapter-test-go-l78]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadapterproducesdiagnosticsforparseerrors--internal-adapter-ts-adapter-test-go-l306]]"
+  - "[[kodebase-go/raw/codebase/symbols/testtsadaptersupportstslikelanguages--internal-adapter-ts-adapter-test-go-l13]]"
+  - "[[kodebase-go/raw/codebase/symbols/testvalidaterejectsinvalidvalues--internal-config-config-test-go-l106]]"
+  - "[[kodebase-go/raw/codebase/symbols/testvaultdocument--internal-cli-inspect-test-go-l637]]"
+  - "[[kodebase-go/raw/codebase/symbols/testversioncommandprintsbuildversion--internal-cli-inspect-helpers-test-go-l281]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritabletopicfixture--internal-vault-writer-test-go-l272]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultcreatesclaudemanifestandappendonlylog--internal-vault-writer-test-go-l102]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultcreatestopicskeletonandmanagedfiles--internal-vault-writer-test-go-l16]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultinputs--internal-vault-writer-test-go-l260]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultintegrationpersistsfullrenderedvault--internal-vault-writer-integration-test-go-l14]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultrejectsinvalidrendereddocument--internal-vault-writer-test-go-l235]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultremovesstalemanagedwikiconceptsonly--internal-vault-writer-test-go-l187]]"
+  - "[[kodebase-go/raw/codebase/symbols/testwritevaultreportsprogressforpersistedfiles--internal-vault-writer-test-go-l157]]"
+  - "[[kodebase-go/raw/codebase/symbols/textof--internal-adapter-go-adapter-go-l588]]"
+  - "[[kodebase-go/raw/codebase/symbols/tobacklinksoutput--internal-cli-inspect-backlinks-go-l31]]"
+  - "[[kodebase-go/raw/codebase/symbols/toblastradiusoutput--internal-cli-inspect-blastradius-go-l47]]"
+  - "[[kodebase-go/raw/codebase/symbols/tocirculardependencyrow--internal-cli-inspect-circulardeps-go-l145]]"
+  - "[[kodebase-go/raw/codebase/symbols/tocirculardepsoutput--internal-cli-inspect-circulardeps-go-l27]]"
+  - "[[kodebase-go/raw/codebase/symbols/tocomplexityoutput--internal-cli-inspect-complexity-go-l43]]"
+  - "[[kodebase-go/raw/codebase/symbols/tocouplingoutput--internal-cli-inspect-coupling-go-l37]]"
+  - "[[kodebase-go/raw/codebase/symbols/todeadcodeoutput--internal-cli-inspect-deadcode-go-l32]]"
+  - "[[kodebase-go/raw/codebase/symbols/todependencyoutput--internal-cli-inspect-deps-go-l31]]"
+  - "[[kodebase-go/raw/codebase/symbols/tofilelookupoutput--internal-cli-inspect-file-go-l31]]"
+  - "[[kodebase-go/raw/codebase/symbols/tometricratio--internal-metrics-compute-go-l565]]"
+  - "[[kodebase-go/raw/codebase/symbols/topicmetadata--internal-models-models-go-l256]]"
+  - "[[kodebase-go/raw/codebase/symbols/toposixpath--internal-vault-pathutils-go-l15]]"
+  - "[[kodebase-go/raw/codebase/symbols/tosourcewikilink--internal-vault-render-go-l173]]"
+  - "[[kodebase-go/raw/codebase/symbols/tosymboldetailoutput--internal-cli-inspect-symbol-go-l96]]"
+  - "[[kodebase-go/raw/codebase/symbols/tosymbollookupoutput--internal-cli-inspect-symbol-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/tosymbolsummaryoutput--internal-cli-inspect-symbol-go-l55]]"
+  - "[[kodebase-go/raw/codebase/symbols/totopicwikilink--internal-vault-pathutils-go-l228]]"
+  - "[[kodebase-go/raw/codebase/symbols/tsadapter--internal-adapter-ts-adapter-go-l32]]"
+  - "[[kodebase-go/raw/codebase/symbols/uniquebykey--internal-graph-normalize-go-l145]]"
+  - "[[kodebase-go/raw/codebase/symbols/uniquesortedstrings--internal-metrics-compute-go-l500]]"
+  - "[[kodebase-go/raw/codebase/symbols/uniquestrings--internal-vault-render-wiki-go-l991]]"
+  - "[[kodebase-go/raw/codebase/symbols/updateresult--internal-qmd-client-go-l98]]"
+  - "[[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l112]]"
+  - "[[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l125]]"
+  - "[[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l133]]"
+  - "[[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l95]]"
+  - "[[kodebase-go/raw/codebase/symbols/validate--internal-config-env-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/validatetopic--internal-vault-writer-go-l113]]"
+  - "[[kodebase-go/raw/codebase/symbols/vaultdocument--internal-vault-reader-go-l24]]"
+  - "[[kodebase-go/raw/codebase/symbols/vaultqueryoptions--internal-vault-query-go-l21]]"
+  - "[[kodebase-go/raw/codebase/symbols/vaultrelation--internal-vault-reader-go-l17]]"
+  - "[[kodebase-go/raw/codebase/symbols/vaultsnapshot--internal-vault-reader-go-l33]]"
+  - "[[kodebase-go/raw/codebase/symbols/waitforevent--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l20]]"
+  - "[[kodebase-go/raw/codebase/symbols/waitforeventcount--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l60]]"
+  - "[[kodebase-go/raw/codebase/symbols/waitforeventmatch--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l111]]"
+  - "[[kodebase-go/raw/codebase/symbols/walknamed--internal-adapter-go-adapter-go-l551]]"
+  - "[[kodebase-go/raw/codebase/symbols/withattrs--internal-logger-logger-go-l94]]"
+  - "[[kodebase-go/raw/codebase/symbols/withbinarypath--internal-qmd-client-go-l169]]"
+  - "[[kodebase-go/raw/codebase/symbols/withgroup--internal-logger-logger-go-l101]]"
+  - "[[kodebase-go/raw/codebase/symbols/withwriter--internal-logger-logger-go-l28]]"
+  - "[[kodebase-go/raw/codebase/symbols/writefakeqmd--internal-qmd-client-test-go-l490]]"
+  - "[[kodebase-go/raw/codebase/symbols/writeinspectmarkdown--internal-cli-inspect-test-go-l792]]"
+  - "[[kodebase-go/raw/codebase/symbols/writemarkdowndocument--internal-vault-reader-test-go-l265]]"
+  - "[[kodebase-go/raw/codebase/symbols/writeprogress--internal-vault-writer-go-l41]]"
+  - "[[kodebase-go/raw/codebase/symbols/writetestfile--internal-scanner-scanner-test-go-l259]]"
+  - "[[kodebase-go/raw/codebase/symbols/writetextfile--internal-vault-writer-go-l598]]"
+  - "[[kodebase-go/raw/codebase/symbols/writetopicmarker--internal-vault-query-test-go-l214]]"
+  - "[[kodebase-go/raw/codebase/symbols/writevault--internal-vault-writer-go-l53]]"
+  - "[[kodebase-go/raw/codebase/symbols/writevaultoptions--internal-vault-writer-go-l25]]"
+  - "[[kodebase-go/raw/codebase/symbols/writevaultresult--internal-vault-writer-go-l34]]"
+stage: "compiled"
+tags:
+  - "kodebase-go"
+  - "wiki"
+  - "codebase"
+  - "starter"
+title: "Code Smells"
+type: "wiki"
+updated: "2026-04-11"
+---
+
+# Code Smells
+
+## bottleneck
+- [[kodebase-go/raw/codebase/symbols/extractattachedcomment--internal-adapter-go-adapter-go-l395|extractAttachedComment]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/namedchildren--internal-adapter-go-adapter-go-l566|namedChildren]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/normalizecomment--internal-adapter-go-adapter-go-l607|normalizeComment]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/normalizelinecomment--internal-adapter-go-adapter-go-l631|normalizeLineComment]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/slugifysegment--internal-adapter-go-adapter-go-l688|slugifySegment]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/textof--internal-adapter-go-adapter-go-l588|textOf]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/walknamed--internal-adapter-go-adapter-go-l551|walkNamed]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/hasrelation--internal-adapter-go-adapter-test-go-l405|hasRelation]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/mustfindsymbol--internal-adapter-go-adapter-test-go-l379|mustFindSymbol]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsegosources--internal-adapter-go-adapter-test-go-l342|parseGoSources]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsesinglegofile--internal-adapter-go-adapter-test-go-l331|parseSingleGoFile]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/newparser--internal-adapter-treesitter-go-l31|newParser]] · internal/adapter/treesitter.go
+- [[kodebase-go/raw/codebase/symbols/createtssymbolmatch--internal-adapter-ts-adapter-go-l766|createTSSymbolMatch]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/relationkey--internal-adapter-ts-adapter-go-l1348|relationKey]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/resolvetsvariablename--internal-adapter-ts-adapter-go-l916|resolveTSVariableName]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/languageforpath--internal-adapter-ts-adapter-test-go-l390|languageForPath]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsesingletslikefile--internal-adapter-ts-adapter-test-go-l329|parseSingleTSLikeFile]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsetslikesources--internal-adapter-ts-adapter-test-go-l340|parseTSLikeSources]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/newgeneratecommand--internal-cli-generate-go-l15|newGenerateCommand]] · internal/cli/generate.go
+- [[kodebase-go/raw/codebase/symbols/humanstagelabel--internal-cli-generate-output-go-l203|humanStageLabel]] · internal/cli/generate_output.go
+- [[kodebase-go/raw/codebase/symbols/newindexcommand--internal-cli-index-go-l37|newIndexCommand]] · internal/cli/index.go
+- [[kodebase-go/raw/codebase/symbols/createinspectrelationrows--internal-cli-inspect-go-l315|createInspectRelationRows]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/findinspectfilebysourcepath--internal-cli-inspect-go-l339|findInspectFileBySourcePath]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/findsingleinspectsymbolmatch--internal-cli-inspect-go-l350|findSingleInspectSymbolMatch]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterbool--internal-cli-inspect-go-l193|inspectFrontmatterBool]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterfloat--internal-cli-inspect-go-l254|inspectFrontmatterFloat]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterint--internal-cli-inspect-go-l213|inspectFrontmatterInt]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterstring--internal-cli-inspect-go-l156|inspectFrontmatterString]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterstringarray--internal-cli-inspect-go-l170|inspectFrontmatterStringArray]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/newinspectcommand--internal-cli-inspect-go-l41|newInspectCommand]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/parseinspectoutputformat--internal-cli-inspect-go-l134|parseInspectOutputFormat]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/resolveinspectentity--internal-cli-inspect-go-l377|resolveInspectEntity]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/circulardependencyrows--internal-cli-inspect-circulardeps-go-l44|circularDependencyRows]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/tocirculardependencyrow--internal-cli-inspect-circulardeps-go-l145|toCircularDependencyRow]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/tocirculardepsoutput--internal-cli-inspect-circulardeps-go-l27|toCircularDepsOutput]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/todependencyoutput--internal-cli-inspect-deps-go-l31|toDependencyOutput]] · internal/cli/inspect_deps.go
+- [[kodebase-go/raw/codebase/symbols/tofilelookupoutput--internal-cli-inspect-file-go-l31|toFileLookupOutput]] · internal/cli/inspect_file.go
+- [[kodebase-go/raw/codebase/symbols/tosymbollookupoutput--internal-cli-inspect-symbol-go-l41|toSymbolLookupOutput]] · internal/cli/inspect_symbol.go
+- [[kodebase-go/raw/codebase/symbols/createinspecttestvault--internal-cli-inspect-test-go-l641|createInspectTestVault]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/detailoutputvalue--internal-cli-inspect-test-go-l810|detailOutputValue]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/mkdirall--internal-cli-inspect-test-go-l802|mkdirAll]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testvaultdocument--internal-cli-inspect-test-go-l637|testVaultDocument]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/writeinspectmarkdown--internal-cli-inspect-test-go-l792|writeInspectMarkdown]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/newrootcommand--internal-cli-root-go-l14|newRootCommand]] · internal/cli/root.go
+- [[kodebase-go/raw/codebase/symbols/newsearchcommand--internal-cli-search-go-l41|newSearchCommand]] · internal/cli/search.go
+- [[kodebase-go/raw/codebase/symbols/newversioncommand--internal-cli-version-go-l11|newVersionCommand]] · internal/cli/version.go
+- [[kodebase-go/raw/codebase/symbols/default--internal-config-config-go-l40|Default]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/load--internal-config-config-go-l59|Load]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/decodefile--internal-config-config-go-l72|decodeFile]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/loaddotenvifpresent--internal-config-env-go-l47|LoadDotEnvIfPresent]] · internal/config/env.go
+- [[kodebase-go/raw/codebase/symbols/loadsecretsfromenv--internal-config-env-go-l33|LoadSecretsFromEnv]] · internal/config/env.go
+- [[kodebase-go/raw/codebase/symbols/generate--internal-generate-generate-go-l51|Generate]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l57|GenerateWithObserver]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/eventfields--internal-generate-generate-go-l503|eventFields]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/newrunner--internal-generate-generate-go-l61|newRunner]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/selectadapters--internal-generate-generate-go-l407|selectAdapters]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/normalizegraph--internal-graph-normalize-go-l17|NormalizeGraph]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/attachsymbolids--internal-graph-normalize-go-l87|attachSymbolIDs]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/comparestrings--internal-graph-normalize-go-l134|compareStrings]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/isrenderablefile--internal-graph-normalize-go-l79|isRenderableFile]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/uniquebykey--internal-graph-normalize-go-l145|uniqueByKey]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/capitalize--internal-graph-normalize-test-go-l365|capitalize]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/parsedfilefixture--internal-graph-normalize-test-go-l294|parsedFileFixture]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/new--internal-logger-logger-go-l45|New]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/withwriter--internal-logger-logger-go-l28|WithWriter]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/parselevel--internal-logger-logger-go-l108|parseLevel]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/computemetrics--internal-metrics-compute-go-l23|ComputeMetrics]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/findcirculardependencygroups--internal-metrics-compute-go-l375|FindCircularDependencyGroups]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/createfileid--internal-metrics-compute-go-l597|createFileID]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/tometricratio--internal-metrics-compute-go-l565|toMetricRatio]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/uniquesortedstrings--internal-metrics-compute-go-l500|uniqueSortedStrings]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/filenode--internal-metrics-compute-test-go-l326|fileNode]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/relation--internal-metrics-compute-test-go-l355|relation]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/snapshot--internal-metrics-compute-test-go-l305|snapshot]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/dereferencevalue--internal-output-formatter-go-l248|dereferenceValue]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/normalizejsonvalue--internal-output-formatter-go-l214|normalizeJSONValue]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/padright--internal-output-formatter-go-l318|padRight]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/projectstringrows--internal-output-formatter-go-l157|projectStringRows]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/runecount--internal-output-formatter-go-l327|runeCount]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/newclient--internal-qmd-client-go-l154|NewClient]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/withbinarypath--internal-qmd-client-go-l169|WithBinaryPath]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/cleandiagnostics--internal-qmd-client-go-l740|cleanDiagnostics]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/cleanoutput--internal-qmd-client-go-l736|cleanOutput]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/firstnonempty--internal-qmd-client-go-l746|firstNonEmpty]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/normalizesearchmode--internal-qmd-client-go-l476|normalizeSearchMode]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parseembedresult--internal-qmd-client-go-l555|parseEmbedResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parsehumandurationmilliseconds--internal-qmd-client-go-l701|parseHumanDurationMilliseconds]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parseindexstatus--internal-qmd-client-go-l598|parseIndexStatus]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parsesingleinteger--internal-qmd-client-go-l688|parseSingleInteger]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parseupdateresult--internal-qmd-client-go-l502|parseUpdateResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/readinvocationlog--internal-qmd-client-test-go-l537|readInvocationLog]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/shellquote--internal-qmd-client-test-go-l572|shellQuote]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/writefakeqmd--internal-qmd-client-test-go-l490|writeFakeQMD]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/newscanner--internal-scanner-scanner-go-l57|NewScanner]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/scanworkspace--internal-scanner-scanner-go-l90|ScanWorkspace]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/buildrules--internal-scanner-scanner-go-l344|buildRules]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/isnegatedpattern--internal-scanner-scanner-go-l383|isNegatedPattern]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/shouldkeeppattern--internal-scanner-scanner-go-l374|shouldKeepPattern]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/scantestworkspace--internal-scanner-scanner-test-go-l218|scanTestWorkspace]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/scannedpaths--internal-scanner-scanner-test-go-l250|scannedPaths]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/writetestfile--internal-scanner-scanner-test-go-l259|writeTestFile]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/getrawfiledocumentpath--internal-vault-pathutils-go-l181|GetRawFileDocumentPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/getrawsymboldocumentpath--internal-vault-pathutils-go-l186|GetRawSymbolDocumentPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/getwikiconceptpath--internal-vault-pathutils-go-l208|GetWikiConceptPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/getwikiindexpath--internal-vault-pathutils-go-l213|GetWikiIndexPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/slugifysegment--internal-vault-pathutils-go-l87|SlugifySegment]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/stripmarkdownextension--internal-vault-pathutils-go-l223|StripMarkdownExtension]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/toposixpath--internal-vault-pathutils-go-l15|ToPosixPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/totopicwikilink--internal-vault-pathutils-go-l228|ToTopicWikiLink]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/haswindowsdriveprefix--internal-vault-pathutils-go-l246|hasWindowsDrivePrefix]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/normalizedocumentpathsegment--internal-vault-pathutils-go-l250|normalizeDocumentPathSegment]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/discovervaultpath--internal-vault-query-go-l28|DiscoverVaultPath]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/isdirectorypath--internal-vault-query-go-l210|isDirectoryPath]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/resolveabsolutepath--internal-vault-query-go-l155|resolveAbsolutePath]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/mkdirall--internal-vault-query-test-go-l206|mkdirAll]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/writetopicmarker--internal-vault-query-test-go-l214|writeTopicMarker]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/frontmatterstring--internal-vault-reader-go-l360|frontmatterString]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/normalizefrontmattermap--internal-vault-reader-go-l314|normalizeFrontmatterMap]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/normalizefrontmattervalue--internal-vault-reader-go-l322|normalizeFrontmatterValue]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/createresolvedvault--internal-vault-reader-test-go-l247|createResolvedVault]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/writemarkdowndocument--internal-vault-reader-test-go-l265|writeMarkdownDocument]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/linkfornode--internal-vault-render-go-l199|linkForNode]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/maxint--internal-vault-render-go-l811|maxInt]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/sortedmapkeys--internal-vault-render-go-l798|sortedMapKeys]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/tosourcewikilink--internal-vault-render-go-l173|toSourceWikiLink]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/finddocument--internal-vault-render-test-go-l240|findDocument]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/renderfixturedocuments--internal-vault-render-test-go-l232|renderFixtureDocuments]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testgraphfixture--internal-vault-render-test-go-l287|testGraphFixture]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testtopicfixture--internal-vault-render-test-go-l275|testTopicFixture]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/uniquestrings--internal-vault-render-wiki-go-l991|uniqueStrings]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/normalizelinecommentblock--internal-vault-textutils-go-l78|normalizeLineCommentBlock]] · internal/vault/textutils.go
+- [[kodebase-go/raw/codebase/symbols/cleantopicrelativepath--internal-vault-writer-go-l270|cleanTopicRelativePath]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/writetextfile--internal-vault-writer-go-l598|writeTextFile]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/testwritabletopicfixture--internal-vault-writer-test-go-l272|testWritableTopicFixture]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultinputs--internal-vault-writer-test-go-l260|testWriteVaultInputs]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/buildldflags--magefile-go-l170|buildLDFlags]] · magefile.go
+- [[kodebase-go/raw/codebase/symbols/gitoutput--magefile-go-l190|gitOutput]] · magefile.go
+- [[kodebase-go/raw/codebase/symbols/rungotests--magefile-go-l200|runGoTests]] · magefile.go
+
+## dead-export
+- [[kodebase-go/raw/codebase/symbols/waitforevent--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l20|waitForEvent]] · .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+- [[kodebase-go/raw/codebase/symbols/waitforeventcount--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l60|waitForEventCount]] · .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+- [[kodebase-go/raw/codebase/symbols/waitforeventmatch--agents-skills-systematic-debugging-condition-based-waiting-example-ts-l111|waitForEventMatch]] · .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+- [[kodebase-go/raw/codebase/symbols/goadapter--internal-adapter-go-adapter-go-l35|GoAdapter]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/parsefiles--internal-adapter-go-adapter-go-l57|ParseFiles]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-go-adapter-go-l62|ParseFilesWithProgress]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/supports--internal-adapter-go-adapter-go-l52|Supports]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterbuildscrossfilecallrelations--internal-adapter-go-adapter-integration-test-go-l11|TestGoAdapterBuildsCrossFileCallRelations]] · internal/adapter/go_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadaptercomputescyclomaticcomplexity--internal-adapter-go-adapter-test-go-l218|TestGoAdapterComputesCyclomaticComplexity]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterextractscallrelationsfordirectidentifiers--internal-adapter-go-adapter-test-go-l196|TestGoAdapterExtractsCallRelationsForDirectIdentifiers]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterextractsdoccomments--internal-adapter-go-adapter-test-go-l287|TestGoAdapterExtractsDocComments]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterextractsimportrelations--internal-adapter-go-adapter-test-go-l157|TestGoAdapterExtractsImportRelations]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterextractsmethodsignaturewithreceiver--internal-adapter-go-adapter-test-go-l136|TestGoAdapterExtractsMethodSignatureWithReceiver]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterextractstypedeclarations--internal-adapter-go-adapter-test-go-l108|TestGoAdapterExtractsTypeDeclarations]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadaptermoduledocusesonlyleadingcomment--internal-adapter-go-adapter-test-go-l312|TestGoAdapterModuleDocUsesOnlyLeadingComment]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterparsessimplegofile--internal-adapter-go-adapter-test-go-l29|TestGoAdapterParsesSimpleGoFile]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterproducesdiagnosticsforparseerrors--internal-adapter-go-adapter-test-go-l260|TestGoAdapterProducesDiagnosticsForParseErrors]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadaptersetsexportedflags--internal-adapter-go-adapter-test-go-l88|TestGoAdapterSetsExportedFlags]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgoadaptersupportsonlygo--internal-adapter-go-adapter-test-go-l13|TestGoAdapterSupportsOnlyGo]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testlanguagesinitialize--internal-adapter-treesitter-test-go-l10|TestLanguagesInitialize]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewparserrejectsnillanguage--internal-adapter-treesitter-test-go-l120|TestNewParserRejectsNilLanguage]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/symbols/testparsersparsetrivialsources--internal-adapter-treesitter-test-go-l52|TestParsersParseTrivialSources]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsefiles--internal-adapter-ts-adapter-go-l88|ParseFiles]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-ts-adapter-go-l93|ParseFilesWithProgress]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/supports--internal-adapter-ts-adapter-go-l78|Supports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/tsadapter--internal-adapter-ts-adapter-go-l32|TSAdapter]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterintegrationparsesmultifileproject--internal-adapter-ts-adapter-integration-test-go-l11|TestTSAdapterIntegrationParsesMultiFileProject]] · internal/adapter/ts_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterbuildsimportbindingsfordefaultnamedandnamespaceimports--internal-adapter-ts-adapter-test-go-l177|TestTSAdapterBuildsImportBindingsForDefaultNamedAndNamespaceImports]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadaptercomputescyclomaticcomplexity--internal-adapter-ts-adapter-test-go-l285|TestTSAdapterComputesCyclomaticComplexity]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterextractsclassandmethodsymbols--internal-adapter-ts-adapter-test-go-l140|TestTSAdapterExtractsClassAndMethodSymbols]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterhandlesnamedandstarreexports--internal-adapter-ts-adapter-test-go-l236|TestTSAdapterHandlesNamedAndStarReExports]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterparsesjavascriptrequireimports--internal-adapter-ts-adapter-test-go-l99|TestTSAdapterParsesJavaScriptRequireImports]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterparsessimpletypescriptfile--internal-adapter-ts-adapter-test-go-l29|TestTSAdapterParsesSimpleTypeScriptFile]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterparsestsxcomponent--internal-adapter-ts-adapter-test-go-l78|TestTSAdapterParsesTSXComponent]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterproducesdiagnosticsforparseerrors--internal-adapter-ts-adapter-test-go-l306|TestTSAdapterProducesDiagnosticsForParseErrors]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadaptersupportstslikelanguages--internal-adapter-ts-adapter-test-go-l13|TestTSAdapterSupportsTSLikeLanguages]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-cli-generate-output-go-l112|ObserveGenerateEvent]] · internal/cli/generate_output.go
+- [[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-cli-generate-output-go-l94|ObserveGenerateEvent]] · internal/cli/generate_output.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandpassesflagsandprintsjsonsummary--internal-cli-generate-test-go-l15|TestGenerateCommandPassesFlagsAndPrintsJSONSummary]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidlogformat--internal-cli-generate-test-go-l182|TestGenerateCommandRejectsInvalidLogFormat]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidprogressmode--internal-cli-generate-test-go-l167|TestGenerateCommandRejectsInvalidProgressMode]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandwritesjsoneventswhenrequested--internal-cli-generate-test-go-l111|TestGenerateCommandWritesJSONEventsWhenRequested]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandwritestexteventstostderrbydefault--internal-cli-generate-test-go-l80|TestGenerateCommandWritesTextEventsToStderrByDefault]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/index--internal-cli-index-test-go-l220|Index]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/status--internal-cli-index-test-go-l213|Status]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandhandlesqmdunavailable--internal-cli-index-test-go-l147|TestIndexCommandHandlesQMDUnavailable]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandhelpshowsflags--internal-cli-index-test-go-l190|TestIndexCommandHelpShowsFlags]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandresolvestopicpathbeforecallingqmd--internal-cli-index-test-go-l15|TestIndexCommandResolvesTopicPathBeforeCallingQMD]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandupdatesexistingcollection--internal-cli-index-test-go-l100|TestIndexCommandUpdatesExistingCollection]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandvalidationerrors--internal-cli-inspect-helpers-test-go-l214|TestInspectCommandValidationErrors]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectfrontmatterhelpers--internal-cli-inspect-helpers-test-go-l51|TestInspectFrontmatterHelpers]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectparenthelplistsallsubcommands--internal-cli-inspect-helpers-test-go-l260|TestInspectParentHelpListsAllSubcommands]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseinspectoutputformat--internal-cli-inspect-helpers-test-go-l13|TestParseInspectOutputFormat]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtoblastradiusoutputrespectsminimumandtop--internal-cli-inspect-helpers-test-go-l178|TestToBlastRadiusOutputRespectsMinimumAndTop]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocouplingoutputfiltersunstableonly--internal-cli-inspect-helpers-test-go-l198|TestToCouplingOutputFiltersUnstableOnly]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosmelloutputfiltersbytype--internal-cli-inspect-helpers-test-go-l152|TestToSmellOutputFiltersByType]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testversioncommandprintsbuildversion--internal-cli-inspect-helpers-test-go-l281|TestVersionCommandPrintsBuildVersion]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandsagainstgeneratedfixturevault--internal-cli-inspect-integration-test-go-l18|TestInspectCommandsAgainstGeneratedFixtureVault]] · internal/cli/inspect_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandjsonformatproducesvalidjson--internal-cli-inspect-test-go-l550|TestInspectCommandJSONFormatProducesValidJSON]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandreturnsdescriptiveerrorformissingvault--internal-cli-inspect-test-go-l594|TestInspectCommandReturnsDescriptiveErrorForMissingVault]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandtsvformatproducesheaderandrows--internal-cli-inspect-test-go-l572|TestInspectCommandTSVFormatProducesHeaderAndRows]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectsubcommandsrespondtohelp--internal-cli-inspect-test-go-l611|TestInspectSubcommandsRespondToHelp]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtobacklinksoutputlistsincomingreferencesforsymbol--internal-cli-inspect-test-go-l385|TestToBacklinksOutputListsIncomingReferencesForSymbol]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtoblastradiusoutputsortsbydescendingblastradius--internal-cli-inspect-test-go-l132|TestToBlastRadiusOutputSortsByDescendingBlastRadius]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputfallsbacktosccdetectionforlegacyvaults--internal-cli-inspect-test-go-l508|TestToCircularDepsOutputFallsBackToSCCDetectionForLegacyVaults]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputlistsfileswithcirculardependencyflag--internal-cli-inspect-test-go-l467|TestToCircularDepsOutputListsFilesWithCircularDependencyFlag]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputshowsmessagewhennocycles--internal-cli-inspect-test-go-l538|TestToCircularDepsOutputShowsMessageWhenNoCycles]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocomplexityoutputsortsbydescendingcomplexity--internal-cli-inspect-test-go-l90|TestToComplexityOutputSortsByDescendingComplexity]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocouplingoutputsortsbyinstability--internal-cli-inspect-test-go-l166|TestToCouplingOutputSortsByInstability]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtodeadcodeoutputlistsdeadexportsandorphanfiles--internal-cli-inspect-test-go-l55|TestToDeadCodeOutputListsDeadExportsAndOrphanFiles]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtodependencyoutputlistsoutgoingdependenciesforsymbol--internal-cli-inspect-test-go-l414|TestToDependencyOutputListsOutgoingDependenciesForSymbol]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtodependencyoutputsupportsexactfilepathlookup--internal-cli-inspect-test-go-l442|TestToDependencyOutputSupportsExactFilePathLookup]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtofilelookupoutputincludescontainedsymbolsandmetrics--internal-cli-inspect-test-go-l312|TestToFileLookupOutputIncludesContainedSymbolsAndMetrics]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtofilelookupoutputreturnsdescriptiveerrorforunknownpath--internal-cli-inspect-test-go-l373|TestToFileLookupOutputReturnsDescriptiveErrorForUnknownPath]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosmelloutputlistssymbolsandfileswithsmells--internal-cli-inspect-test-go-l16|TestToSmellOutputListsSymbolsAndFilesWithSmells]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdescriptiveerrorforunknownname--internal-cli-inspect-test-go-l300|TestToSymbolLookupOutputReturnsDescriptiveErrorForUnknownName]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdetailforsinglematch--internal-cli-inspect-test-go-l200|TestToSymbolLookupOutputReturnsDetailForSingleMatch]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnssummaryformultiplematches--internal-cli-inspect-test-go-l266|TestToSymbolLookupOutputReturnsSummaryForMultipleMatches]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/executecontext--internal-cli-root-go-l10|ExecuteContext]] · internal/cli/root.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandreturnsresultsagainstindexedvault--internal-cli-search-index-integration-test-go-l21|TestSearchCommandReturnsResultsAgainstIndexedVault]] · internal/cli/search_index_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/search--internal-cli-search-test-go-l303|Search]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanddefaultstohybridmode--internal-cli-search-test-go-l14|TestSearchCommandDefaultsToHybridMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanddisplayspathscoreandpreview--internal-cli-search-test-go-l158|TestSearchCommandDisplaysPathScoreAndPreview]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandhandlesqmdunavailable--internal-cli-search-test-go-l242|TestSearchCommandHandlesQMDUnavailable]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandhelpshowsflags--internal-cli-search-test-go-l281|TestSearchCommandHelpShowsFlags]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandpasseslimitflag--internal-cli-search-test-go-l204|TestSearchCommandPassesLimitFlag]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanduseslexicalmode--internal-cli-search-test-go-l82|TestSearchCommandUsesLexicalMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandusesvectormode--internal-cli-search-test-go-l120|TestSearchCommandUsesVectorMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/appconfig--internal-config-config-go-l23|AppConfig]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/config--internal-config-config-go-l15|Config]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/logconfig--internal-config-config-go-l35|LogConfig]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/serverconfig--internal-config-config-go-l29|ServerConfig]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l112|Validate]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l125|Validate]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l133|Validate]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/validate--internal-config-config-go-l95|Validate]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/testdefaultconfighasvaliddefaults--internal-config-config-test-go-l9|TestDefaultConfigHasValidDefaults]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloadconfigroundtrip--internal-config-config-test-go-l33|TestLoadConfigRoundTrip]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentloadsvalues--internal-config-config-test-go-l157|TestLoadDotEnvIfPresentLoadsValues]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentmissingfileisok--internal-config-config-test-go-l174|TestLoadDotEnvIfPresentMissingFileIsOK]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloademptypathusesdefaults--internal-config-config-test-go-l74|TestLoadEmptyPathUsesDefaults]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloadrejectsunknownkeys--internal-config-config-test-go-l86|TestLoadRejectsUnknownKeys]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testvalidaterejectsinvalidvalues--internal-config-config-test-go-l106|TestValidateRejectsInvalidValues]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/secrets--internal-config-env-go-l26|Secrets]] · internal/config/env.go
+- [[kodebase-go/raw/codebase/symbols/validate--internal-config-env-go-l41|Validate]] · internal/config/env.go
+- [[kodebase-go/raw/codebase/symbols/event--internal-generate-events-go-l16|Event]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/eventkind--internal-generate-events-go-l6|EventKind]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-generate-events-go-l35|ObserveGenerateEvent]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/observegenerateevent--internal-generate-events-go-l43|ObserveGenerateEvent]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/observer--internal-generate-events-go-l27|Observer]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/observerfunc--internal-generate-events-go-l32|ObserverFunc]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/symbols/generate--internal-generate-generate-go-l82|Generate]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l57|GenerateWithObserver]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l88|GenerateWithObserver]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/testgenerateintegrationbuildsvaultfromfixturerepository--internal-generate-generate-integration-test-go-l14|TestGenerateIntegrationBuildsVaultFromFixtureRepository]] · internal/generate/generate_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/parsefiles--internal-generate-generate-test-go-l27|ParseFiles]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-generate-generate-test-go-l39|ParseFilesWithProgress]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/supports--internal-generate-generate-test-go-l23|Supports]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneraterequiresrootpath--internal-generate-generate-test-go-l325|TestGenerateRequiresRootPath]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneraterespectscanceledcontext--internal-generate-generate-test-go-l337|TestGenerateRespectsCanceledContext]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergeneratecallspipelinestagesinorder--internal-generate-generate-test-go-l58|TestRunnerGenerateCallsPipelineStagesInOrder]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergenerateemitsparseandwriteprogressevents--internal-generate-generate-test-go-l352|TestRunnerGenerateEmitsParseAndWriteProgressEvents]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergeneratesummaryreportscounts--internal-generate-generate-test-go-l210|TestRunnerGenerateSummaryReportsCounts]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testselectadaptersforgoonlyworkspace--internal-generate-generate-test-go-l172|TestSelectAdaptersForGoOnlyWorkspace]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testselectadaptersformixedworkspace--internal-generate-generate-test-go-l191|TestSelectAdaptersForMixedWorkspace]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/hello--internal-generate-testdata-fixture-go-repo-internal-greeter-greeter-go-l6|Hello]] · internal/generate/testdata/fixture-go-repo/internal/greeter/greeter.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphmergesoverlappingimportsacrossparsedfiles--internal-graph-normalize-integration-test-go-l14|TestNormalizeGraphMergesOverlappingImportsAcrossParsedFiles]] · internal/graph/normalize_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphattachessymbolidstoparentfiles--internal-graph-normalize-test-go-l105|TestNormalizeGraphAttachesSymbolIDsToParentFiles]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphdeduplicatesfilessymbolsexternalnodesandrelations--internal-graph-normalize-test-go-l58|TestNormalizeGraphDeduplicatesFilesSymbolsExternalNodesAndRelations]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphomitsdiagnosticonlyfiles--internal-graph-normalize-test-go-l203|TestNormalizeGraphOmitsDiagnosticOnlyFiles]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphordersdiagnosticsbystagefilepathandmessage--internal-graph-normalize-test-go-l173|TestNormalizeGraphOrdersDiagnosticsByStageFilePathAndMessage]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphpassesthroughsingleparsedfile--internal-graph-normalize-test-go-l22|TestNormalizeGraphPassesThroughSingleParsedFile]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphreturnsemptysnapshotfornoparsedfiles--internal-graph-normalize-test-go-l10|TestNormalizeGraphReturnsEmptySnapshotForNoParsedFiles]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphsortscollectionsdeterministically--internal-graph-normalize-test-go-l132|TestNormalizeGraphSortsCollectionsDeterministically]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/enabled--internal-logger-logger-go-l83|Enabled]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/handle--internal-logger-logger-go-l87|Handle]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/logobserver--internal-logger-logger-go-l14|LogObserver]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/option--internal-logger-logger-go-l19|Option]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/withattrs--internal-logger-logger-go-l94|WithAttrs]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/withgroup--internal-logger-logger-go-l101|WithGroup]] · internal/logger/logger.go
+- [[kodebase-go/raw/codebase/symbols/observe--internal-logger-logger-test-go-l143|Observe]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnew--internal-logger-logger-test-go-l12|TestNew]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewlevelfiltering--internal-logger-logger-test-go-l122|TestNewLevelFiltering]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewuppercaselevelkey--internal-logger-logger-test-go-l76|TestNewUppercaseLevelKey]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewwithobserver--internal-logger-logger-test-go-l100|TestNewWithObserver]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewwritesjson--internal-logger-logger-test-go-l53|TestNewWritesJSON]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsintegrationonmultidirectoryproject--internal-metrics-compute-integration-test-go-l16|TestComputeMetricsIntegrationOnMultiDirectoryProject]] · internal/metrics/compute_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsaggregatesdirectorymetrics--internal-metrics-compute-test-go-l276|TestComputeMetricsAggregatesDirectoryMetrics]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricscomputesbalancedinstability--internal-metrics-compute-test-go-l129|TestComputeMetricsComputesBalancedInstability]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricscountsblastradiusacrossdependents--internal-metrics-compute-test-go-l49|TestComputeMetricsCountsBlastRadiusAcrossDependents]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricscountsfileafferentcoupling--internal-metrics-compute-test-go-l103|TestComputeMetricsCountsFileAfferentCoupling]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricscountsfileefferentcoupling--internal-metrics-compute-test-go-l81|TestComputeMetricsCountsFileEfferentCoupling]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsdetectscirculardependencies--internal-metrics-compute-test-go-l191|TestComputeMetricsDetectsCircularDependencies]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsflagsdeadexports--internal-metrics-compute-test-go-l151|TestComputeMetricsFlagsDeadExports]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsflagslongfunctions--internal-metrics-compute-test-go-l171|TestComputeMetricsFlagsLongFunctions]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsreturnsemptyresultforemptygraph--internal-metrics-compute-test-go-l10|TestComputeMetricsReturnsEmptyResultForEmptyGraph]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsreturnsnocirculardependenciesforacyclicgraph--internal-metrics-compute-test-go-l255|TestComputeMetricsReturnsNoCircularDependenciesForAcyclicGraph]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricssinglesymbolhaszeroblastradius--internal-metrics-compute-test-go-l32|TestComputeMetricsSingleSymbolHasZeroBlastRadius]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsmergesoverlappingcyclesintosinglecomponent--internal-metrics-compute-test-go-l220|TestFindCircularDependencyGroupsMergesOverlappingCyclesIntoSingleComponent]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsreturnsstablesortedcomponents--internal-metrics-compute-test-go-l236|TestFindCircularDependencyGroupsReturnsStableSortedComponents]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/basedefinition--internal-models-models-go-l339|BaseDefinition]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/basefile--internal-models-models-go-l347|BaseFile]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/basefilter--internal-models-models-go-l310|BaseFilter]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/basegroupby--internal-models-models-go-l323|BaseGroupBy]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/baseproperty--internal-models-models-go-l318|BaseProperty]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/baseview--internal-models-models-go-l329|BaseView]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/baseviewtype--internal-models-models-go-l103|BaseViewType]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/diagnosticseverity--internal-models-models-go-l53|DiagnosticSeverity]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/diagnosticstage--internal-models-models-go-l63|DiagnosticStage]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/directorymetrics--internal-models-models-go-l230|DirectoryMetrics]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/documentkind--internal-models-models-go-l79|DocumentKind]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/externalnode--internal-models-models-go-l152|ExternalNode]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/filemetrics--internal-models-models-go-l218|FileMetrics]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/generateoptions--internal-models-models-go-l267|GenerateOptions]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/generationsummary--internal-models-models-go-l291|GenerationSummary]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/generationtimings--internal-models-models-go-l279|GenerationTimings]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/graphfile--internal-models-models-go-l126|GraphFile]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/graphsnapshot--internal-models-models-go-l177|GraphSnapshot]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/languageadapter--internal-models-models-go-l200|LanguageAdapter]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/managedarea--internal-models-models-go-l91|ManagedArea]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/metricsresult--internal-models-models-go-l237|MetricsResult]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/parsedfile--internal-models-models-go-l168|ParsedFile]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/relationconfidence--internal-models-models-go-l43|RelationConfidence]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/relationedge--internal-models-models-go-l160|RelationEdge]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/relationtype--internal-models-models-go-l25|RelationType]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/rendereddocument--internal-models-models-go-l247|RenderedDocument]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/scannedsourcefile--internal-models-models-go-l187|ScannedSourceFile]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/scannedworkspace--internal-models-models-go-l194|ScannedWorkspace]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/structureddiagnostic--internal-models-models-go-l115|StructuredDiagnostic]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/supportedlanguage--internal-models-models-go-l4|SupportedLanguage]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/symbolmetrics--internal-models-models-go-l206|SymbolMetrics]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/symbolnode--internal-models-models-go-l136|SymbolNode]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/topicmetadata--internal-models-models-go-l256|TopicMetadata]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/symbols/testdocumentandbaseconstants--internal-models-models-test-go-l26|TestDocumentAndBaseConstants]] · internal/models/models_test.go
+- [[kodebase-go/raw/codebase/symbols/testsupportedlanguages--internal-models-models-test-go-l5|TestSupportedLanguages]] · internal/models/models_test.go
+- [[kodebase-go/raw/codebase/symbols/formatoptions--internal-output-formatter-go-l29|FormatOptions]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/formatoutput--internal-output-formatter-go-l36|FormatOutput]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/outputformat--internal-output-formatter-go-l17|OutputFormat]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputdefaultsunsupportedformatstotable--internal-output-formatter-test-go-l262|TestFormatOutputDefaultsUnsupportedFormatsToTable]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputemptydata--internal-output-formatter-test-go-l161|TestFormatOutputEmptyData]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputjsonproducesvalidprojectedobjects--internal-output-formatter-test-go-l97|TestFormatOutputJSONProducesValidProjectedObjects]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputsinglerowinallformats--internal-output-formatter-test-go-l192|TestFormatOutputSingleRowInAllFormats]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputspecialcharactersremainvalidjson--internal-output-formatter-test-go-l229|TestFormatOutputSpecialCharactersRemainValidJSON]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputtsvrendersheaderandsanitizescells--internal-output-formatter-test-go-l144|TestFormatOutputTSVRendersHeaderAndSanitizesCells]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputtablealignscolumns--internal-output-formatter-test-go-l12|TestFormatOutputTableAlignsColumns]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputtablehandlesvariablewidthsandtruncation--internal-output-formatter-test-go-l69|TestFormatOutputTableHandlesVariableWidthsAndTruncation]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/clientoption--internal-qmd-client-go-l142|ClientOption]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/collectioninfo--internal-qmd-client-go-l116|CollectionInfo]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/embedresult--internal-qmd-client-go-l108|EmbedResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/index--internal-qmd-client-go-l232|Index]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/indexoperation--internal-qmd-client-go-l58|IndexOperation]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/indexoptions--internal-qmd-client-go-l88|IndexOptions]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/indexresult--internal-qmd-client-go-l134|IndexResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/indexstatus--internal-qmd-client-go-l125|IndexStatus]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/qmdclient--internal-qmd-client-go-l145|QMDClient]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/search--internal-qmd-client-go-l198|Search]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/searchmode--internal-qmd-client-go-l46|SearchMode]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/searchoptions--internal-qmd-client-go-l68|SearchOptions]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/searchresult--internal-qmd-client-go-l79|SearchResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/status--internal-qmd-client-go-l183|Status]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/updateresult--internal-qmd-client-go-l98|UpdateResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/testqmdclientindexesandsearchestempvault--internal-qmd-client-integration-test-go-l13|TestQMDClientIndexesAndSearchesTempVault]] · internal/qmd/client_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexaddconstructsexpectedarguments--internal-qmd-client-test-go-l27|TestIndexAddConstructsExpectedArguments]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexrejectsinvalidinputs--internal-qmd-client-test-go-l150|TestIndexRejectsInvalidInputs]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexupdateconstructsexpectedarguments--internal-qmd-client-test-go-l64|TestIndexUpdateConstructsExpectedArguments]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexwithcontextandembedrunsexpectedcommands--internal-qmd-client-test-go-l97|TestIndexWithContextAndEmbedRunsExpectedCommands]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizesearchmoderejectsunsupportedmode--internal-qmd-client-test-go-l476|TestNormalizeSearchModeRejectsUnsupportedMode]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseembedresultparsessuccessandnowork--internal-qmd-client-test-go-l408|TestParseEmbedResultParsesSuccessAndNoWork]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparsehumandurationmillisecondsparsesmultipleunits--internal-qmd-client-test-go-l463|TestParseHumanDurationMillisecondsParsesMultipleUnits]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseindexstatusacceptsemptyindex--internal-qmd-client-test-go-l447|TestParseIndexStatusAcceptsEmptyIndex]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseindexstatusparsescollectionsandhealth--internal-qmd-client-test-go-l428|TestParseIndexStatusParsesCollectionsAndHealth]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseupdateresultparsesaddandupdatesummaries--internal-qmd-client-test-go-l388|TestParseUpdateResultParsesAddAndUpdateSummaries]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchallomitslimitandacceptsmodealias--internal-qmd-client-test-go-l216|TestSearchAllOmitsLimitAndAcceptsModeAlias]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcontextcancellationstopsrunningcommand--internal-qmd-client-test-go-l343|TestSearchContextCancellationStopsRunningCommand]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchfailureincludesstderrdiagnostics--internal-qmd-client-test-go-l365|TestSearchFailureIncludesStderrDiagnostics]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchfullusesbodywhenpresent--internal-qmd-client-test-go-l318|TestSearchFullUsesBodyWhenPresent]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchhybridmodeusesquerycommand--internal-qmd-client-test-go-l183|TestSearchHybridModeUsesQueryCommand]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchparsesjsonandnormalizesresults--internal-qmd-client-test-go-l283|TestSearchParsesJSONAndNormalizesResults]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchpasseslimitminscoreandfullflags--internal-qmd-client-test-go-l246|TestSearchPassesLimitMinScoreAndFullFlags]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchreturnserrqmdunavailableformissingbinary--internal-qmd-client-test-go-l14|TestSearchReturnsErrQMDUnavailableForMissingBinary]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/newscanner--internal-scanner-scanner-go-l57|NewScanner]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/option--internal-scanner-scanner-go-l43|Option]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/scanoptions--internal-scanner-scanner-go-l36|ScanOptions]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/scanworkspace--internal-scanner-scanner-go-l95|ScanWorkspace]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/scanner--internal-scanner-scanner-go-l46|Scanner]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceintegrationnestedproject--internal-scanner-scanner-integration-test-go-l11|TestScanWorkspaceIntegrationNestedProject]] · internal/scanner/scanner_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceemptydirectoryreturnsemptyworkspace--internal-scanner-scanner-test-go-l176|TestScanWorkspaceEmptyDirectoryReturnsEmptyWorkspace]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludepatternremovesmatches--internal-scanner-scanner-test-go-l144|TestScanWorkspaceExcludePatternRemovesMatches]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludesgitdirectorybydefault--internal-scanner-scanner-test-go-l71|TestScanWorkspaceExcludesGitDirectoryByDefault]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceexcludesnodemodulesbydefault--internal-scanner-scanner-test-go-l55|TestScanWorkspaceExcludesNodeModulesByDefault]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspacegroupsfilesbylanguage--internal-scanner-scanner-test-go-l196|TestScanWorkspaceGroupsFilesByLanguage]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceignoresunsupportedextensions--internal-scanner-scanner-test-go-l160|TestScanWorkspaceIgnoresUnsupportedExtensions]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceincludepatternrestrictsresults--internal-scanner-scanner-test-go-l123|TestScanWorkspaceIncludePatternRestrictsResults]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspacerespectsgitignorepatterns--internal-scanner-scanner-test-go-l87|TestScanWorkspaceRespectsGitIgnorePatterns]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspacerespectsnestedgitignorepatterns--internal-scanner-scanner-test-go-l104|TestScanWorkspaceRespectsNestedGitIgnorePatterns]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceroutessupportedfilesbylanguage--internal-scanner-scanner-test-go-l13|TestScanWorkspaceRoutesSupportedFilesByLanguage]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/createexternalid--internal-vault-pathutils-go-l82|CreateExternalID]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/createfileid--internal-vault-pathutils-go-l77|CreateFileID]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/createsymbolid--internal-vault-pathutils-go-l169|CreateSymbolID]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/derivetopicdomain--internal-vault-pathutils-go-l164|DeriveTopicDomain]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/derivetopicslug--internal-vault-pathutils-go-l140|DeriveTopicSlug]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/derivetopictitle--internal-vault-pathutils-go-l155|DeriveTopicTitle]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/humanizeslug--internal-vault-pathutils-go-l120|HumanizeSlug]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/slugifysegment--internal-vault-pathutils-go-l87|SlugifySegment]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/stripmarkdownextension--internal-vault-pathutils-go-l223|StripMarkdownExtension]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/testcreatefileiddeterministic--internal-vault-pathutils-test-go-l10|TestCreateFileIDDeterministic]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testcreatesymboliddeterministicandunique--internal-vault-pathutils-test-go-l25|TestCreateSymbolIDDeterministicAndUnique]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testdocumentpathderivationhelpers--internal-vault-pathutils-test-go-l107|TestDocumentPathDerivationHelpers]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testispathinside--internal-vault-pathutils-test-go-l79|TestIsPathInside]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testpathhelpershandleemptyinputs--internal-vault-pathutils-test-go-l197|TestPathHelpersHandleEmptyInputs]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testtoposixpath--internal-vault-pathutils-test-go-l52|TestToPosixPath]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testtopichelpers--internal-vault-pathutils-test-go-l153|TestTopicHelpers]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testtopicwikilinkhelpers--internal-vault-pathutils-test-go-l181|TestTopicWikiLinkHelpers]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/symbols/discovervaultpath--internal-vault-query-go-l28|DiscoverVaultPath]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/listavailabletopics--internal-vault-query-go-l116|ListAvailableTopics]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/resolvevaultquery--internal-vault-query-go-l56|ResolveVaultQuery]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/resolvedvault--internal-vault-query-go-l14|ResolvedVault]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/vaultqueryoptions--internal-vault-query-go-l21|VaultQueryOptions]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/testlistavailabletopicsreturnssortedtopics--internal-vault-query-test-go-l178|TestListAvailableTopicsReturnsSortedTopics]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryautoresolvessingletopic--internal-vault-query-test-go-l72|TestResolveVaultQueryAutoResolvesSingleTopic]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorsclearlywhennovaultisfound--internal-vault-query-test-go-l164|TestResolveVaultQueryErrorsClearlyWhenNoVaultIsFound]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorswhenexplicittopicismissing--internal-vault-query-test-go-l144|TestResolveVaultQueryErrorsWhenExplicitTopicIsMissing]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryerrorswhenmultipletopicsexist--internal-vault-query-test-go-l95|TestResolveVaultQueryErrorsWhenMultipleTopicsExist]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryfindsvaultbywalkingup--internal-vault-query-test-go-l12|TestResolveVaultQueryFindsVaultByWalkingUp]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryprefersexplicitvault--internal-vault-query-test-go-l41|TestResolveVaultQueryPrefersExplicitVault]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/testresolvevaultqueryusesexplicittopic--internal-vault-query-test-go-l119|TestResolveVaultQueryUsesExplicitTopic]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/symbols/extractsection--internal-vault-reader-go-l112|ExtractSection]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/findsymbolsbyname--internal-vault-reader-go-l146|FindSymbolsByName]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/readvaultoptions--internal-vault-reader-go-l43|ReadVaultOptions]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/readvaultsnapshot--internal-vault-reader-go-l62|ReadVaultSnapshot]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/vaultdocument--internal-vault-reader-go-l24|VaultDocument]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/vaultrelation--internal-vault-reader-go-l17|VaultRelation]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/vaultsnapshot--internal-vault-reader-go-l33|VaultSnapshot]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotroundtripswriteroutput--internal-vault-reader-integration-test-go-l12|TestReadVaultSnapshotRoundTripsWriterOutput]] · internal/vault/reader_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testextractsectionreturnsemptystringwhenmissing--internal-vault-reader-test-go-l192|TestExtractSectionReturnsEmptyStringWhenMissing]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testextractsectionreturnsheadingbody--internal-vault-reader-test-go-l171|TestExtractSectionReturnsHeadingBody]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testfindsymbolsbynameusescaseinsensitivepartialmatch--internal-vault-reader-test-go-l200|TestFindSymbolsByNameUsesCaseInsensitivePartialMatch]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesfrontmatterandclassifiesdocuments--internal-vault-reader-test-go-l12|TestReadVaultSnapshotParsesFrontmatterAndClassifiesDocuments]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesrelationsections--internal-vault-reader-test-go-l81|TestReadVaultSnapshotParsesRelationSections]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotskipsmalformedyamlandwarns--internal-vault-reader-test-go-l137|TestReadVaultSnapshotSkipsMalformedYAMLAndWarns]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/renderdocuments--internal-vault-render-go-l20|RenderDocuments]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderbasefiles--internal-vault-render-base-go-l11|RenderBaseFiles]] · internal/vault/render_base.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsintegrationproducesfulldocumentset--internal-vault-render-integration-test-go-l14|TestRenderDocumentsIntegrationProducesFullDocumentSet]] · internal/vault/render_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderbasedefinitionsproducevalidyaml--internal-vault-render-test-go-l178|TestRenderBaseDefinitionsProduceValidYAML]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsbodieshavevalidfrontmatterandkinds--internal-vault-render-test-go-l196|TestRenderDocumentsBodiesHaveValidFrontmatterAndKinds]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentscirculardependencieslistsgroups--internal-vault-render-test-go-l142|TestRenderDocumentsCircularDependenciesListsGroups]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentscodebaseoverviewcontainssummary--internal-vault-render-test-go-l116|TestRenderDocumentsCodebaseOverviewContainsSummary]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsdashboardlinkstoallconceptarticles--internal-vault-render-test-go-l153|TestRenderDocumentsDashboardLinksToAllConceptArticles]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsdependencyhotspotsliststopfiles--internal-vault-render-test-go-l131|TestRenderDocumentsDependencyHotspotsListsTopFiles]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsdirectoryindexuseswikilinks--internal-vault-render-test-go-l97|TestRenderDocumentsDirectoryIndexUsesWikiLinks]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsproducesrawwikiandbasesurfaces--internal-vault-render-test-go-l13|TestRenderDocumentsProducesRawWikiAndBaseSurfaces]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsrawfilefrontmatterandbody--internal-vault-render-test-go-l43|TestRenderDocumentsRawFileFrontmatterAndBody]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsrawsymbolfrontmatterandsignature--internal-vault-render-test-go-l70|TestRenderDocumentsRawSymbolFrontmatterAndSignature]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsusetopicwikilinksyntax--internal-vault-render-test-go-l221|TestRenderDocumentsUseTopicWikiLinkSyntax]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/extractleadingcomment--internal-vault-textutils-go-l40|ExtractLeadingComment]] · internal/vault/textutils.go
+- [[kodebase-go/raw/codebase/symbols/normalizecomment--internal-vault-textutils-go-l18|NormalizeComment]] · internal/vault/textutils.go
+- [[kodebase-go/raw/codebase/symbols/stripquotes--internal-vault-textutils-go-l58|StripQuotes]] · internal/vault/textutils.go
+- [[kodebase-go/raw/codebase/symbols/testextractleadingcommentfromgosource--internal-vault-textutils-test-go-l24|TestExtractLeadingCommentFromGoSource]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testextractleadingcommentfromtssource--internal-vault-textutils-test-go-l40|TestExtractLeadingCommentFromTSSource]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testextractleadingcommentignoresnonleadingcomments--internal-vault-textutils-test-go-l56|TestExtractLeadingCommentIgnoresNonLeadingComments]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizecomment--internal-vault-textutils-test-go-l9|TestNormalizeComment]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/symbols/teststripquotes--internal-vault-textutils-test-go-l70|TestStripQuotes]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/symbols/report--internal-vault-writer-go-l346|Report]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/writeprogress--internal-vault-writer-go-l41|WriteProgress]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/writevault--internal-vault-writer-go-l53|WriteVault]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/writevaultoptions--internal-vault-writer-go-l25|WriteVaultOptions]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/writevaultresult--internal-vault-writer-go-l34|WriteVaultResult]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultintegrationpersistsfullrenderedvault--internal-vault-writer-integration-test-go-l14|TestWriteVaultIntegrationPersistsFullRenderedVault]] · internal/vault/writer_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultcreatesclaudemanifestandappendonlylog--internal-vault-writer-test-go-l102|TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultcreatestopicskeletonandmanagedfiles--internal-vault-writer-test-go-l16|TestWriteVaultCreatesTopicSkeletonAndManagedFiles]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultrejectsinvalidrendereddocument--internal-vault-writer-test-go-l235|TestWriteVaultRejectsInvalidRenderedDocument]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultremovesstalemanagedwikiconceptsonly--internal-vault-writer-test-go-l187|TestWriteVaultRemovesStaleManagedWikiConceptsOnly]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultreportsprogressforpersistedfiles--internal-vault-writer-test-go-l157|TestWriteVaultReportsProgressForPersistedFiles]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/string--internal-version-version-go-l11|String]] · internal/version/version.go
+
+## feature-envy
+- [[kodebase-go/raw/codebase/symbols/testgoadapterbuildscrossfilecallrelations--internal-adapter-go-adapter-integration-test-go-l11|TestGoAdapterBuildsCrossFileCallRelations]] · internal/adapter/go_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewparserrejectsnillanguage--internal-adapter-treesitter-test-go-l120|TestNewParserRejectsNilLanguage]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/symbols/collecttscalltargets--internal-adapter-ts-adapter-go-l1018|collectTSCallTargets]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/computetscyclomaticcomplexity--internal-adapter-ts-adapter-go-l1069|computeTSCyclomaticComplexity]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extractrequirebindings--internal-adapter-ts-adapter-go-l644|extractRequireBindings]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extracttsdoccomment--internal-adapter-ts-adapter-go-l1004|extractTSDocComment]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extracttsimports--internal-adapter-ts-adapter-go-l391|extractTSImports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/findchildbykind--internal-adapter-ts-adapter-go-l1333|findChildByKind]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/formattsreturntype--internal-adapter-ts-adapter-go-l968|formatTSReturnType]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/formattsvariabletypesuffix--internal-adapter-ts-adapter-go-l986|formatTSVariableTypeSuffix]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/isdefaultexport--internal-adapter-ts-adapter-go-l1285|isDefaultExport]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/matchcommonjsexporttarget--internal-adapter-ts-adapter-go-l1290|matchCommonJSExportTarget]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/resolvetsvariablename--internal-adapter-ts-adapter-go-l916|resolveTSVariableName]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/selecttslanguage--internal-adapter-ts-adapter-go-l378|selectTSLanguage]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterintegrationparsesmultifileproject--internal-adapter-ts-adapter-integration-test-go-l11|TestTSAdapterIntegrationParsesMultiFileProject]] · internal/adapter/ts_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterextractsclassandmethodsymbols--internal-adapter-ts-adapter-test-go-l140|TestTSAdapterExtractsClassAndMethodSymbols]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterparsessimpletypescriptfile--internal-adapter-ts-adapter-test-go-l29|TestTSAdapterParsesSimpleTypeScriptFile]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterparsestsxcomponent--internal-adapter-ts-adapter-test-go-l78|TestTSAdapterParsesTSXComponent]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandpassesflagsandprintsjsonsummary--internal-cli-generate-test-go-l15|TestGenerateCommandPassesFlagsAndPrintsJSONSummary]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidlogformat--internal-cli-generate-test-go-l182|TestGenerateCommandRejectsInvalidLogFormat]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandrejectsinvalidprogressmode--internal-cli-generate-test-go-l167|TestGenerateCommandRejectsInvalidProgressMode]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandwritesjsoneventswhenrequested--internal-cli-generate-test-go-l111|TestGenerateCommandWritesJSONEventsWhenRequested]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandwritestexteventstostderrbydefault--internal-cli-generate-test-go-l80|TestGenerateCommandWritesTextEventsToStderrByDefault]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandhandlesqmdunavailable--internal-cli-index-test-go-l147|TestIndexCommandHandlesQMDUnavailable]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandhelpshowsflags--internal-cli-index-test-go-l190|TestIndexCommandHelpShowsFlags]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandresolvestopicpathbeforecallingqmd--internal-cli-index-test-go-l15|TestIndexCommandResolvesTopicPathBeforeCallingQMD]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandupdatesexistingcollection--internal-cli-index-test-go-l100|TestIndexCommandUpdatesExistingCollection]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/tobacklinksoutput--internal-cli-inspect-backlinks-go-l31|toBacklinksOutput]] · internal/cli/inspect_backlinks.go
+- [[kodebase-go/raw/codebase/symbols/toblastradiusoutput--internal-cli-inspect-blastradius-go-l47|toBlastRadiusOutput]] · internal/cli/inspect_blastradius.go
+- [[kodebase-go/raw/codebase/symbols/buildinspectimportadjacency--internal-cli-inspect-circulardeps-go-l103|buildInspectImportAdjacency]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/tocirculardependencyrow--internal-cli-inspect-circulardeps-go-l145|toCircularDependencyRow]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/tocomplexityoutput--internal-cli-inspect-complexity-go-l43|toComplexityOutput]] · internal/cli/inspect_complexity.go
+- [[kodebase-go/raw/codebase/symbols/tocouplingoutput--internal-cli-inspect-coupling-go-l37|toCouplingOutput]] · internal/cli/inspect_coupling.go
+- [[kodebase-go/raw/codebase/symbols/todeadcodeoutput--internal-cli-inspect-deadcode-go-l32|toDeadCodeOutput]] · internal/cli/inspect_deadcode.go
+- [[kodebase-go/raw/codebase/symbols/todependencyoutput--internal-cli-inspect-deps-go-l31|toDependencyOutput]] · internal/cli/inspect_deps.go
+- [[kodebase-go/raw/codebase/symbols/tofilelookupoutput--internal-cli-inspect-file-go-l31|toFileLookupOutput]] · internal/cli/inspect_file.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandvalidationerrors--internal-cli-inspect-helpers-test-go-l214|TestInspectCommandValidationErrors]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectfrontmatterhelpers--internal-cli-inspect-helpers-test-go-l51|TestInspectFrontmatterHelpers]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectparenthelplistsallsubcommands--internal-cli-inspect-helpers-test-go-l260|TestInspectParentHelpListsAllSubcommands]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtoblastradiusoutputrespectsminimumandtop--internal-cli-inspect-helpers-test-go-l178|TestToBlastRadiusOutputRespectsMinimumAndTop]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocouplingoutputfiltersunstableonly--internal-cli-inspect-helpers-test-go-l198|TestToCouplingOutputFiltersUnstableOnly]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosmelloutputfiltersbytype--internal-cli-inspect-helpers-test-go-l152|TestToSmellOutputFiltersByType]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testversioncommandprintsbuildversion--internal-cli-inspect-helpers-test-go-l281|TestVersionCommandPrintsBuildVersion]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/tosymboldetailoutput--internal-cli-inspect-symbol-go-l96|toSymbolDetailOutput]] · internal/cli/inspect_symbol.go
+- [[kodebase-go/raw/codebase/symbols/tosymbolsummaryoutput--internal-cli-inspect-symbol-go-l55|toSymbolSummaryOutput]] · internal/cli/inspect_symbol.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandreturnsdescriptiveerrorformissingvault--internal-cli-inspect-test-go-l594|TestInspectCommandReturnsDescriptiveErrorForMissingVault]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtobacklinksoutputlistsincomingreferencesforsymbol--internal-cli-inspect-test-go-l385|TestToBacklinksOutputListsIncomingReferencesForSymbol]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtocirculardepsoutputshowsmessagewhennocycles--internal-cli-inspect-test-go-l538|TestToCircularDepsOutputShowsMessageWhenNoCycles]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtodependencyoutputlistsoutgoingdependenciesforsymbol--internal-cli-inspect-test-go-l414|TestToDependencyOutputListsOutgoingDependenciesForSymbol]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtodependencyoutputsupportsexactfilepathlookup--internal-cli-inspect-test-go-l442|TestToDependencyOutputSupportsExactFilePathLookup]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtofilelookupoutputreturnsdescriptiveerrorforunknownpath--internal-cli-inspect-test-go-l373|TestToFileLookupOutputReturnsDescriptiveErrorForUnknownPath]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdescriptiveerrorforunknownname--internal-cli-inspect-test-go-l300|TestToSymbolLookupOutputReturnsDescriptiveErrorForUnknownName]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnssummaryformultiplematches--internal-cli-inspect-test-go-l266|TestToSymbolLookupOutputReturnsSummaryForMultipleMatches]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/newrootcommand--internal-cli-root-go-l14|newRootCommand]] · internal/cli/root.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandreturnsresultsagainstindexedvault--internal-cli-search-index-integration-test-go-l21|TestSearchCommandReturnsResultsAgainstIndexedVault]] · internal/cli/search_index_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanddefaultstohybridmode--internal-cli-search-test-go-l14|TestSearchCommandDefaultsToHybridMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanddisplayspathscoreandpreview--internal-cli-search-test-go-l158|TestSearchCommandDisplaysPathScoreAndPreview]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandhandlesqmdunavailable--internal-cli-search-test-go-l242|TestSearchCommandHandlesQMDUnavailable]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandhelpshowsflags--internal-cli-search-test-go-l281|TestSearchCommandHelpShowsFlags]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandpasseslimitflag--internal-cli-search-test-go-l204|TestSearchCommandPassesLimitFlag]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanduseslexicalmode--internal-cli-search-test-go-l82|TestSearchCommandUsesLexicalMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandusesvectormode--internal-cli-search-test-go-l120|TestSearchCommandUsesVectorMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/default--internal-config-config-go-l40|Default]] · internal/config/config.go
+- [[kodebase-go/raw/codebase/symbols/testdefaultconfighasvaliddefaults--internal-config-config-test-go-l9|TestDefaultConfigHasValidDefaults]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloadconfigroundtrip--internal-config-config-test-go-l33|TestLoadConfigRoundTrip]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentloadsvalues--internal-config-config-test-go-l157|TestLoadDotEnvIfPresentLoadsValues]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloaddotenvifpresentmissingfileisok--internal-config-config-test-go-l174|TestLoadDotEnvIfPresentMissingFileIsOK]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloademptypathusesdefaults--internal-config-config-test-go-l74|TestLoadEmptyPathUsesDefaults]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testloadrejectsunknownkeys--internal-config-config-test-go-l86|TestLoadRejectsUnknownKeys]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/symbols/testgenerateintegrationbuildsvaultfromfixturerepository--internal-generate-generate-integration-test-go-l14|TestGenerateIntegrationBuildsVaultFromFixtureRepository]] · internal/generate/generate_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneraterequiresrootpath--internal-generate-generate-test-go-l325|TestGenerateRequiresRootPath]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneraterespectscanceledcontext--internal-generate-generate-test-go-l337|TestGenerateRespectsCanceledContext]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testselectadaptersforgoonlyworkspace--internal-generate-generate-test-go-l172|TestSelectAdaptersForGoOnlyWorkspace]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testselectadaptersformixedworkspace--internal-generate-generate-test-go-l191|TestSelectAdaptersForMixedWorkspace]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphomitsdiagnosticonlyfiles--internal-graph-normalize-test-go-l203|TestNormalizeGraphOmitsDiagnosticOnlyFiles]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewlevelfiltering--internal-logger-logger-test-go-l122|TestNewLevelFiltering]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewuppercaselevelkey--internal-logger-logger-test-go-l76|TestNewUppercaseLevelKey]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewwithobserver--internal-logger-logger-test-go-l100|TestNewWithObserver]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testnewwritesjson--internal-logger-logger-test-go-l53|TestNewWritesJSON]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsreturnsemptyresultforemptygraph--internal-metrics-compute-test-go-l10|TestComputeMetricsReturnsEmptyResultForEmptyGraph]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsmergesoverlappingcyclesintosinglecomponent--internal-metrics-compute-test-go-l220|TestFindCircularDependencyGroupsMergesOverlappingCyclesIntoSingleComponent]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testfindcirculardependencygroupsreturnsstablesortedcomponents--internal-metrics-compute-test-go-l236|TestFindCircularDependencyGroupsReturnsStableSortedComponents]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/symbols/testsupportedlanguages--internal-models-models-test-go-l5|TestSupportedLanguages]] · internal/models/models_test.go
+- [[kodebase-go/raw/codebase/symbols/testqmdclientindexesandsearchestempvault--internal-qmd-client-integration-test-go-l13|TestQMDClientIndexesAndSearchesTempVault]] · internal/qmd/client_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexaddconstructsexpectedarguments--internal-qmd-client-test-go-l27|TestIndexAddConstructsExpectedArguments]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexrejectsinvalidinputs--internal-qmd-client-test-go-l150|TestIndexRejectsInvalidInputs]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizesearchmoderejectsunsupportedmode--internal-qmd-client-test-go-l476|TestNormalizeSearchModeRejectsUnsupportedMode]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseembedresultparsessuccessandnowork--internal-qmd-client-test-go-l408|TestParseEmbedResultParsesSuccessAndNoWork]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparsehumandurationmillisecondsparsesmultipleunits--internal-qmd-client-test-go-l463|TestParseHumanDurationMillisecondsParsesMultipleUnits]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseindexstatusacceptsemptyindex--internal-qmd-client-test-go-l447|TestParseIndexStatusAcceptsEmptyIndex]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseindexstatusparsescollectionsandhealth--internal-qmd-client-test-go-l428|TestParseIndexStatusParsesCollectionsAndHealth]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testparseupdateresultparsesaddandupdatesummaries--internal-qmd-client-test-go-l388|TestParseUpdateResultParsesAddAndUpdateSummaries]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcontextcancellationstopsrunningcommand--internal-qmd-client-test-go-l343|TestSearchContextCancellationStopsRunningCommand]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchfailureincludesstderrdiagnostics--internal-qmd-client-test-go-l365|TestSearchFailureIncludesStderrDiagnostics]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchfullusesbodywhenpresent--internal-qmd-client-test-go-l318|TestSearchFullUsesBodyWhenPresent]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchparsesjsonandnormalizesresults--internal-qmd-client-test-go-l283|TestSearchParsesJSONAndNormalizesResults]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchreturnserrqmdunavailableformissingbinary--internal-qmd-client-test-go-l14|TestSearchReturnsErrQMDUnavailableForMissingBinary]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/testscanworkspaceintegrationnestedproject--internal-scanner-scanner-integration-test-go-l11|TestScanWorkspaceIntegrationNestedProject]] · internal/scanner/scanner_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/scantestworkspace--internal-scanner-scanner-test-go-l218|scanTestWorkspace]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotroundtripswriteroutput--internal-vault-reader-integration-test-go-l12|TestReadVaultSnapshotRoundTripsWriterOutput]] · internal/vault/reader_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/createdocumentlookup--internal-vault-render-go-l177|createDocumentLookup]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawdirectoryindex--internal-vault-render-go-l524|renderRawDirectoryIndex]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawlanguageindex--internal-vault-render-go-l600|renderRawLanguageIndex]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/tosourcewikilink--internal-vault-render-go-l173|toSourceWikiLink]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/testrenderdocumentsintegrationproducesfulldocumentset--internal-vault-render-integration-test-go-l14|TestRenderDocumentsIntegrationProducesFullDocumentSet]] · internal/vault/render_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/createcodesmellsarticle--internal-vault-render-wiki-go-l784|createCodeSmellsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createcodebaseoverviewarticle--internal-vault-render-wiki-go-l230|createCodebaseOverviewArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createcomplexityhotspotsarticle--internal-vault-render-wiki-go-l547|createComplexityHotspotsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createdependencyhotspotsarticle--internal-vault-render-wiki-go-l471|createDependencyHotspotsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createdirectorymaparticle--internal-vault-render-wiki-go-l349|createDirectoryMapArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createhighimpactsymbolsarticle--internal-vault-render-wiki-go-l892|createHighImpactSymbolsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createmodulehealtharticle--internal-vault-render-wiki-go-l692|createModuleHealthArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createsymboltaxonomyarticle--internal-vault-render-wiki-go-l405|createSymbolTaxonomyArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/makewikifrontmatter--internal-vault-render-wiki-go-l43|makeWikiFrontmatter]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/renderconceptindex--internal-vault-render-wiki-go-l134|renderConceptIndex]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/renderdashboard--internal-vault-render-wiki-go-l75|renderDashboard]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/rendergroupedlinks--internal-vault-render-wiki-go-l964|renderGroupedLinks]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/rendersourceindex--internal-vault-render-wiki-go-l178|renderSourceIndex]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/buildtopicclaude--internal-vault-writer-go-l359|buildTopicClaude]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/cleantopicrelativepath--internal-vault-writer-go-l270|cleanTopicRelativePath]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/validatetopic--internal-vault-writer-go-l113|validateTopic]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultintegrationpersistsfullrenderedvault--internal-vault-writer-integration-test-go-l14|TestWriteVaultIntegrationPersistsFullRenderedVault]] · internal/vault/writer_integration_test.go
+
+## god-file
+- [[kodebase-go/raw/codebase/files/internal/adapter/go_adapter.go|internal/adapter/go_adapter.go]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/files/internal/adapter/go_adapter_test.go|internal/adapter/go_adapter_test.go]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/files/internal/adapter/ts_adapter.go|internal/adapter/ts_adapter.go]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/files/internal/cli/generate_output.go|internal/cli/generate_output.go]] · internal/cli/generate_output.go
+- [[kodebase-go/raw/codebase/files/internal/cli/inspect.go|internal/cli/inspect.go]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/files/internal/cli/inspect_test.go|internal/cli/inspect_test.go]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/files/internal/generate/generate.go|internal/generate/generate.go]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/files/internal/metrics/compute.go|internal/metrics/compute.go]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/files/internal/metrics/compute_test.go|internal/metrics/compute_test.go]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/files/internal/models/models.go|internal/models/models.go]] · internal/models/models.go
+- [[kodebase-go/raw/codebase/files/internal/output/formatter.go|internal/output/formatter.go]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/files/internal/qmd/client.go|internal/qmd/client.go]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/files/internal/qmd/client_test.go|internal/qmd/client_test.go]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/files/internal/scanner/scanner.go|internal/scanner/scanner.go]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/files/internal/scanner/scanner_test.go|internal/scanner/scanner_test.go]] · internal/scanner/scanner_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/pathutils.go|internal/vault/pathutils.go]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/files/internal/vault/reader.go|internal/vault/reader.go]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/files/internal/vault/render.go|internal/vault/render.go]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/files/internal/vault/render_test.go|internal/vault/render_test.go]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/render_wiki.go|internal/vault/render_wiki.go]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/files/internal/vault/writer.go|internal/vault/writer.go]] · internal/vault/writer.go
+
+## high-blast-radius
+- [[kodebase-go/raw/codebase/symbols/namedchildren--internal-adapter-go-adapter-go-l566|namedChildren]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/textof--internal-adapter-go-adapter-go-l588|textOf]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/newgeneratecommand--internal-cli-generate-go-l15|newGenerateCommand]] · internal/cli/generate.go
+- [[kodebase-go/raw/codebase/symbols/newindexcommand--internal-cli-index-go-l37|newIndexCommand]] · internal/cli/index.go
+- [[kodebase-go/raw/codebase/symbols/bindinspectsharedflags--internal-cli-inspect-go-l70|bindInspectSharedFlags]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterfloat--internal-cli-inspect-go-l254|inspectFrontmatterFloat]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterint--internal-cli-inspect-go-l213|inspectFrontmatterInt]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterstring--internal-cli-inspect-go-l156|inspectFrontmatterString]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterstringarray--internal-cli-inspect-go-l170|inspectFrontmatterStringArray]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/newinspectcommand--internal-cli-inspect-go-l41|newInspectCommand]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/newinspectbacklinkscommand--internal-cli-inspect-backlinks-go-l11|newInspectBacklinksCommand]] · internal/cli/inspect_backlinks.go
+- [[kodebase-go/raw/codebase/symbols/newinspectblastradiuscommand--internal-cli-inspect-blastradius-go-l20|newInspectBlastRadiusCommand]] · internal/cli/inspect_blastradius.go
+- [[kodebase-go/raw/codebase/symbols/newinspectcirculardepscommand--internal-cli-inspect-circulardeps-go-l12|newInspectCircularDepsCommand]] · internal/cli/inspect_circulardeps.go
+- [[kodebase-go/raw/codebase/symbols/newinspectcomplexitycommand--internal-cli-inspect-complexity-go-l21|newInspectComplexityCommand]] · internal/cli/inspect_complexity.go
+- [[kodebase-go/raw/codebase/symbols/newinspectcouplingcommand--internal-cli-inspect-coupling-go-l19|newInspectCouplingCommand]] · internal/cli/inspect_coupling.go
+- [[kodebase-go/raw/codebase/symbols/newinspectdeadcodecommand--internal-cli-inspect-deadcode-go-l19|newInspectDeadCodeCommand]] · internal/cli/inspect_deadcode.go
+- [[kodebase-go/raw/codebase/symbols/newinspectdepscommand--internal-cli-inspect-deps-go-l11|newInspectDepsCommand]] · internal/cli/inspect_deps.go
+- [[kodebase-go/raw/codebase/symbols/newinspectfilecommand--internal-cli-inspect-file-go-l11|newInspectFileCommand]] · internal/cli/inspect_file.go
+- [[kodebase-go/raw/codebase/symbols/newinspectsmellscommand--internal-cli-inspect-smells-go-l19|newInspectSmellsCommand]] · internal/cli/inspect_smells.go
+- [[kodebase-go/raw/codebase/symbols/newinspectsymbolcommand--internal-cli-inspect-symbol-go-l21|newInspectSymbolCommand]] · internal/cli/inspect_symbol.go
+- [[kodebase-go/raw/codebase/symbols/newrootcommand--internal-cli-root-go-l14|newRootCommand]] · internal/cli/root.go
+- [[kodebase-go/raw/codebase/symbols/newsearchcommand--internal-cli-search-go-l41|newSearchCommand]] · internal/cli/search.go
+- [[kodebase-go/raw/codebase/symbols/newversioncommand--internal-cli-version-go-l11|newVersionCommand]] · internal/cli/version.go
+- [[kodebase-go/raw/codebase/symbols/stripmarkdownextension--internal-vault-pathutils-go-l223|StripMarkdownExtension]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/toposixpath--internal-vault-pathutils-go-l15|ToPosixPath]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/totopicwikilink--internal-vault-pathutils-go-l228|ToTopicWikiLink]] · internal/vault/pathutils.go
+- [[kodebase-go/raw/codebase/symbols/tosourcewikilink--internal-vault-render-go-l173|toSourceWikiLink]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/testgraphfixture--internal-vault-render-test-go-l287|testGraphFixture]] · internal/vault/render_test.go
+
+## long-function
+- [[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-go-adapter-go-l62|ParseFilesWithProgress]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/parsegofile--internal-adapter-go-adapter-go-l161|parseGoFile]] · internal/adapter/go_adapter.go
+- [[kodebase-go/raw/codebase/symbols/testgoadapterparsessimplegofile--internal-adapter-go-adapter-test-go-l29|TestGoAdapterParsesSimpleGoFile]] · internal/adapter/go_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/testparsersparsetrivialsources--internal-adapter-treesitter-test-go-l52|TestParsersParseTrivialSources]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/symbols/parsefileswithprogress--internal-adapter-ts-adapter-go-l93|ParseFilesWithProgress]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extractcommonjsexports--internal-adapter-ts-adapter-go-l583|extractCommonJSExports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extractrequirebindings--internal-adapter-ts-adapter-go-l644|extractRequireBindings]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extracttsexports--internal-adapter-ts-adapter-go-l484|extractTSExports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/extracttsimports--internal-adapter-ts-adapter-go-l391|extractTSImports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/formattssignature--internal-adapter-ts-adapter-go-l929|formatTSSignature]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/matchcommonjsexporttarget--internal-adapter-ts-adapter-go-l1290|matchCommonJSExportTarget]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/parsetsfile--internal-adapter-ts-adapter-go-l299|parseTSFile]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/resolvereexports--internal-adapter-ts-adapter-go-l1170|resolveReExports]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/resolvetssymbolname--internal-adapter-ts-adapter-go-l880|resolveTSSymbolName]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/symbols/testtsadapterbuildsimportbindingsfordefaultnamedandnamespaceimports--internal-adapter-ts-adapter-test-go-l177|TestTSAdapterBuildsImportBindingsForDefaultNamedAndNamespaceImports]] · internal/adapter/ts_adapter_test.go
+- [[kodebase-go/raw/codebase/symbols/newgeneratecommand--internal-cli-generate-go-l15|newGenerateCommand]] · internal/cli/generate.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandpassesflagsandprintsjsonsummary--internal-cli-generate-test-go-l15|TestGenerateCommandPassesFlagsAndPrintsJSONSummary]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testgeneratecommandwritesjsoneventswhenrequested--internal-cli-generate-test-go-l111|TestGenerateCommandWritesJSONEventsWhenRequested]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/runindexcommand--internal-cli-index-go-l63|runIndexCommand]] · internal/cli/index.go
+- [[kodebase-go/raw/codebase/symbols/testindexcommandresolvestopicpathbeforecallingqmd--internal-cli-index-test-go-l15|TestIndexCommandResolvesTopicPathBeforeCallingQMD]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterfloat--internal-cli-inspect-go-l254|inspectFrontmatterFloat]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/inspectfrontmatterint--internal-cli-inspect-go-l213|inspectFrontmatterInt]] · internal/cli/inspect.go
+- [[kodebase-go/raw/codebase/symbols/testinspectfrontmatterhelpers--internal-cli-inspect-helpers-test-go-l51|TestInspectFrontmatterHelpers]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/symbols/testinspectcommandsagainstgeneratedfixturevault--internal-cli-inspect-integration-test-go-l18|TestInspectCommandsAgainstGeneratedFixtureVault]] · internal/cli/inspect_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testtofilelookupoutputincludescontainedsymbolsandmetrics--internal-cli-inspect-test-go-l312|TestToFileLookupOutputIncludesContainedSymbolsAndMetrics]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/testtosymbollookupoutputreturnsdetailforsinglematch--internal-cli-inspect-test-go-l200|TestToSymbolLookupOutputReturnsDetailForSingleMatch]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/createinspecttestvault--internal-cli-inspect-test-go-l641|createInspectTestVault]] · internal/cli/inspect_test.go
+- [[kodebase-go/raw/codebase/symbols/runsearchcommand--internal-cli-search-go-l71|runSearchCommand]] · internal/cli/search.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommandreturnsresultsagainstindexedvault--internal-cli-search-index-integration-test-go-l21|TestSearchCommandReturnsResultsAgainstIndexedVault]] · internal/cli/search_index_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testsearchcommanddefaultstohybridmode--internal-cli-search-test-go-l14|TestSearchCommandDefaultsToHybridMode]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/symbols/generatewithobserver--internal-generate-generate-go-l88|GenerateWithObserver]] · internal/generate/generate.go
+- [[kodebase-go/raw/codebase/symbols/testgenerateintegrationbuildsvaultfromfixturerepository--internal-generate-generate-integration-test-go-l14|TestGenerateIntegrationBuildsVaultFromFixtureRepository]] · internal/generate/generate_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergeneratecallspipelinestagesinorder--internal-generate-generate-test-go-l58|TestRunnerGenerateCallsPipelineStagesInOrder]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergenerateemitsparseandwriteprogressevents--internal-generate-generate-test-go-l352|TestRunnerGenerateEmitsParseAndWriteProgressEvents]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/testrunnergeneratesummaryreportscounts--internal-generate-generate-test-go-l210|TestRunnerGenerateSummaryReportsCounts]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/symbols/normalizegraph--internal-graph-normalize-go-l17|NormalizeGraph]] · internal/graph/normalize.go
+- [[kodebase-go/raw/codebase/symbols/testnormalizegraphmergesoverlappingimportsacrossparsedfiles--internal-graph-normalize-integration-test-go-l14|TestNormalizeGraphMergesOverlappingImportsAcrossParsedFiles]] · internal/graph/normalize_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/parsedfilefixture--internal-graph-normalize-test-go-l294|parsedFileFixture]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/symbols/computemetrics--internal-metrics-compute-go-l23|ComputeMetrics]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/findcirculardependencygroups--internal-metrics-compute-go-l375|FindCircularDependencyGroups]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/computeapproxcentrality--internal-metrics-compute-go-l261|computeApproxCentrality]] · internal/metrics/compute.go
+- [[kodebase-go/raw/codebase/symbols/testcomputemetricsintegrationonmultidirectoryproject--internal-metrics-compute-integration-test-go-l16|TestComputeMetricsIntegrationOnMultiDirectoryProject]] · internal/metrics/compute_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/formatjson--internal-output-formatter-go-l87|formatJSON]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/symbols/testformatoutputtablealignscolumns--internal-output-formatter-test-go-l12|TestFormatOutputTableAlignsColumns]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/symbols/index--internal-qmd-client-go-l232|Index]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parseindexstatus--internal-qmd-client-go-l598|parseIndexStatus]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/parseupdateresult--internal-qmd-client-go-l502|parseUpdateResult]] · internal/qmd/client.go
+- [[kodebase-go/raw/codebase/symbols/testqmdclientindexesandsearchestempvault--internal-qmd-client-integration-test-go-l13|TestQMDClientIndexesAndSearchesTempVault]] · internal/qmd/client_integration_test.go
+- [[kodebase-go/raw/codebase/symbols/testindexwithcontextandembedrunsexpectedcommands--internal-qmd-client-test-go-l97|TestIndexWithContextAndEmbedRunsExpectedCommands]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/symbols/scanworkspace--internal-scanner-scanner-go-l95|ScanWorkspace]] · internal/scanner/scanner.go
+- [[kodebase-go/raw/codebase/symbols/resolvevaultquery--internal-vault-query-go-l56|ResolveVaultQuery]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/symbols/readvaultsnapshot--internal-vault-reader-go-l62|ReadVaultSnapshot]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/frontmatterint--internal-vault-reader-go-l376|frontmatterInt]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesfrontmatterandclassifiesdocuments--internal-vault-reader-test-go-l12|TestReadVaultSnapshotParsesFrontmatterAndClassifiesDocuments]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/testreadvaultsnapshotparsesrelationsections--internal-vault-reader-test-go-l81|TestReadVaultSnapshotParsesRelationSections]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/symbols/renderdocuments--internal-vault-render-go-l20|RenderDocuments]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderfrontmatter--internal-vault-render-go-l130|renderFrontmatter]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawdirectoryindex--internal-vault-render-go-l524|renderRawDirectoryIndex]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawfiledocument--internal-vault-render-go-l312|renderRawFileDocument]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawlanguageindex--internal-vault-render-go-l600|renderRawLanguageIndex]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderrawsymboldocument--internal-vault-render-go-l449|renderRawSymbolDocument]] · internal/vault/render.go
+- [[kodebase-go/raw/codebase/symbols/renderbasefiles--internal-vault-render-base-go-l11|RenderBaseFiles]] · internal/vault/render_base.go
+- [[kodebase-go/raw/codebase/symbols/renderyamlvalue--internal-vault-render-base-go-l295|renderYAMLValue]] · internal/vault/render_base.go
+- [[kodebase-go/raw/codebase/symbols/testgraphfixture--internal-vault-render-test-go-l287|testGraphFixture]] · internal/vault/render_test.go
+- [[kodebase-go/raw/codebase/symbols/createcodesmellsarticle--internal-vault-render-wiki-go-l784|createCodeSmellsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createcodebaseoverviewarticle--internal-vault-render-wiki-go-l230|createCodebaseOverviewArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createcomplexityhotspotsarticle--internal-vault-render-wiki-go-l547|createComplexityHotspotsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createdeadcodereportarticle--internal-vault-render-wiki-go-l622|createDeadCodeReportArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createdependencyhotspotsarticle--internal-vault-render-wiki-go-l471|createDependencyHotspotsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createdirectorymaparticle--internal-vault-render-wiki-go-l349|createDirectoryMapArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createhighimpactsymbolsarticle--internal-vault-render-wiki-go-l892|createHighImpactSymbolsArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createmodulehealtharticle--internal-vault-render-wiki-go-l692|createModuleHealthArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/createsymboltaxonomyarticle--internal-vault-render-wiki-go-l405|createSymbolTaxonomyArticle]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/renderdashboard--internal-vault-render-wiki-go-l75|renderDashboard]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/rendersourceindex--internal-vault-render-wiki-go-l178|renderSourceIndex]] · internal/vault/render_wiki.go
+- [[kodebase-go/raw/codebase/symbols/writevault--internal-vault-writer-go-l53|WriteVault]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/appendlog--internal-vault-writer-go-l529|appendLog]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/buildtopicclaude--internal-vault-writer-go-l359|buildTopicClaude]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultcreatesclaudemanifestandappendonlylog--internal-vault-writer-test-go-l102|TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog]] · internal/vault/writer_test.go
+- [[kodebase-go/raw/codebase/symbols/testwritevaultcreatestopicskeletonandmanagedfiles--internal-vault-writer-test-go-l16|TestWriteVaultCreatesTopicSkeletonAndManagedFiles]] · internal/vault/writer_test.go
+
+## orphan-file
+- [[kodebase-go/raw/codebase/files/.agents/skills/systematic-debugging/condition-based-waiting-example.ts|.agents/skills/systematic-debugging/condition-based-waiting-example.ts]] · .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+- [[kodebase-go/raw/codebase/files/internal/adapter/go_adapter_integration_test.go|internal/adapter/go_adapter_integration_test.go]] · internal/adapter/go_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/adapter/treesitter_test.go|internal/adapter/treesitter_test.go]] · internal/adapter/treesitter_test.go
+- [[kodebase-go/raw/codebase/files/internal/adapter/ts_adapter.go|internal/adapter/ts_adapter.go]] · internal/adapter/ts_adapter.go
+- [[kodebase-go/raw/codebase/files/internal/adapter/ts_adapter_integration_test.go|internal/adapter/ts_adapter_integration_test.go]] · internal/adapter/ts_adapter_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/generate_output.go|internal/cli/generate_output.go]] · internal/cli/generate_output.go
+- [[kodebase-go/raw/codebase/files/internal/cli/generate_test.go|internal/cli/generate_test.go]] · internal/cli/generate_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/index_test.go|internal/cli/index_test.go]] · internal/cli/index_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/inspect_helpers_test.go|internal/cli/inspect_helpers_test.go]] · internal/cli/inspect_helpers_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/inspect_integration_test.go|internal/cli/inspect_integration_test.go]] · internal/cli/inspect_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/search_index_integration_test.go|internal/cli/search_index_integration_test.go]] · internal/cli/search_index_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/cli/search_test.go|internal/cli/search_test.go]] · internal/cli/search_test.go
+- [[kodebase-go/raw/codebase/files/internal/config/config_test.go|internal/config/config_test.go]] · internal/config/config_test.go
+- [[kodebase-go/raw/codebase/files/internal/generate/events.go|internal/generate/events.go]] · internal/generate/events.go
+- [[kodebase-go/raw/codebase/files/internal/generate/generate_integration_test.go|internal/generate/generate_integration_test.go]] · internal/generate/generate_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/generate/generate_test.go|internal/generate/generate_test.go]] · internal/generate/generate_test.go
+- [[kodebase-go/raw/codebase/files/internal/generate/testdata/fixture-go-repo/internal/greeter/greeter.go|internal/generate/testdata/fixture-go-repo/internal/greeter/greeter.go]] · internal/generate/testdata/fixture-go-repo/internal/greeter/greeter.go
+- [[kodebase-go/raw/codebase/files/internal/graph/normalize_integration_test.go|internal/graph/normalize_integration_test.go]] · internal/graph/normalize_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/graph/normalize_test.go|internal/graph/normalize_test.go]] · internal/graph/normalize_test.go
+- [[kodebase-go/raw/codebase/files/internal/logger/logger_test.go|internal/logger/logger_test.go]] · internal/logger/logger_test.go
+- [[kodebase-go/raw/codebase/files/internal/metrics/compute_integration_test.go|internal/metrics/compute_integration_test.go]] · internal/metrics/compute_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/metrics/compute_test.go|internal/metrics/compute_test.go]] · internal/metrics/compute_test.go
+- [[kodebase-go/raw/codebase/files/internal/models/models_test.go|internal/models/models_test.go]] · internal/models/models_test.go
+- [[kodebase-go/raw/codebase/files/internal/output/formatter.go|internal/output/formatter.go]] · internal/output/formatter.go
+- [[kodebase-go/raw/codebase/files/internal/output/formatter_test.go|internal/output/formatter_test.go]] · internal/output/formatter_test.go
+- [[kodebase-go/raw/codebase/files/internal/qmd/client_integration_test.go|internal/qmd/client_integration_test.go]] · internal/qmd/client_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/qmd/client_test.go|internal/qmd/client_test.go]] · internal/qmd/client_test.go
+- [[kodebase-go/raw/codebase/files/internal/scanner/scanner_integration_test.go|internal/scanner/scanner_integration_test.go]] · internal/scanner/scanner_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/pathutils_test.go|internal/vault/pathutils_test.go]] · internal/vault/pathutils_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/query.go|internal/vault/query.go]] · internal/vault/query.go
+- [[kodebase-go/raw/codebase/files/internal/vault/query_test.go|internal/vault/query_test.go]] · internal/vault/query_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/reader.go|internal/vault/reader.go]] · internal/vault/reader.go
+- [[kodebase-go/raw/codebase/files/internal/vault/reader_integration_test.go|internal/vault/reader_integration_test.go]] · internal/vault/reader_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/reader_test.go|internal/vault/reader_test.go]] · internal/vault/reader_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/render_integration_test.go|internal/vault/render_integration_test.go]] · internal/vault/render_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/textutils.go|internal/vault/textutils.go]] · internal/vault/textutils.go
+- [[kodebase-go/raw/codebase/files/internal/vault/textutils_test.go|internal/vault/textutils_test.go]] · internal/vault/textutils_test.go
+- [[kodebase-go/raw/codebase/files/internal/vault/writer.go|internal/vault/writer.go]] · internal/vault/writer.go
+- [[kodebase-go/raw/codebase/files/internal/vault/writer_integration_test.go|internal/vault/writer_integration_test.go]] · internal/vault/writer_integration_test.go
+- [[kodebase-go/raw/codebase/files/internal/version/version.go|internal/version/version.go]] · internal/version/version.go

@@ -1,0 +1,19 @@
+filters:
+  and:
+    - "file.hasTag(\"symbol\")"
+    - "outgoing_relation_count > 5"
+formulas:
+  total_relations: "incoming_relation_count + outgoing_relation_count"
+properties:
+  formula.total_relations:
+    displayName: "Total Relations"
+views:
+  - name: "Most Connected"
+    order:
+      - "file.name"
+      - "symbol_kind"
+      - "formula.total_relations"
+      - "incoming_relation_count"
+      - "outgoing_relation_count"
+      - "source_path"
+    type: "table"

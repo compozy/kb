@@ -31,7 +31,7 @@ func TestRenderDocumentsProducesRawWikiAndBaseSurfaces(t *testing.T) {
 		t.Fatal("expected raw file document to have raw kind")
 	}
 
-	if findDocument(t, documents, "wiki/concepts/Codebase Overview.md").Kind != models.DocWiki {
+	if findDocument(t, documents, vault.GetWikiConceptPath("Codebase Overview")).Kind != models.DocWiki {
 		t.Fatal("expected concept article to have wiki kind")
 	}
 
@@ -117,13 +117,13 @@ func TestRenderDocumentsCodebaseOverviewContainsSummary(t *testing.T) {
 	t.Parallel()
 
 	documents := renderFixtureDocuments(t)
-	document := findDocument(t, documents, "wiki/concepts/Codebase Overview.md")
+	document := findDocument(t, documents, vault.GetWikiConceptPath("Codebase Overview"))
 
 	if !strings.Contains(document.Body, "The corpus contains 4 parsed source files, 4 symbols, and 10 extracted relations.") {
 		t.Fatalf("expected overview counts in body, got:\n%s", document.Body)
 	}
 
-	if !strings.Contains(document.Body, "[[demo-repo/wiki/concepts/Module Health|Module Health]]") {
+	if !strings.Contains(document.Body, vault.ToTopicWikiLink("demo-repo", vault.GetWikiConceptPath("Module Health"), "Module Health")) {
 		t.Fatalf("expected module health cross-reference in overview, got:\n%s", document.Body)
 	}
 }
@@ -132,7 +132,7 @@ func TestRenderDocumentsDependencyHotspotsListsTopFiles(t *testing.T) {
 	t.Parallel()
 
 	documents := renderFixtureDocuments(t)
-	document := findDocument(t, documents, "wiki/concepts/Dependency Hotspots.md")
+	document := findDocument(t, documents, vault.GetWikiConceptPath("Dependency Hotspots"))
 
 	if !strings.Contains(document.Body, "[[demo-repo/raw/codebase/files/src/alpha.ts|src/alpha.ts]]") {
 		t.Fatalf("expected alpha hotspot in dependency article, got:\n%s", document.Body)
@@ -143,7 +143,7 @@ func TestRenderDocumentsCircularDependenciesListsGroups(t *testing.T) {
 	t.Parallel()
 
 	documents := renderFixtureDocuments(t)
-	document := findDocument(t, documents, "wiki/concepts/Circular Dependencies.md")
+	document := findDocument(t, documents, vault.GetWikiConceptPath("Circular Dependencies"))
 
 	if !strings.Contains(document.Body, "[[demo-repo/raw/codebase/files/src/alpha.ts|src/alpha.ts]] · [[demo-repo/raw/codebase/files/src/beta.ts|src/beta.ts]]") {
 		t.Fatalf("expected cyclic group links in circular dependency article, got:\n%s", document.Body)
@@ -168,7 +168,7 @@ func TestRenderDocumentsDashboardLinksToAllConceptArticles(t *testing.T) {
 		"Circular Dependencies",
 		"High-Impact Symbols",
 	} {
-		link := "[[demo-repo/wiki/concepts/" + title + "|" + title + "]]"
+		link := vault.ToTopicWikiLink("demo-repo", vault.GetWikiConceptPath(title), title)
 		if !strings.Contains(document.Body, link) {
 			t.Fatalf("expected dashboard to link to %s, got:\n%s", title, document.Body)
 		}

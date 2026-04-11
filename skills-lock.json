@@ -5,6 +5,11 @@
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "4456756ff2cf096cc7c6d2fc9d6771e2a1ea0084868f28b69f68157757ee50c8"
+    },
+    "karpathy-kb": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "computedHash": "8bc7a75020275e4ad1813cb4b616dc9e0c7624a6e71178f98341e69c39bd65f4"
     }
   }
 }

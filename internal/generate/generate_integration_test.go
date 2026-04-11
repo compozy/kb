@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/user/go-devstack/internal/models"
+	"github.com/user/go-devstack/internal/vault"
 )
 
 func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {
@@ -52,7 +53,7 @@ func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {
 		filepath.Join(summary.TopicPath, "raw", "codebase", "files", "main.go.md"),
 		filepath.Join(summary.TopicPath, "raw", "codebase", "files", "internal", "greeter", "greeter.go.md"),
 		filepath.Join(summary.TopicPath, "raw", "codebase", "symbols", "hello--internal-greeter-greeter-go-l6.md"),
-		filepath.Join(summary.TopicPath, "wiki", "concepts", "Codebase Overview.md"),
+		filepath.Join(summary.TopicPath, filepath.FromSlash(vault.GetWikiConceptPath("Codebase Overview"))),
 		filepath.Join(summary.TopicPath, "wiki", "index", "Dashboard.md"),
 		filepath.Join(summary.TopicPath, "bases", "module-health.base"),
 		filepath.Join(summary.TopicPath, "CLAUDE.md"),

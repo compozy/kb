@@ -1,0 +1,13 @@
+filters:
+  and:
+    - "file.hasTag(\"symbol\")"
+    - "blast_radius > 10"
+views:
+  - name: "Danger Zone"
+    order:
+      - "file.name"
+      - "blast_radius"
+      - "cyclomatic_complexity"
+      - "source_path"
+      - "smells"
+    type: "table"

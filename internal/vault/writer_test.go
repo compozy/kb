@@ -64,7 +64,7 @@ func TestWriteVaultCreatesTopicSkeletonAndManagedFiles(t *testing.T) {
 		t.Fatalf("expected raw file body to retain wiki links, got:\n%s", body)
 	}
 
-	wikiPath := filepath.Join(topic.TopicPath, filepath.FromSlash("wiki/concepts/Codebase Overview.md"))
+	wikiPath := filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetWikiConceptPath("Codebase Overview")))
 	wikiContent := readFile(t, wikiPath)
 	if !strings.Contains(wikiContent, "generator: \"kodebase\"") {
 		t.Fatalf("expected managed wiki frontmatter in concept document, got:\n%s", wikiContent)
@@ -125,7 +125,7 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	if !strings.Contains(claudeContent, "[[demo-repo/wiki/index/Dashboard|Dashboard]]") {
 		t.Fatalf("expected dashboard link in CLAUDE.md, got:\n%s", claudeContent)
 	}
-	if !strings.Contains(claudeContent, "[[demo-repo/wiki/concepts/Codebase Overview|Codebase Overview]]") {
+	if !strings.Contains(claudeContent, vault.ToTopicWikiLink("demo-repo", vault.GetWikiConceptPath("Codebase Overview"), "Codebase Overview")) {
 		t.Fatalf("expected concept link in CLAUDE.md, got:\n%s", claudeContent)
 	}
 
@@ -214,7 +214,7 @@ func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
 		t.Fatalf("write manual concept: %v", err)
 	}
 
-	filteredDocuments := filterOutDocument(documents, "wiki/concepts/Dead Code Report.md")
+	filteredDocuments := filterOutDocument(documents, vault.GetWikiConceptPath("Dead Code Report"))
 	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
 		Topic:     topic,
 		Graph:     graph,
@@ -224,11 +224,11 @@ func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
 		t.Fatalf("second WriteVault returned error: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(topic.TopicPath, filepath.FromSlash("wiki/concepts/Dead Code Report.md"))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetWikiConceptPath("Dead Code Report")))); !os.IsNotExist(err) {
 		t.Fatalf("expected stale managed concept to be removed, stat err = %v", err)
 	}
 
-	assertFileExists(t, filepath.Join(topic.TopicPath, filepath.FromSlash("wiki/concepts/Codebase Overview.md")))
+	assertFileExists(t, filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetWikiConceptPath("Codebase Overview"))))
 	assertFileExists(t, manualConceptPath)
 }
 

@@ -1,0 +1,15 @@
+filters:
+  and:
+    - "file.hasTag(\"file\")"
+views:
+  - groupBy:
+      direction: "ASC"
+      property: "file.folder"
+    name: "Files"
+    order:
+      - "file.name"
+      - "language"
+      - "symbol_count"
+      - "incoming_relation_count"
+      - "outgoing_relation_count"
+    type: "table"
