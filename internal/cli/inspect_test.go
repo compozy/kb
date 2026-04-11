@@ -591,6 +591,52 @@ func TestInspectCommandTSVFormatProducesHeaderAndRows(t *testing.T) {
 	}
 }
 
+func TestResolveInspectContextReadsCodebaseSubtree(t *testing.T) {
+	originalResolve := resolveInspectVaultQuery
+	originalRead := readInspectVaultSnapshot
+	originalGetwd := inspectGetwd
+	t.Cleanup(func() {
+		resolveInspectVaultQuery = originalResolve
+		readInspectVaultSnapshot = originalRead
+		inspectGetwd = originalGetwd
+	})
+
+	var gotQuery vault.VaultQueryOptions
+	var gotResolved vault.ResolvedVault
+
+	inspectGetwd = func() (string, error) { return "/workspace/repo", nil }
+	resolveInspectVaultQuery = func(options vault.VaultQueryOptions) (vault.ResolvedVault, error) {
+		gotQuery = options
+		return vault.ResolvedVault{
+			VaultPath: "/vault",
+			TopicPath: "/vault/demo-topic",
+			TopicSlug: "demo-topic",
+		}, nil
+	}
+	readInspectVaultSnapshot = func(resolvedVault vault.ResolvedVault) (vault.VaultSnapshot, error) {
+		gotResolved = resolvedVault
+		return vault.VaultSnapshot{}, nil
+	}
+
+	_, err := resolveInspectContext(&inspectSharedOptions{
+		Format: "json",
+		Topic:  "demo-topic",
+	})
+	if err != nil {
+		t.Fatalf("resolveInspectContext returned error: %v", err)
+	}
+
+	if want := (vault.VaultQueryOptions{CWD: "/workspace/repo", Topic: "demo-topic"}); gotQuery != want {
+		t.Fatalf("vault query = %#v, want %#v", gotQuery, want)
+	}
+	if gotResolved.TopicPath != "/vault/demo-topic/raw/codebase" {
+		t.Fatalf("inspect topic path = %q, want /vault/demo-topic/raw/codebase", gotResolved.TopicPath)
+	}
+	if gotResolved.TopicSlug != "demo-topic" {
+		t.Fatalf("inspect topic slug = %q, want demo-topic", gotResolved.TopicSlug)
+	}
+}
+
 func TestInspectCommandReturnsDescriptiveErrorForMissingVault(t *testing.T) {
 	t.Parallel()
 
@@ -629,6 +675,9 @@ func TestInspectSubcommandsRespondToHelp(t *testing.T) {
 
 			if !strings.Contains(stdout.String(), "Usage:") {
 				t.Fatalf("expected help output for %s, got:\n%s", subcommand, stdout.String())
+			}
+			if !strings.Contains(stdout.String(), "--topic") {
+				t.Fatalf("expected help output for %s to include --topic, got:\n%s", subcommand, stdout.String())
 			}
 		})
 	}

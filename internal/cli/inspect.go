@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	"github.com/user/go-devstack/internal/output"
 	"github.com/user/go-devstack/internal/vault"
 )
+
+const inspectCodebaseRelativeRoot = "raw/codebase"
 
 type inspectSharedOptions struct {
 	Format string
@@ -33,7 +37,12 @@ type inspectContext struct {
 var resolveInspectVaultQuery = vault.ResolveVaultQuery
 
 var readInspectVaultSnapshot = func(resolvedVault vault.ResolvedVault) (vault.VaultSnapshot, error) {
-	return vault.ReadVaultSnapshot(resolvedVault, vault.ReadVaultOptions{})
+	snapshot, err := vault.ReadVaultSnapshot(resolvedVault, vault.ReadVaultOptions{})
+	if err != nil {
+		return vault.VaultSnapshot{}, err
+	}
+
+	return normalizeInspectSnapshot(snapshot), nil
 }
 
 var inspectGetwd = os.Getwd
@@ -122,6 +131,8 @@ func resolveInspectContext(options *inspectSharedOptions) (inspectContext, error
 		return inspectContext{}, err
 	}
 
+	resolvedVault.TopicPath = filepath.Join(resolvedVault.TopicPath, filepath.FromSlash(inspectCodebaseRelativeRoot))
+
 	snapshot, err := readInspectVaultSnapshot(resolvedVault)
 	if err != nil {
 		return inspectContext{}, fmt.Errorf("inspect: read vault snapshot: %w", err)
@@ -131,6 +142,39 @@ func resolveInspectContext(options *inspectSharedOptions) (inspectContext, error
 		Format:   format,
 		Snapshot: snapshot,
 	}, nil
+}
+
+func normalizeInspectSnapshot(snapshot vault.VaultSnapshot) vault.VaultSnapshot {
+	snapshot.Symbols = prefixInspectDocumentPaths(snapshot.Symbols)
+	snapshot.Files = prefixInspectDocumentPaths(snapshot.Files)
+	snapshot.Directories = prefixInspectDocumentPaths(snapshot.Directories)
+	return snapshot
+}
+
+func prefixInspectDocumentPaths(documents []vault.VaultDocument) []vault.VaultDocument {
+	if len(documents) == 0 {
+		return documents
+	}
+
+	prefixed := make([]vault.VaultDocument, len(documents))
+	for index, document := range documents {
+		document.RelativePath = prefixInspectRelativePath(document.RelativePath)
+		prefixed[index] = document
+	}
+
+	return prefixed
+}
+
+func prefixInspectRelativePath(relativePath string) string {
+	trimmed := strings.Trim(strings.TrimSpace(relativePath), "/")
+	if trimmed == "" {
+		return ""
+	}
+	if trimmed == inspectCodebaseRelativeRoot || strings.HasPrefix(trimmed, inspectCodebaseRelativeRoot+"/") {
+		return trimmed
+	}
+
+	return path.Join(inspectCodebaseRelativeRoot, trimmed)
 }
 
 func parseInspectOutputFormat(value string) (output.OutputFormat, error) {

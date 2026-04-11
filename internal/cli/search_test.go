@@ -239,6 +239,49 @@ func TestSearchCommandPassesLimitFlag(t *testing.T) {
 	}
 }
 
+func TestSearchCommandUsesTopicFlagWhenDerivingCollection(t *testing.T) {
+	originalClient := newSearchClient
+	originalResolve := resolveSearchVaultQuery
+	originalGetwd := searchGetwd
+	t.Cleanup(func() {
+		newSearchClient = originalClient
+		resolveSearchVaultQuery = originalResolve
+		searchGetwd = originalGetwd
+	})
+
+	var gotOptions qmd.SearchOptions
+	var gotQuery vault.VaultQueryOptions
+	searchGetwd = func() (string, error) { return "/workspace/repo", nil }
+	resolveSearchVaultQuery = func(options vault.VaultQueryOptions) (vault.ResolvedVault, error) {
+		gotQuery = options
+		return vault.ResolvedVault{TopicSlug: "systems-design"}, nil
+	}
+	newSearchClient = func() searchCommandClient {
+		return fakeSearchClient{
+			search: func(ctx context.Context, options qmd.SearchOptions) ([]qmd.SearchResult, error) {
+				gotOptions = options
+				return nil, nil
+			},
+		}
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"search", "branchy", "--topic", "systems-design"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if want := (vault.VaultQueryOptions{CWD: "/workspace/repo", Topic: "systems-design"}); gotQuery != want {
+		t.Fatalf("vault query = %#v, want %#v", gotQuery, want)
+	}
+	if gotOptions.Collection != "systems-design" {
+		t.Fatalf("collection = %q, want systems-design", gotOptions.Collection)
+	}
+}
+
 func TestSearchCommandHandlesQMDUnavailable(t *testing.T) {
 	originalClient := newSearchClient
 	originalResolve := resolveSearchVaultQuery
@@ -289,7 +332,7 @@ func TestSearchCommandHelpShowsFlags(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	for _, flag := range []string{"--lex", "--vec", "--limit", "--min-score", "--full", "--all", "--collection"} {
+	for _, flag := range []string{"--lex", "--vec", "--limit", "--min-score", "--full", "--all", "--collection", "--topic", "--vault"} {
 		if !strings.Contains(stdout.String(), flag) {
 			t.Fatalf("expected help output to contain %q, got:\n%s", flag, stdout.String())
 		}

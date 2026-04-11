@@ -144,6 +144,59 @@ func TestIndexCommandUpdatesExistingCollection(t *testing.T) {
 	}
 }
 
+func TestIndexCommandUsesTopicFlagForTopicScopedPathAndCollection(t *testing.T) {
+	originalClient := newIndexClient
+	originalResolve := resolveIndexVaultQuery
+	originalGetwd := indexGetwd
+	t.Cleanup(func() {
+		newIndexClient = originalClient
+		resolveIndexVaultQuery = originalResolve
+		indexGetwd = originalGetwd
+	})
+
+	var gotQuery vault.VaultQueryOptions
+	var gotOptions qmd.IndexOptions
+	indexGetwd = func() (string, error) { return "/workspace/repo", nil }
+	resolveIndexVaultQuery = func(options vault.VaultQueryOptions) (vault.ResolvedVault, error) {
+		gotQuery = options
+		return vault.ResolvedVault{
+			VaultPath: "/vault",
+			TopicPath: "/vault/systems-design",
+			TopicSlug: "systems-design",
+		}, nil
+	}
+	newIndexClient = func() indexCommandClient {
+		return fakeIndexClient{
+			status: func(ctx context.Context) (qmd.IndexStatus, error) {
+				return qmd.IndexStatus{}, nil
+			},
+			index: func(ctx context.Context, options qmd.IndexOptions) (qmd.IndexResult, error) {
+				gotOptions = options
+				return qmd.IndexResult{CollectionName: options.CollectionName}, nil
+			},
+		}
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"index", "--topic", "systems-design"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if want := (vault.VaultQueryOptions{CWD: "/workspace/repo", Topic: "systems-design"}); gotQuery != want {
+		t.Fatalf("vault query = %#v, want %#v", gotQuery, want)
+	}
+	if gotOptions.VaultPath != "/vault/systems-design" {
+		t.Fatalf("vault path = %q, want /vault/systems-design", gotOptions.VaultPath)
+	}
+	if gotOptions.CollectionName != "systems-design" {
+		t.Fatalf("collection name = %q, want systems-design", gotOptions.CollectionName)
+	}
+}
+
 func TestIndexCommandHandlesQMDUnavailable(t *testing.T) {
 	originalClient := newIndexClient
 	originalResolve := resolveIndexVaultQuery
