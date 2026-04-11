@@ -50,7 +50,6 @@ func newIndexCommand() *cobra.Command {
 	}
 
 	flags := command.Flags()
-	flags.StringVar(&options.Vault, "vault", "", "Vault root path")
 	flags.StringVar(&options.Topic, "topic", "", "Topic slug inside the vault")
 	flags.StringVar(&options.Name, "name", "", "Override the derived QMD collection name")
 	flags.BoolVar(&options.Embed, "embed", true, "Run embedding after syncing files")
@@ -73,7 +72,7 @@ func runIndexCommand(cmd *cobra.Command, options *indexCommandOptions) error {
 	resolvedVault, err := resolveIndexVaultQuery(vault.VaultQueryOptions{
 		CWD:   cwd,
 		Topic: strings.TrimSpace(options.Topic),
-		Vault: strings.TrimSpace(options.Vault),
+		Vault: commandVaultValue(cmd, options.Vault),
 	})
 	if err != nil {
 		return fmt.Errorf("index: %w", err)

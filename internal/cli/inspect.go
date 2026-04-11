@@ -69,7 +69,6 @@ func newInspectCommand() *cobra.Command {
 
 func bindInspectSharedFlags(flags *pflag.FlagSet, options *inspectSharedOptions) {
 	flags.StringVar(&options.Format, "format", string(output.OutputFormatTable), "Output format (table|json|tsv)")
-	flags.StringVar(&options.Vault, "vault", "", "Vault root path")
 	flags.StringVar(&options.Topic, "topic", "", "Topic slug inside the vault")
 }
 
@@ -78,7 +77,10 @@ func runInspectCommand(
 	options *inspectSharedOptions,
 	callback func(context inspectContext) (inspectOutput, error),
 ) error {
-	context, err := resolveInspectContext(options)
+	resolvedOptions := *options
+	resolvedOptions.Vault = commandVaultValue(cmd, options.Vault)
+
+	context, err := resolveInspectContext(&resolvedOptions)
 	if err != nil {
 		return err
 	}
@@ -351,7 +353,7 @@ func findSingleInspectSymbolMatch(snapshot vault.VaultSnapshot, query string) (v
 	matches := vault.FindSymbolsByName(snapshot, query)
 	if len(matches) == 0 {
 		return vault.VaultDocument{}, fmt.Errorf(
-			"no symbols matched %q. Use `kodebase inspect smells` or `kodebase inspect complexity` to discover candidates",
+			"no symbols matched %q. Use `kb inspect smells` or `kb inspect complexity` to discover candidates",
 			query,
 		)
 	}

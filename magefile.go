@@ -19,7 +19,7 @@ const (
 	golangciLintVersion = "v2.11.4"
 	gotestsumVersion    = "v1.13.0"
 	binDir              = "bin"
-	cliBinary           = "kodebase"
+	cliBinary           = "kb"
 	versionPackage      = "github.com/user/go-devstack/internal/version"
 )
 

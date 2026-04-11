@@ -13,13 +13,15 @@ func ExecuteContext(ctx context.Context) error {
 
 func newRootCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:           "kodebase",
-		Short:         "Turn source code repositories into Obsidian knowledge vaults",
-		Long:          "Kodebase analyzes source code repositories and generates Obsidian-compatible knowledge vaults with graph and metrics context.",
+		Use:           "kb",
+		Short:         "Build and inspect topic-based knowledge bases",
+		Long:          "kb scaffolds topic-based knowledge vaults, generates codebase snapshots, indexes collections, searches content, and inspects code intelligence.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
+	bindRootPersistentFlags(command)
+	command.AddCommand(newTopicCommand())
 	command.AddCommand(newGenerateCommand())
 	command.AddCommand(newInspectCommand())
 	command.AddCommand(newSearchCommand())

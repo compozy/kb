@@ -62,7 +62,6 @@ func newSearchCommand() *cobra.Command {
 	flags.BoolVar(&options.All, "all", false, "Return all matches above the minimum score threshold")
 	flags.StringVar(&options.Collection, "collection", "", "Use an explicit QMD collection name instead of deriving from the topic")
 	flags.StringVar(&options.Format, "format", string(output.OutputFormatTable), "Output format (table|json|tsv)")
-	flags.StringVar(&options.Vault, "vault", "", "Vault root path used when deriving the collection name")
 	flags.StringVar(&options.Topic, "topic", "", "Topic slug used when deriving the collection name")
 
 	return command
@@ -96,7 +95,7 @@ func runSearchCommand(cmd *cobra.Command, query string, options *searchCommandOp
 		minScore = &options.MinScore
 	}
 
-	collection, err := resolveSearchCollection(options)
+	collection, err := resolveSearchCollection(cmd, options)
 	if err != nil {
 		return fmt.Errorf("search: %w", err)
 	}
@@ -146,7 +145,7 @@ func resolveSearchMode(lexical, vector bool) (qmd.SearchMode, error) {
 	return qmd.SearchModeHybrid, nil
 }
 
-func resolveSearchCollection(options *searchCommandOptions) (string, error) {
+func resolveSearchCollection(cmd *cobra.Command, options *searchCommandOptions) (string, error) {
 	if collection := strings.TrimSpace(options.Collection); collection != "" {
 		return collection, nil
 	}
@@ -159,7 +158,7 @@ func resolveSearchCollection(options *searchCommandOptions) (string, error) {
 	resolvedVault, err := resolveSearchVaultQuery(vault.VaultQueryOptions{
 		CWD:   cwd,
 		Topic: strings.TrimSpace(options.Topic),
-		Vault: strings.TrimSpace(options.Vault),
+		Vault: commandVaultValue(cmd, options.Vault),
 	})
 	if err != nil {
 		return "", err
@@ -196,7 +195,7 @@ func searchResultsToRows(results []qmd.SearchResult) []map[string]any {
 func wrapQMDCommandError(command string, err error) error {
 	if errors.Is(err, qmd.ErrQMDUnavailable) {
 		return fmt.Errorf(
-			"%s: QMD is not available to kodebase. Install it with `%s` and ensure `qmd` is on PATH",
+			"%s: QMD is not available to kb. Install it with `%s` and ensure `qmd` is on PATH",
 			command,
 			qmd.InstallCommand,
 		)

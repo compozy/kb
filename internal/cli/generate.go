@@ -39,6 +39,8 @@ func newGenerateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			options.VaultPath = commandVaultValue(cmd, options.VaultPath)
 			if options.VaultPath == "" && legacyOutputPath != "" {
 				options.VaultPath = legacyOutputPath
 			}
@@ -56,7 +58,6 @@ func newGenerateCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&options.VaultPath, "vault", "", "Vault root containing the generated topic")
 	command.Flags().StringVar(&legacyOutputPath, "output", "", "Deprecated alias for --vault")
 	_ = command.Flags().MarkDeprecated("output", "use --vault instead")
 	command.Flags().StringVar(&options.TopicSlug, "topic", "", "Override the generated topic slug")

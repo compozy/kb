@@ -179,7 +179,7 @@ func TestIndexCommandHandlesQMDUnavailable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected QMD unavailable error")
 	}
-	if !strings.Contains(err.Error(), "QMD is not available to kodebase") {
+	if !strings.Contains(err.Error(), "QMD is not available to kb") {
 		t.Fatalf("unexpected error %q", err)
 	}
 	if !strings.Contains(err.Error(), qmd.InstallCommand) {
