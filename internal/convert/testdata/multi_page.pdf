@@ -1,0 +1,61 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 115 >>
+stream
+BT
+/F1 24 Tf
+1 0 0 1 72 720 Tm
+(Overview) Tj
+/F1 12 Tf
+1 0 0 1 72 684 Tm
+(Page one carries the introduction.) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Length 114 >>
+stream
+BT
+/F1 18 Tf
+1 0 0 1 72 720 Tm
+(Details) Tj
+/F1 12 Tf
+1 0 0 1 72 690 Tm
+(Page two adds the follow-up notes.) Tj
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Pages /Kids [5 0 R 6 0 R] /Count 2 >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 3 0 R >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+8 0 obj
+<< /Title (Multi Page Fixture) /Author (Fixture Author) >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000245 00000 n 
+0000000410 00000 n 
+0000000473 00000 n 
+0000000599 00000 n 
+0000000725 00000 n 
+0000000774 00000 n 
+trailer
+<< /Size 9 /Root 7 0 R /Info 8 0 R >>
+startxref
+848
+%%EOF

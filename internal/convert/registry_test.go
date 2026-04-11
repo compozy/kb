@@ -24,11 +24,13 @@ func TestNewRegistryRegistersDefaultConvertersInPriorityOrder(t *testing.T) {
 		{name: "text", ext: ".txt", wantType: TextConverter{}},
 		{name: "html", ext: ".html", wantType: HTMLConverter{}},
 		{name: "htm", ext: ".htm", wantType: HTMLConverter{}},
+		{name: "pdf", ext: ".pdf", wantType: PDFConverter{}},
 		{name: "csv", ext: ".csv", wantType: CSVConverter{}},
 		{name: "json", ext: ".json", wantType: JSONConverter{}},
 		{name: "xml", ext: ".xml", wantType: XMLConverter{}},
 		{name: "markdown by mime", ext: "", mimeType: "text/markdown", wantType: TextConverter{}},
 		{name: "html by mime", ext: "", mimeType: "text/html", wantType: HTMLConverter{}},
+		{name: "pdf by mime", ext: "", mimeType: "application/pdf", wantType: PDFConverter{}},
 	}
 
 	for _, tc := range cases {
@@ -51,7 +53,7 @@ func TestRegistryMatchReturnsNilForUnsupportedInput(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	if got := registry.Match(".pdf", "application/pdf"); got != nil {
+	if got := registry.Match(".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"); got != nil {
 		t.Fatalf("Match returned %T, want nil", got)
 	}
 }
@@ -63,8 +65,10 @@ func TestRegistryConvertReturnsUnsupportedInputError(t *testing.T) {
 
 	_, err := registry.Convert(context.Background(), models.ConvertInput{
 		Reader:   strings.NewReader("binary"),
-		FilePath: "report.pdf",
-		Options:  map[string]any{"mimeType": "application/pdf"},
+		FilePath: "report.docx",
+		Options: map[string]any{
+			"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected Convert to fail")
@@ -74,7 +78,7 @@ func TestRegistryConvertReturnsUnsupportedInputError(t *testing.T) {
 	if !errors.As(err, &unsupportedErr) {
 		t.Fatalf("expected UnsupportedInputError, got %T", err)
 	}
-	if !strings.Contains(err.Error(), ".pdf") {
+	if !strings.Contains(err.Error(), ".docx") {
 		t.Fatalf("error %q does not mention extension", err)
 	}
 }

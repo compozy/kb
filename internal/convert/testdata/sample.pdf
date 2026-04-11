@@ -1,0 +1,46 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 189 >>
+stream
+BT
+/F1 24 Tf
+1 0 0 1 72 720 Tm
+(Welcome to Kodebase) Tj
+/F1 12 Tf
+1 0 0 1 72 684 Tm
+(This is the first paragraph.) Tj
+/F1 12 Tf
+1 0 0 1 72 672 Tm
+(It stays readable after conversion.) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 3 0 R >>
+endobj
+6 0 obj
+<< /Title (Fixture Title) /Author (Fixture Author) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000319 00000 n 
+0000000376 00000 n 
+0000000502 00000 n 
+0000000551 00000 n 
+trailer
+<< /Size 7 /Root 5 0 R /Info 6 0 R >>
+startxref
+620
+%%EOF
