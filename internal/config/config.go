@@ -10,13 +10,21 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+const (
+	defaultFirecrawlAPIURL    = "https://api.firecrawl.dev"
+	defaultOpenRouterAPIURL   = "https://openrouter.ai/api"
+	defaultOpenRouterSTTModel = "google/gemini-2.5-flash"
+)
+
 // Config contains the complete TOML-backed runtime configuration plus
 // non-TOML runtime helpers such as secrets.
 type Config struct {
-	App     AppConfig    `toml:"app"`
-	Server  ServerConfig `toml:"server"`
-	Log     LogConfig    `toml:"log"`
-	Secrets Secrets      `toml:"-"`
+	App        AppConfig        `toml:"app"`
+	Server     ServerConfig     `toml:"server"`
+	Log        LogConfig        `toml:"log"`
+	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
+	OpenRouter OpenRouterConfig `toml:"openrouter"`
+	Secrets    Secrets          `toml:"-"`
 }
 
 // AppConfig contains the application identity and environment.
@@ -36,6 +44,19 @@ type LogConfig struct {
 	Level string `toml:"level"`
 }
 
+// FirecrawlConfig controls URL scraping API access.
+type FirecrawlConfig struct {
+	APIKey string `toml:"api_key"`
+	APIURL string `toml:"api_url"`
+}
+
+// OpenRouterConfig controls the STT fallback provider.
+type OpenRouterConfig struct {
+	APIKey   string `toml:"api_key"`
+	APIURL   string `toml:"api_url"`
+	STTModel string `toml:"stt_model"`
+}
+
 // Default returns a sane starting configuration.
 func Default() Config {
 	return Config{
@@ -50,6 +71,13 @@ func Default() Config {
 		Log: LogConfig{
 			Level: "info",
 		},
+		Firecrawl: FirecrawlConfig{
+			APIURL: defaultFirecrawlAPIURL,
+		},
+		OpenRouter: OpenRouterConfig{
+			APIURL:   defaultOpenRouterAPIURL,
+			STTModel: defaultOpenRouterSTTModel,
+		},
 		Secrets: LoadSecretsFromEnv(),
 	}
 }
@@ -58,14 +86,12 @@ func Default() Config {
 // from the environment.
 func Load(path string) (Config, error) {
 	cfg := Default()
-	if path == "" {
-		return cfg, cfg.Validate()
+	if path != "" {
+		if err := decodeFile(path, &cfg); err != nil {
+			return Config{}, err
+		}
 	}
-
-	if err := decodeFile(path, &cfg); err != nil {
-		return Config{}, err
-	}
-	cfg.Secrets = LoadSecretsFromEnv()
+	ApplyEnvOverrides(&cfg)
 	return cfg, cfg.Validate()
 }
 

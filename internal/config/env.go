@@ -20,6 +20,18 @@ const (
 
 	// EnvAPIKey stores the application API key.
 	EnvAPIKey = "API_KEY"
+
+	// EnvFirecrawlAPIKey stores the Firecrawl API key override.
+	EnvFirecrawlAPIKey = "FIRECRAWL_API_KEY"
+
+	// EnvFirecrawlAPIURL stores the Firecrawl API URL override.
+	EnvFirecrawlAPIURL = "FIRECRAWL_API_URL"
+
+	// EnvOpenRouterAPIKey stores the OpenRouter API key override.
+	EnvOpenRouterAPIKey = "OPENROUTER_API_KEY"
+
+	// EnvOpenRouterAPIURL stores the OpenRouter API URL override.
+	EnvOpenRouterAPIURL = "OPENROUTER_API_URL"
 )
 
 // Secrets contains the runtime secrets loaded from the environment.
@@ -34,6 +46,29 @@ func LoadSecretsFromEnv() Secrets {
 	return Secrets{
 		DatabaseURL: os.Getenv(EnvDatabaseURL),
 		APIKey:      os.Getenv(EnvAPIKey),
+	}
+}
+
+// ApplyEnvOverrides overlays config values that are sourced from environment
+// variables at runtime.
+func ApplyEnvOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+
+	cfg.Secrets = LoadSecretsFromEnv()
+
+	if value, ok := os.LookupEnv(EnvFirecrawlAPIKey); ok && value != "" {
+		cfg.Firecrawl.APIKey = value
+	}
+	if value, ok := os.LookupEnv(EnvFirecrawlAPIURL); ok && value != "" {
+		cfg.Firecrawl.APIURL = value
+	}
+	if value, ok := os.LookupEnv(EnvOpenRouterAPIKey); ok && value != "" {
+		cfg.OpenRouter.APIKey = value
+	}
+	if value, ok := os.LookupEnv(EnvOpenRouterAPIURL); ok && value != "" {
+		cfg.OpenRouter.APIURL = value
 	}
 }
 

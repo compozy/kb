@@ -7,9 +7,13 @@
 # - `kodebase search`
 # - `kodebase index`
 #
-# Environment-only runtime secrets loaded by internal/config:
+# Runtime values loaded from the environment by internal/config:
 # - DATABASE_URL
 # - API_KEY
+# - FIRECRAWL_API_KEY
+# - FIRECRAWL_API_URL
+# - OPENROUTER_API_KEY
+# - OPENROUTER_API_URL
 
 [app]
 name = "kodebase"
@@ -21,3 +25,12 @@ port = 8080
 
 [log]
 level = "info"
+
+[firecrawl]
+api_key = ""
+api_url = "https://api.firecrawl.dev"
+
+[openrouter]
+api_key = ""
+api_url = "https://openrouter.ai/api"
+stt_model = "google/gemini-2.5-flash"
