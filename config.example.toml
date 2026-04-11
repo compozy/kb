@@ -1,26 +1,38 @@
-# Kodebase runtime config.
+# kb runtime config.
 #
 # Set APP_CONFIG to point at this file if you want to load a TOML config.
-# The current CLI feature surface is configured primarily through command flags:
-# - `kodebase generate`
-# - `kodebase inspect ...`
-# - `kodebase search`
-# - `kodebase index`
+# TOML sections currently accepted by internal/config:
+# - `[app]`
+# - `[server]`
+# - `[log]`
+# - `[firecrawl]`
+# - `[openrouter]`
 #
-# Runtime values loaded from the environment by internal/config:
+# Primary CLI surface is configured through commands and flags:
+# - `kb topic {new,list,info}`
+# - `kb ingest {url,file,youtube,codebase,bookmarks}`
+# - `kb lint`
+# - `kb inspect ...`
+# - `kb index`
+# - `kb search`
+#
+# Runtime values and overrides loaded from the environment by internal/config:
+# - APP_CONFIG
 # - DATABASE_URL
 # - API_KEY
 # - FIRECRAWL_API_KEY
 # - FIRECRAWL_API_URL
 # - OPENROUTER_API_KEY
 # - OPENROUTER_API_URL
+#
+# `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
 
 [app]
-name = "kodebase"
+name = "kb"
 env = "development"
 
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 8080
 
 [log]

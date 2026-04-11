@@ -1,0 +1,342 @@
+//go:build integration
+
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/user/go-devstack/internal/frontmatter"
+	"github.com/user/go-devstack/internal/models"
+)
+
+func TestCLIIntegrationScaffoldAndIngestFiles(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "systems-design", "Systems Design", "systems")
+
+	textSourcePath := filepath.Join(t.TempDir(), "latency-budget.txt")
+	writeFile(t, textSourcePath, strings.Join([]string{
+		"Latency Budget",
+		"",
+		"Keep p95 under 200ms for user-facing requests.",
+	}, "\n"))
+
+	textResult := runCLIJSON[models.IngestResult](t,
+		"ingest", "file", textSourcePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+
+	if textResult.FilePath != "systems-design/raw/articles/latency-budget.md" {
+		t.Fatalf("text ingest filePath = %q, want systems-design/raw/articles/latency-budget.md", textResult.FilePath)
+	}
+	if textResult.SourceType != models.SourceKindDocument {
+		t.Fatalf("text ingest sourceType = %q, want %q", textResult.SourceType, models.SourceKindDocument)
+	}
+
+	textFrontmatter, textBody := readMarkdownDocument(t, filepath.Join(vaultRoot, filepath.FromSlash(textResult.FilePath)))
+	assertRawDocumentFrontmatter(t, textFrontmatter, map[string]any{
+		"title":       "Latency Budget",
+		"type":        "source",
+		"stage":       "raw",
+		"domain":      "systems",
+		"source_kind": string(models.SourceKindDocument),
+		"source_path": filepath.ToSlash(filepath.Clean(textSourcePath)),
+	})
+	if !strings.Contains(textBody, "Keep p95 under 200ms") {
+		t.Fatalf("expected text body to contain ingested content, got:\n%s", textBody)
+	}
+
+	csvSourcePath := filepath.Join(t.TempDir(), "service-levels.csv")
+	writeFile(t, csvSourcePath, strings.Join([]string{
+		"service,latency_ms",
+		"api,120",
+		"worker,250",
+	}, "\n"))
+
+	csvResult := runCLIJSON[models.IngestResult](t,
+		"ingest", "file", csvSourcePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+
+	if csvResult.FilePath != "systems-design/raw/articles/service-levels.md" {
+		t.Fatalf("csv ingest filePath = %q, want systems-design/raw/articles/service-levels.md", csvResult.FilePath)
+	}
+
+	csvFrontmatter, csvBody := readMarkdownDocument(t, filepath.Join(vaultRoot, filepath.FromSlash(csvResult.FilePath)))
+	assertRawDocumentFrontmatter(t, csvFrontmatter, map[string]any{
+		"title":       "Service Levels",
+		"type":        "source",
+		"stage":       "raw",
+		"domain":      "systems",
+		"source_kind": string(models.SourceKindDocument),
+		"source_path": filepath.ToSlash(filepath.Clean(csvSourcePath)),
+	})
+	for _, fragment := range []string{
+		"| service | latency_ms |",
+		"| --- | --- |",
+		"| api | 120 |",
+		"| worker | 250 |",
+	} {
+		if !strings.Contains(csvBody, fragment) {
+			t.Fatalf("expected CSV markdown body to contain %q, got:\n%s", fragment, csvBody)
+		}
+	}
+}
+
+func TestCLIIntegrationScaffoldIngestCodebaseAndInspect(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "fixture-go-repo", "Fixture Go Repo", "golang")
+	codebasePath := filepath.Join("..", "generate", "testdata", "fixture-go-repo")
+
+	result := runCLIJSON[codebaseIngestResult](t,
+		"ingest", "codebase", codebasePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+		"--progress", "never",
+	)
+
+	if result.Topic != topic.Slug {
+		t.Fatalf("codebase ingest topic = %q, want %q", result.Topic, topic.Slug)
+	}
+	if result.SourceType != models.SourceKindCodebaseFile {
+		t.Fatalf("codebase ingest sourceType = %q, want %q", result.SourceType, models.SourceKindCodebaseFile)
+	}
+	if result.FilePath != "fixture-go-repo/raw/codebase" {
+		t.Fatalf("codebase ingest filePath = %q, want fixture-go-repo/raw/codebase", result.FilePath)
+	}
+	if result.Summary.FilesScanned != 2 {
+		t.Fatalf("FilesScanned = %d, want 2", result.Summary.FilesScanned)
+	}
+	if result.Summary.SymbolsExtracted != 4 {
+		t.Fatalf("SymbolsExtracted = %d, want 4", result.Summary.SymbolsExtracted)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files/main.go.md",
+		"raw/codebase/files/internal/greeter/greeter.go.md",
+		"raw/codebase/symbols/hello--internal-greeter-greeter-go-l6.md",
+	} {
+		targetPath := filepath.Join(topic.RootPath, filepath.FromSlash(relativePath))
+		if _, err := os.Stat(targetPath); err != nil {
+			t.Fatalf("expected generated codebase document %q: %v", targetPath, err)
+		}
+	}
+
+	stdout := runCLI(t,
+		"inspect", "smells",
+		"--format", "json",
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &rows); err != nil {
+		t.Fatalf("inspect smells did not return JSON: %v\n%s", err, stdout)
+	}
+	if len(rows) > 0 {
+		for _, key := range []string{"kind", "name", "source_path", "symbol_kind", "smells"} {
+			if _, ok := rows[0][key]; !ok {
+				t.Fatalf("inspect smells row missing key %q: %#v", key, rows[0])
+			}
+		}
+	}
+}
+
+func TestCLIIntegrationScaffoldIngestAndLint(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "knowledge-ops", "Knowledge Ops", "knowledge")
+
+	sourceOnePath := filepath.Join(t.TempDir(), "source-note.txt")
+	writeFile(t, sourceOnePath, strings.Join([]string{
+		"Source Note",
+		"",
+		"Primary note for the topic.",
+	}, "\n"))
+	sourceTwoPath := filepath.Join(t.TempDir(), "architecture-map.txt")
+	writeFile(t, sourceTwoPath, strings.Join([]string{
+		"Architecture Map",
+		"",
+		"Secondary note for the topic.",
+	}, "\n"))
+
+	runCLIJSON[models.IngestResult](t,
+		"ingest", "file", sourceOnePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+	runCLIJSON[models.IngestResult](t,
+		"ingest", "file", sourceTwoPath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+
+	today := time.Now().UTC().Format(frontmatter.DateLayout)
+	writeMarkdownDocument(t, topic.RootPath, "wiki/concepts/Broken Concept.md", map[string]any{
+		"title":   "Broken Concept",
+		"type":    "wiki",
+		"stage":   "compiled",
+		"domain":  "knowledge",
+		"tags":    []string{"knowledge", "wiki", "concept"},
+		"created": today,
+		"updated": today,
+		"sources": []string{"Source Note"},
+	}, "Broken concept.\n\nSee [[Missing Page]].\n")
+	writeMarkdownDocument(t, topic.RootPath, "wiki/concepts/Orphan Concept.md", map[string]any{
+		"title":   "Orphan Concept",
+		"type":    "wiki",
+		"stage":   "compiled",
+		"domain":  "knowledge",
+		"tags":    []string{"knowledge", "wiki", "concept"},
+		"created": today,
+		"updated": today,
+		"sources": []string{"Architecture Map"},
+	}, "This concept is intentionally unlinked.\n")
+	writeMarkdownDocument(t, topic.RootPath, "wiki/index/Dashboard.md", map[string]any{
+		"title":   "Dashboard",
+		"type":    "index",
+		"domain":  "knowledge",
+		"updated": today,
+	}, "[[knowledge-ops/wiki/concepts/Broken Concept|Broken Concept]]\n")
+
+	issues := runCLIJSON[[]models.LintIssue](t,
+		"lint", topic.Slug,
+		"--format", "json",
+		"--vault", vaultRoot,
+	)
+
+	assertHasLintIssue(t, issues, models.LintIssue{
+		Kind:     models.LintIssueKindDeadLink,
+		Severity: models.SeverityError,
+		FilePath: "wiki/concepts/Broken Concept.md",
+		Target:   "Missing Page",
+	})
+	assertHasLintIssue(t, issues, models.LintIssue{
+		Kind:     models.LintIssueKindOrphan,
+		Severity: models.SeverityWarning,
+		FilePath: "wiki/concepts/Orphan Concept.md",
+	})
+}
+
+func scaffoldTopicForIntegration(t *testing.T, vaultRoot, slug, title, domain string) models.TopicInfo {
+	t.Helper()
+
+	return runCLIJSON[models.TopicInfo](t,
+		"topic", "new", slug, title, domain,
+		"--vault", vaultRoot,
+	)
+}
+
+func runCLI(t *testing.T, args ...string) string {
+	t.Helper()
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	command.SetArgs(args)
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext(%q) returned error: %v\nstderr:\n%s", strings.Join(args, " "), err, stderr.String())
+	}
+
+	return stdout.String()
+}
+
+func runCLIJSON[T any](t *testing.T, args ...string) T {
+	t.Helper()
+
+	stdout := runCLI(t, args...)
+	var payload T
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout)
+	}
+
+	return payload
+}
+
+func readMarkdownDocument(t *testing.T, documentPath string) (map[string]any, string) {
+	t.Helper()
+
+	content, err := os.ReadFile(documentPath)
+	if err != nil {
+		t.Fatalf("read document %q: %v", documentPath, err)
+	}
+
+	values, body, err := frontmatter.Parse(string(content))
+	if err != nil {
+		t.Fatalf("parse frontmatter for %q: %v", documentPath, err)
+	}
+
+	return values, body
+}
+
+func writeMarkdownDocument(t *testing.T, rootPath, relativePath string, values map[string]any, body string) {
+	t.Helper()
+
+	document, err := frontmatter.Generate(values, body)
+	if err != nil {
+		t.Fatalf("generate frontmatter for %q: %v", relativePath, err)
+	}
+
+	targetPath := filepath.Join(rootPath, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatalf("create parent directory for %q: %v", targetPath, err)
+	}
+	if err := os.WriteFile(targetPath, []byte(document), 0o644); err != nil {
+		t.Fatalf("write markdown document %q: %v", targetPath, err)
+	}
+}
+
+func writeFile(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file %q: %v", path, err)
+	}
+}
+
+func assertRawDocumentFrontmatter(t *testing.T, values map[string]any, expected map[string]any) {
+	t.Helper()
+
+	for key, want := range expected {
+		if got := values[key]; got != want {
+			t.Fatalf("frontmatter[%q] = %#v, want %#v", key, got, want)
+		}
+	}
+
+	if scraped := frontmatter.GetString(values, "scraped"); strings.TrimSpace(scraped) == "" {
+		t.Fatal("expected scraped frontmatter field to be set")
+	}
+}
+
+func assertHasLintIssue(t *testing.T, issues []models.LintIssue, want models.LintIssue) {
+	t.Helper()
+
+	for _, issue := range issues {
+		if issue.Kind != want.Kind {
+			continue
+		}
+		if issue.Severity != want.Severity {
+			continue
+		}
+		if issue.FilePath != want.FilePath {
+			continue
+		}
+		if want.Target != "" && issue.Target != want.Target {
+			continue
+		}
+
+		return
+	}
+
+	t.Fatalf("missing lint issue %#v in %#v", want, issues)
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -36,10 +37,7 @@ func TestIndexAddConstructsExpectedArguments(t *testing.T) {
 		},
 	})
 
-	client := NewClient(
-		WithBinaryPath(binaryPath),
-		WithIndexName("task17-index"),
-	)
+	client := newFakeQMDClient(binaryPath, WithIndexName("task17-index"))
 
 	_, err := client.Index(context.Background(), IndexOptions{
 		Operation:      IndexOperationAdd,
@@ -73,7 +71,7 @@ func TestIndexUpdateConstructsExpectedArguments(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	_, err := client.Index(context.Background(), IndexOptions{
 		Operation:      IndexOperationUpdate,
@@ -111,7 +109,7 @@ func TestIndexWithContextAndEmbedRunsExpectedCommands(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	result, err := client.Index(context.Background(), IndexOptions{
 		Operation:      IndexOperationAdd,
@@ -150,7 +148,7 @@ func TestIndexWithContextAndEmbedRunsExpectedCommands(t *testing.T) {
 func TestIndexRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 
-	client := NewClient(WithBinaryPath(writeFakeQMD(t, fakeQMDOptions{})))
+	client := newFakeQMDClient(writeFakeQMD(t, fakeQMDOptions{}))
 
 	_, err := client.Index(context.Background(), IndexOptions{
 		Operation:      IndexOperationAdd,
@@ -191,7 +189,7 @@ func TestSearchHybridModeUsesQueryCommand(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	_, err := client.Search(context.Background(), SearchOptions{
 		Query:      "authentication flow",
@@ -224,7 +222,7 @@ func TestSearchAllOmitsLimitAndAcceptsModeAlias(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	_, err := client.Search(context.Background(), SearchOptions{
 		Query: "all auth results",
@@ -254,7 +252,7 @@ func TestSearchPassesLimitMinScoreAndFullFlags(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 	minScore := 0.3
 
 	_, err := client.Search(context.Background(), SearchOptions{
@@ -289,7 +287,7 @@ func TestSearchParsesJSONAndNormalizesResults(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 	minScore := 0.5
 
 	results, err := client.Search(context.Background(), SearchOptions{
@@ -324,7 +322,7 @@ func TestSearchFullUsesBodyWhenPresent(t *testing.T) {
 		},
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	results, err := client.Search(context.Background(), SearchOptions{
 		Query: "Doc",
@@ -350,7 +348,7 @@ printf '[]\n'
 `,
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -372,7 +370,7 @@ exit 4
 `,
 	})
 
-	client := NewClient(WithBinaryPath(binaryPath))
+	client := newFakeQMDClient(binaryPath)
 
 	_, err := client.Search(context.Background(), SearchOptions{
 		Query: "broken",
@@ -487,10 +485,20 @@ type fakeQMDOptions struct {
 	StdoutByCommand map[string]string
 }
 
+func newFakeQMDClient(binaryPath string, options ...ClientOption) *QMDClient {
+	client := NewClient(append([]ClientOption{WithBinaryPath(binaryPath)}, options...)...)
+	client.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		commandArgs := append([]string{name}, args...)
+		return exec.CommandContext(ctx, "/bin/sh", commandArgs...)
+	}
+	return client
+}
+
 func writeFakeQMD(t *testing.T, options fakeQMDOptions) string {
 	t.Helper()
 
 	scriptPath := filepath.Join(t.TempDir(), "qmd")
+	tempScriptPath := scriptPath + ".tmp"
 	var builder strings.Builder
 	builder.WriteString("#!/bin/sh\n")
 	builder.WriteString("set -eu\n")
@@ -528,8 +536,11 @@ func writeFakeQMD(t *testing.T, options fakeQMDOptions) string {
 		builder.WriteString("esac\n")
 	}
 
-	if err := os.WriteFile(scriptPath, []byte(builder.String()), 0o755); err != nil {
-		t.Fatalf("WriteFile(%q) returned error: %v", scriptPath, err)
+	if err := os.WriteFile(tempScriptPath, []byte(builder.String()), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) returned error: %v", tempScriptPath, err)
+	}
+	if err := os.Rename(tempScriptPath, scriptPath); err != nil {
+		t.Fatalf("Rename(%q, %q) returned error: %v", tempScriptPath, scriptPath, err)
 	}
 	return scriptPath
 }

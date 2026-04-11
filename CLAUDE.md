@@ -2,15 +2,15 @@
 
 ## Project Overview
 
-Kodebase CLI is a single-binary Go rewrite of the TypeScript `kodebase` CLI. The tool generates Obsidian knowledge vaults from source code repositories, exposes inspection commands over the generated snapshot, and integrates with QMD for indexing and search.
+`kb` is a single-binary Go CLI for building and maintaining topic-based knowledge bases in the Karpathy KB pattern. It handles the non-LLM workflow: topic scaffolding, multi-source ingestion, structural linting, codebase analysis, QMD indexing/search, and KB-oriented inspection commands.
 
 **Reference TypeScript source:** `~/dev/projects/kodebase`
 
 ## Source of Truth
 
-- Rewrite implementation spec: `.compozy/tasks/rewrite/_techspec.md`
-- Rewrite task tracker: `.compozy/tasks/rewrite/_tasks.md`
-- Workflow memory: `.compozy/tasks/rewrite/memory/`
+- KB pivot tech spec: `.compozy/tasks/kb-pivot/_techspec.md`
+- KB pivot task tracker: `.compozy/tasks/kb-pivot/_tasks.md`
+- KB pivot workflow memory: `.compozy/tasks/kb-pivot/memory/`
 
 ## Critical Rules
 
@@ -33,56 +33,68 @@ make deps
 make help
 ```
 
+- `make build` compiles `./...` and writes `bin/kb` from `cmd/kb`.
+
 ## Active Package Layout
 
 | Path | Responsibility |
 | --- | --- |
-| `cmd/kodebase` | Program entrypoint |
-| `internal/cli` | Cobra command assembly and command adapters |
-| `internal/generate` | Repository-to-vault orchestration |
-| `internal/models` | Shared domain models and interfaces |
-| `internal/scanner` | Source discovery and ignore handling |
+| `cmd/kb` | Program entrypoint for the `kb` binary |
+| `internal/cli` | Cobra root, subcommands, flag resolution, and command I/O |
+| `internal/topic` | Topic scaffolding, listing, and topic metadata lookup |
+| `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
+| `internal/convert` | Converter registry and format-specific file converters |
+| `internal/firecrawl` | Firecrawl REST client for `kb ingest url` |
+| `internal/youtube` | YouTube transcript extraction and OpenRouter STT fallback |
+| `internal/frontmatter` | Shared frontmatter parsing and generation helpers |
+| `internal/lint` | KB structural lint engine and report rendering |
+| `internal/generate` | Codebase-to-KB pipeline used by `kb ingest codebase` and the hidden legacy `generate` alias |
+| `internal/scanner` | Source discovery and ignore handling for codebase ingest |
 | `internal/adapter` | Tree-sitter parsing adapters |
-| `internal/graph` | Graph normalization |
-| `internal/metrics` | Metrics computation |
-| `internal/vault` | Rendering, writing, reading, and vault query helpers |
-| `internal/qmd` | QMD shell client |
-| `internal/output` | Structured output formatting |
-| `internal/config` | TOML config plus env-backed secrets |
+| `internal/graph` | Graph normalization for codebase snapshots |
+| `internal/metrics` | File, symbol, directory, and smell metrics |
+| `internal/vault` | Topic path helpers, render/write logic, vault reads, and inspect snapshot loading |
+| `internal/qmd` | QMD subprocess integration for index and search |
+| `internal/output` | Table, JSON, and TSV formatting |
+| `internal/models` | Shared domain models and interfaces |
+| `internal/config` | TOML config plus env-backed runtime overrides |
 | `internal/logger` | Slog logger setup |
-| `internal/version` | Build version metadata |
+| `internal/version` | Build metadata surfaced by `kb version` |
 
 ## Implementation Conventions
 
-- The active import layout is `internal/...`, not `internal/kodebase/...`. Treat any remaining `internal/kodebase/...` references as stale documentation.
-- Keep Cobra commands as thin adapters. Business logic belongs in packages like `internal/generate`, `internal/vault`, and `internal/qmd`.
-- `generate` writes a JSON summary to stdout and uses structured stage logs through `slog`.
-- `inspect` and `search` share the `internal/output` formatter and should continue to support `table`, `json`, and `tsv`.
-- `search` defaults to hybrid QMD retrieval. `--lex` and `--vec` are mutually exclusive mode selectors.
-- `index` is intentionally idempotent at the CLI layer by checking `qmd status` first and choosing add vs update.
-- Parse QMD JSON from stdout only. Treat stderr as progress and diagnostics, not as standalone failure evidence.
-- `vault.RenderDocuments` returns markdown content whose `Body` already includes YAML frontmatter. `.base` files are generated separately and stored as YAML definitions.
-- Read-side circular dependency reporting reconstructs ordered cycles from file-level import relations instead of relying on serialized cycle lists.
-- Integration tests that exercise QMD must isolate `HOME`, `XDG_CACHE_HOME`, and `XDG_CONFIG_HOME`.
+- Keep Cobra commands thin. Business logic belongs in packages like `internal/topic`, `internal/ingest`, `internal/lint`, `internal/generate`, `internal/vault`, and `internal/qmd`.
+- `kb topic new` owns the topic skeleton under the selected vault root, including `raw/`, `wiki/`, `outputs/`, `bases/`, `CLAUDE.md`, `AGENTS.md`, and `log.md`.
+- `kb ingest file`, `url`, `youtube`, and `bookmarks` should route through `internal/ingest` and the converter/client surfaces instead of duplicating write logic in CLI code.
+- `kb ingest codebase` is the supported codebase entrypoint. The hidden `kb generate` command remains as a compatibility wrapper and should stay thin.
+- Codebase inspection commands operate on `raw/codebase/` beneath the resolved topic. Keep inspect behavior topic-aware rather than vault-global.
+- Raw KB documents must include frontmatter before being written; use `internal/frontmatter` helpers instead of hand-assembling YAML.
+- CLI commands share the root `--vault` flag from `internal/cli/root.go`. Reuse the vault helpers instead of defining duplicate per-command vault flags.
+- Prefer native Go integrations for converters and clients. Optional OCR or remote-provider fallbacks must degrade cleanly when prerequisites are missing.
+- QMD integrations parse JSON from stdout and treat stderr as progress or diagnostics.
 
 ## CLI Surface
 
-- `kodebase generate <path>`
-- `kodebase inspect {smells|dead-code|complexity|blast-radius|coupling|symbol|file|backlinks|deps|circular-deps}`
-- `kodebase search <query>`
-- `kodebase index`
-- `kodebase index-vault`
-- `kodebase version`
+- `kb topic {new,list,info}`
+- `kb ingest {url,file,youtube,codebase,bookmarks}`
+- `kb lint [<slug>]`
+- `kb inspect {smells|dead-code|complexity|blast-radius|coupling|symbol|file|backlinks|deps|circular-deps}`
+- `kb index`
+- `kb search <query>`
+- `kb version`
+- Hidden compatibility alias: `kb generate <path>`
 
 ## Runtime Config Notes
 
-- `config.example.toml` should only document keys accepted by `internal/config`.
+- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[server]`, `[log]`, `[firecrawl]`, and `[openrouter]`.
 - `APP_CONFIG` selects the TOML file path.
-- `.env` may supply `DATABASE_URL` and `API_KEY`.
-- Generate/search/index tuning currently lives on CLI flags rather than config file keys.
+- `.env` may supply `DATABASE_URL`, `API_KEY`, `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, `OPENROUTER_API_KEY`, and `OPENROUTER_API_URL`.
+- `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
 
 ## Testing Conventions
 
 - Default to table-driven tests with focused helpers and `t.TempDir()` for filesystem isolation.
 - Keep integration tests co-located with the package under test behind `//go:build integration`.
-- Always treat a test failure as a behavior bug until proven otherwise; do not weaken tests to fit broken behavior.
+- CLI integration tests should exercise real topic/ingest/lint/inspect flows instead of mocking Cobra wiring when the workflow itself is the behavior under test.
+- QMD-related integration tests must isolate `HOME`, `XDG_CACHE_HOME`, and `XDG_CONFIG_HOME`.
+- Treat test failures as behavior bugs first; do not weaken assertions to fit broken behavior.
