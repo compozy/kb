@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement ingest orchestrator
 type: backend
 complexity: high
@@ -37,13 +37,13 @@ Create the `internal/ingest/` package that orchestrates the full ingestion pipel
 
 ## Subtasks
 
-- [ ] 12.1 Create `internal/ingest/` package with Ingest function
-- [ ] 12.2 Implement converter selection and invocation via the registry
-- [ ] 12.3 Implement frontmatter generation with correct schema fields per source kind
-- [ ] 12.4 Implement vault file writing to the correct `raw/<source-type>/` subdirectory
-- [ ] 12.5 Implement log.md appending with the standard format
-- [ ] 12.6 Implement slug generation with deduplication
-- [ ] 12.7 Write unit tests using `t.TempDir()` with a scaffolded topic
+- [x] 12.1 Create `internal/ingest/` package with Ingest function
+- [x] 12.2 Implement converter selection and invocation via the registry
+- [x] 12.3 Implement frontmatter generation with correct schema fields per source kind
+- [x] 12.4 Implement vault file writing to the correct `raw/<source-type>/` subdirectory
+- [x] 12.5 Implement log.md appending with the standard format
+- [x] 12.6 Implement slug generation with deduplication
+- [x] 12.7 Write unit tests using `t.TempDir()` with a scaffolded topic
 
 ## Implementation Details
 
@@ -77,16 +77,16 @@ Reference TechSpec "System Architecture" data flow diagram for the pipeline sequ
 ## Tests
 
 - Unit tests:
-  - [ ] Ingest file selects correct converter and writes to raw/articles/<slug>.md
-  - [ ] Ingest generates correct frontmatter with type: source, stage: raw, domain, source_kind
-  - [ ] Ingest appends log entry to log.md in correct format
-  - [ ] Ingest returns IngestResult with all fields populated
-  - [ ] Ingest returns error when target topic does not exist
-  - [ ] Ingest generates unique slug when file already exists (appends -2, -3, etc.)
-  - [ ] Ingest writes to correct subdirectory per source kind (articles/, youtube/, github/, bookmarks/)
-  - [ ] Ingest with pre-converted content (no converter needed) writes directly
+  - [x] Ingest file selects correct converter and writes to raw/articles/<slug>.md
+  - [x] Ingest generates correct frontmatter with type: source, stage: raw, domain, source_kind
+  - [x] Ingest appends log entry to log.md in correct format
+  - [x] Ingest returns IngestResult with all fields populated
+  - [x] Ingest returns error when target topic does not exist
+  - [x] Ingest generates unique slug when file already exists (appends -2, -3, etc.)
+  - [x] Ingest writes to correct subdirectory per source kind (articles/, youtube/, github/, bookmarks/)
+  - [x] Ingest with pre-converted content (no converter needed) writes directly
 - Integration tests:
-  - [ ] Scaffold topic → ingest file → verify vault output + log entry + frontmatter
+  - [x] Scaffold topic → ingest file → verify vault output + log entry + frontmatter
 - Test coverage target: >=80%
 - All tests must pass
 

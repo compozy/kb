@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement PDF converter
 type: backend
 complexity: medium
@@ -32,11 +32,11 @@ Add a PDF-to-Markdown converter to the `internal/convert/` package using `pdfcpu
 
 ## Subtasks
 
-- [ ] 7.1 Add pdfcpu dependency
-- [ ] 7.2 Implement PDF converter with text extraction and metadata reading
-- [ ] 7.3 Handle page-by-page extraction with separators
-- [ ] 7.4 Register converter in the registry
-- [ ] 7.5 Write unit tests with small fixture PDF files
+- [x] 7.1 Add pdfcpu dependency
+- [x] 7.2 Implement PDF converter with text extraction and metadata reading
+- [x] 7.3 Handle page-by-page extraction with separators
+- [x] 7.4 Register converter in the registry
+- [x] 7.5 Write unit tests with small fixture PDF files
 
 ## Implementation Details
 
@@ -67,14 +67,14 @@ Study markitdown's PDF converter approach (uses pdfminer.six in Python) for stru
 ## Tests
 
 - Unit tests:
-  - [ ] Converts single-page PDF with text to Markdown
-  - [ ] Converts multi-page PDF with page separators in output
-  - [ ] Extracts PDF metadata (title, author) into ConvertResult.Metadata
-  - [ ] Reports page count in metadata
-  - [ ] Returns error for encrypted PDF
-  - [ ] Returns error for non-PDF file with .pdf extension
-  - [ ] Handles PDF with no extractable text (scanned image) — returns empty body with warning metadata
-  - [ ] Accepts .pdf extension only
+  - [x] Converts single-page PDF with text to Markdown
+  - [x] Converts multi-page PDF with page separators in output
+  - [x] Extracts PDF metadata (title, author) into ConvertResult.Metadata
+  - [x] Reports page count in metadata
+  - [x] Returns error for encrypted PDF
+  - [x] Returns error for non-PDF file with .pdf extension
+  - [x] Handles PDF with no extractable text (scanned image) — returns empty body with warning metadata
+  - [x] Accepts .pdf extension only
 - Test coverage target: >=80%
 - All tests must pass
 

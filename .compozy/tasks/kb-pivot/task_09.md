@@ -1,11 +1,11 @@
 ---
-status: pending
+status: completed
 title: Implement EPUB and image OCR converters
 type: backend
 complexity: medium
 dependencies:
-  - task_05
-  - task_06
+    - task_05
+    - task_06
 ---
 
 # Task 09: Implement EPUB and image OCR converters

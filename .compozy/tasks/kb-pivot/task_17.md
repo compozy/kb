@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement CLI lint command and adapt existing commands
 type: backend
 complexity: medium
@@ -35,12 +35,12 @@ Implement the `kb lint` command wired to the lint engine, and adapt the existing
 
 ## Subtasks
 
-- [ ] 17.1 Implement `kb lint` command with --format and --save flags
-- [ ] 17.2 Adapt inspect subcommands vault path resolution for topic-based layout
-- [ ] 17.3 Adapt search command to use topic-scoped QMD collections
-- [ ] 17.4 Adapt index command to use topic-scoped paths and collection names
-- [ ] 17.5 Ensure --topic flag is consistently available on all adapted commands
-- [ ] 17.6 Write unit tests for lint command and adapted command flag handling
+- [x] 17.1 Implement `kb lint` command with --format and --save flags
+- [x] 17.2 Adapt inspect subcommands vault path resolution for topic-based layout
+- [x] 17.3 Adapt search command to use topic-scoped QMD collections
+- [x] 17.4 Adapt index command to use topic-scoped paths and collection names
+- [x] 17.5 Ensure --topic flag is consistently available on all adapted commands
+- [x] 17.6 Write unit tests for lint command and adapted command flag handling
 
 ## Implementation Details
 
@@ -79,14 +79,14 @@ The key change for inspect commands is in `inspectSharedOptions` and `runInspect
 ## Tests
 
 - Unit tests:
-  - [ ] `lint` command accepts optional slug positional arg
-  - [ ] `lint` accepts --format flag with table, json, tsv values
-  - [ ] `lint` accepts --save flag
-  - [ ] `lint` prints formatted output matching lint engine results
-  - [ ] Inspect commands accept --topic flag
-  - [ ] Inspect commands resolve vault from `<topic>/raw/codebase/` subtree
-  - [ ] Search command accepts --topic flag and scopes to topic collection
-  - [ ] Index command accepts --topic flag and uses topic-scoped path
+  - [x] `lint` command accepts optional slug positional arg
+  - [x] `lint` accepts --format flag with table, json, tsv values
+  - [x] `lint` accepts --save flag
+  - [x] `lint` prints formatted output matching lint engine results
+  - [x] Inspect commands accept --topic flag
+  - [x] Inspect commands resolve vault from `<topic>/raw/codebase/` subtree
+  - [x] Search command accepts --topic flag and scopes to topic collection
+  - [x] Index command accepts --topic flag and uses topic-scoped path
 - Test coverage target: >=80%
 - All tests must pass
 

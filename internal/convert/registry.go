@@ -55,6 +55,8 @@ func NewRegistry(converters ...models.Converter) *Registry {
 		converters = []models.Converter{
 			TextConverter{},
 			HTMLConverter{},
+			EPUBConverter{},
+			ImageConverter{},
 			PDFConverter{},
 			DOCXConverter{},
 			PPTXConverter{},

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Adapt codebase generate pipeline
 type: refactor
 complexity: high
@@ -36,12 +36,12 @@ Modify the existing `internal/generate/` pipeline so that its output writes to `
 
 ## Subtasks
 
-- [ ] 14.1 Modify `GenerateOptions` and `TopicMetadata` to work with topic-based paths
-- [ ] 14.2 Update vault writer output paths to write under `<topic>/raw/codebase/`
-- [ ] 14.3 Update rendered document paths (raw documents go to `raw/codebase/`, wiki stays in `wiki/`)
-- [ ] 14.4 Add log.md append for codebase ingest completion
-- [ ] 14.5 Ensure inspect commands still work against the new vault layout
-- [ ] 14.6 Update existing generate tests to verify new path structure
+- [x] 14.1 Modify `GenerateOptions` and `TopicMetadata` to work with topic-based paths
+- [x] 14.2 Update vault writer output paths to write under `<topic>/raw/codebase/`
+- [x] 14.3 Update rendered document paths (raw documents go to `raw/codebase/`, wiki stays in `wiki/`)
+- [x] 14.4 Add log.md append for codebase ingest completion
+- [x] 14.5 Ensure inspect commands still work against the new vault layout
+- [x] 14.6 Update existing generate tests to verify new path structure
 
 ## Implementation Details
 
@@ -79,15 +79,15 @@ The generate pipeline itself (scan → parse → graph → metrics → render) i
 ## Tests
 
 - Unit tests:
-  - [ ] Generate with topic slug writes raw documents to `<topic>/raw/codebase/files/`
-  - [ ] Generate with topic slug writes symbol documents to `<topic>/raw/codebase/symbols/`
-  - [ ] Generate with topic slug writes wiki concepts to `<topic>/wiki/concepts/`
-  - [ ] Generate with topic slug writes index pages to `<topic>/wiki/index/`
-  - [ ] Generate with topic slug writes base files to `<topic>/bases/`
-  - [ ] Generate appends ingest log entry to `<topic>/log.md`
-  - [ ] GenerationSummary structure is preserved (file count, symbol count, timings)
+  - [x] Generate with topic slug writes raw documents to `<topic>/raw/codebase/files/`
+  - [x] Generate with topic slug writes symbol documents to `<topic>/raw/codebase/symbols/`
+  - [x] Generate with topic slug writes wiki concepts to `<topic>/wiki/concepts/`
+  - [x] Generate with topic slug writes index pages to `<topic>/wiki/index/`
+  - [x] Generate with topic slug writes base files to `<topic>/bases/`
+  - [x] Generate appends ingest log entry to `<topic>/log.md`
+  - [x] GenerationSummary structure is preserved (file count, symbol count, timings)
 - Integration tests:
-  - [ ] Full generate pipeline against fixture Go project → verify all files in correct topic subtree
+  - [x] Full generate pipeline against fixture Go project → verify all files in correct topic subtree
 - Test coverage target: >=80%
 - All tests must pass
 

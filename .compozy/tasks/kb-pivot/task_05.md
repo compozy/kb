@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement converter registry and simple converters
 type: backend
 complexity: medium
@@ -33,13 +33,13 @@ Create the `internal/convert/` package with the converter registry pattern and s
 
 ## Subtasks
 
-- [ ] 5.1 Create `internal/convert/` package with Converter interface and Registry type
-- [ ] 5.2 Implement Registry with Register, Match, and Convert methods
-- [ ] 5.3 Implement plain text/markdown pass-through converter
-- [ ] 5.4 Implement CSV-to-Markdown-table converter
-- [ ] 5.5 Implement JSON-to-fenced-code-block converter
-- [ ] 5.6 Implement XML text extraction converter
-- [ ] 5.7 Write unit tests for registry matching and each converter
+- [x] 5.1 Create `internal/convert/` package with Converter interface and Registry type
+- [x] 5.2 Implement Registry with Register, Match, and Convert methods
+- [x] 5.3 Implement plain text/markdown pass-through converter
+- [x] 5.4 Implement CSV-to-Markdown-table converter
+- [x] 5.5 Implement JSON-to-fenced-code-block converter
+- [x] 5.6 Implement XML text extraction converter
+- [x] 5.7 Write unit tests for registry matching and each converter
 
 ## Implementation Details
 
@@ -76,18 +76,18 @@ Reference TechSpec "Core Interfaces" section and ADR-003 for the converter patte
 ## Tests
 
 - Unit tests:
-  - [ ] Registry.Match returns correct converter for .txt, .csv, .json, .xml extensions
-  - [ ] Registry.Match returns nil for unregistered extension
-  - [ ] Registry.Convert returns error for unsupported extension
-  - [ ] Text converter passes through .txt content with first-line title extraction
-  - [ ] Text converter passes through .md content preserving markdown formatting
-  - [ ] CSV converter produces valid Markdown table from 3-column CSV with headers
-  - [ ] CSV converter handles empty CSV (headers only) gracefully
-  - [ ] CSV converter handles CSV with special characters (pipes, quotes)
-  - [ ] JSON converter wraps content in fenced code block with `json` language tag
-  - [ ] JSON converter extracts title from top-level "title" or "name" field if present
-  - [ ] XML converter extracts text nodes stripping tags
-  - [ ] XML converter handles empty/malformed XML with error
+  - [x] Registry.Match returns correct converter for .txt, .csv, .json, .xml extensions
+  - [x] Registry.Match returns nil for unregistered extension
+  - [x] Registry.Convert returns error for unsupported extension
+  - [x] Text converter passes through .txt content with first-line title extraction
+  - [x] Text converter passes through .md content preserving markdown formatting
+  - [x] CSV converter produces valid Markdown table from 3-column CSV with headers
+  - [x] CSV converter handles empty CSV (headers only) gracefully
+  - [x] CSV converter handles CSV with special characters (pipes, quotes)
+  - [x] JSON converter wraps content in fenced code block with `json` language tag
+  - [x] JSON converter extracts title from top-level "title" or "name" field if present
+  - [x] XML converter extracts text nodes stripping tags
+  - [x] XML converter handles empty/malformed XML with error
 - Test coverage target: >=80%
 - All tests must pass
 

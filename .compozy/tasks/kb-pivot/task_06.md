@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement HTML-to-Markdown converter
 type: backend
 complexity: medium
@@ -32,11 +32,11 @@ Add an HTML-to-Markdown converter to the `internal/convert/` package using the `
 
 ## Subtasks
 
-- [ ] 6.1 Add html-to-markdown v2 dependency
-- [ ] 6.2 Implement HTML converter with title extraction and tag stripping
-- [ ] 6.3 Expose reusable HTMLToMarkdown function for other converters
-- [ ] 6.4 Register converter in the registry
-- [ ] 6.5 Write unit tests with fixture HTML files
+- [x] 6.1 Add html-to-markdown v2 dependency
+- [x] 6.2 Implement HTML converter with title extraction and tag stripping
+- [x] 6.3 Expose reusable HTMLToMarkdown function for other converters
+- [x] 6.4 Register converter in the registry
+- [x] 6.5 Write unit tests with fixture HTML files
 
 ## Implementation Details
 
@@ -64,15 +64,15 @@ Create `internal/convert/html.go` and `internal/convert/html_test.go`. Add the d
 ## Tests
 
 - Unit tests:
-  - [ ] Converts simple HTML with headings, paragraphs, and links to Markdown
-  - [ ] Converts HTML table to Markdown table
-  - [ ] Converts HTML code blocks (pre/code) to fenced Markdown code blocks
-  - [ ] Converts HTML ordered and unordered lists to Markdown lists
-  - [ ] Extracts `<title>` content as document title
-  - [ ] Strips `<script>` and `<style>` tags before conversion
-  - [ ] Handles HTML with no `<title>` tag (falls back to first `<h1>` or empty)
-  - [ ] Handles empty/malformed HTML gracefully
-  - [ ] Accepts .html and .htm extensions
+  - [x] Converts simple HTML with headings, paragraphs, and links to Markdown
+  - [x] Converts HTML table to Markdown table
+  - [x] Converts HTML code blocks (pre/code) to fenced Markdown code blocks
+  - [x] Converts HTML ordered and unordered lists to Markdown lists
+  - [x] Extracts `<title>` content as document title
+  - [x] Strips `<script>` and `<style>` tags before conversion
+  - [x] Handles HTML with no `<title>` tag (falls back to first `<h1>` or empty)
+  - [x] Handles empty/malformed HTML gracefully
+  - [x] Accepts .html and .htm extensions
 - Test coverage target: >=80%
 - All tests must pass
 

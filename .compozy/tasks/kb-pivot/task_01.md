@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement frontmatter package
 type: backend
 complexity: medium
@@ -31,11 +31,11 @@ Create the `internal/frontmatter/` package that provides YAML frontmatter parsin
 
 ## Subtasks
 
-- [ ] 1.1 Create `internal/frontmatter/` package with Parse and Generate functions
-- [ ] 1.2 Implement frontmatter extraction from markdown content (split on `---` delimiters)
-- [ ] 1.3 Implement frontmatter generation that produces `---`-delimited YAML prepended to body
-- [ ] 1.4 Add typed helper accessors for common fields (GetString, GetStringSlice, GetTime, GetBool)
-- [ ] 1.5 Write comprehensive unit tests covering all schema variants and error paths
+- [x] 1.1 Create `internal/frontmatter/` package with Parse and Generate functions
+- [x] 1.2 Implement frontmatter extraction from markdown content (split on `---` delimiters)
+- [x] 1.3 Implement frontmatter generation that produces `---`-delimited YAML prepended to body
+- [x] 1.4 Add typed helper accessors for common fields (GetString, GetStringSlice, GetTime, GetBool)
+- [x] 1.5 Write comprehensive unit tests covering all schema variants and error paths
 
 ## Implementation Details
 
@@ -71,15 +71,15 @@ Reference the frontmatter schemas defined in `.agents/skills/karpathy-kb/referen
 ## Tests
 
 - Unit tests:
-  - [ ] Parse valid frontmatter with all supported YAML types (string, int, float, bool, string slice, date)
-  - [ ] Parse markdown with no frontmatter returns empty map and full body
-  - [ ] Parse markdown with only `---` delimiters and empty YAML returns empty map
-  - [ ] Parse malformed frontmatter (missing closing delimiter) returns structured error
-  - [ ] Parse invalid YAML content returns structured error with position info
-  - [ ] Generate frontmatter from map produces valid `---`-delimited YAML
-  - [ ] Round-trip: Parse(Generate(map, body)) == (map, body) for all schema variants
-  - [ ] GetString, GetStringSlice, GetTime, GetBool return correct types and zero values for missing keys
-  - [ ] Generate with empty map produces no frontmatter prefix
+  - [x] Parse valid frontmatter with all supported YAML types (string, int, float, bool, string slice, date)
+  - [x] Parse markdown with no frontmatter returns empty map and full body
+  - [x] Parse markdown with only `---` delimiters and empty YAML returns empty map
+  - [x] Parse malformed frontmatter (missing closing delimiter) returns structured error
+  - [x] Parse invalid YAML content returns structured error with position info
+  - [x] Generate frontmatter from map produces valid `---`-delimited YAML
+  - [x] Round-trip: Parse(Generate(map, body)) == (map, body) for all schema variants
+  - [x] GetString, GetStringSlice, GetTime, GetBool return correct types and zero values for missing keys
+  - [x] Generate with empty map produces no frontmatter prefix
 - Test coverage target: >=80%
 - All tests must pass
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Integration tests and Makefile update
 type: chore
 complexity: high
@@ -35,13 +35,13 @@ Write end-to-end integration tests that exercise the full CLI and update the Mak
 
 ## Subtasks
 
-- [ ] 18.1 Update Makefile build target for `cmd/kb/`
-- [ ] 18.2 Update Mage build configuration if needed
-- [ ] 18.3 Write ingest end-to-end integration test (scaffold → ingest file → verify vault)
-- [ ] 18.4 Write codebase ingest integration test (scaffold → ingest codebase → inspect → verify)
-- [ ] 18.5 Write lint integration test (scaffold → ingest → lint → verify issues)
-- [ ] 18.6 Update CLAUDE.md with new CLI surface and package layout
-- [ ] 18.7 Run `make verify` and fix any issues until it passes clean
+- [x] 18.1 Update Makefile build target for `cmd/kb/`
+- [x] 18.2 Update Mage build configuration if needed
+- [x] 18.3 Write ingest end-to-end integration test (scaffold → ingest file → verify vault)
+- [x] 18.4 Write codebase ingest integration test (scaffold → ingest codebase → inspect → verify)
+- [x] 18.5 Write lint integration test (scaffold → ingest → lint → verify issues)
+- [x] 18.6 Update CLAUDE.md with new CLI surface and package layout
+- [x] 18.7 Run `make verify` and fix any issues until it passes clean
 
 ## Implementation Details
 
@@ -76,13 +76,13 @@ Update CLAUDE.md to reflect:
 ## Tests
 
 - Integration tests:
-  - [ ] Scaffold topic → ingest .txt file → verify file in raw/articles/ with correct frontmatter
-  - [ ] Scaffold topic → ingest .csv file → verify Markdown table in raw/articles/
-  - [ ] Scaffold topic → ingest codebase (Go fixture) → verify raw/codebase/files/ and raw/codebase/symbols/ populated
-  - [ ] Scaffold topic → ingest codebase → run inspect smells → verify structured output
-  - [ ] Scaffold topic → create vault with dead wikilink → lint → verify dead-link issue detected
-  - [ ] Scaffold topic → create vault with orphan article → lint → verify orphan issue detected
-  - [ ] Full `make verify` pipeline passes (fmt → lint → test → build)
+  - [x] Scaffold topic → ingest .txt file → verify file in raw/articles/ with correct frontmatter
+  - [x] Scaffold topic → ingest .csv file → verify Markdown table in raw/articles/
+  - [x] Scaffold topic → ingest codebase (Go fixture) → verify raw/codebase/files/ and raw/codebase/symbols/ populated
+  - [x] Scaffold topic → ingest codebase → run inspect smells → verify structured output
+  - [x] Scaffold topic → create vault with dead wikilink → lint → verify dead-link issue detected
+  - [x] Scaffold topic → create vault with orphan article → lint → verify orphan issue detected
+  - [x] Full `make verify` pipeline passes (fmt → lint → test → build)
 - Test coverage target: >=80%
 - All tests must pass
 

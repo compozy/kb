@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement topic scaffolding
 type: backend
 complexity: medium
@@ -34,12 +34,12 @@ Create the `internal/topic/` package that manages knowledge base topic lifecycle
 
 ## Subtasks
 
-- [ ] 4.1 Create `internal/topic/` package with New, List, and Info functions
-- [ ] 4.2 Implement directory tree creation with all required subdirectories
-- [ ] 4.3 Implement template installation with variable substitution (slug, title, domain, date)
-- [ ] 4.4 Implement topic listing by scanning vault root
-- [ ] 4.5 Implement topic info by reading metadata from the topic skeleton
-- [ ] 4.6 Write unit tests using `t.TempDir()` for filesystem operations
+- [x] 4.1 Create `internal/topic/` package with New, List, and Info functions
+- [x] 4.2 Implement directory tree creation with all required subdirectories
+- [x] 4.3 Implement template installation with variable substitution (slug, title, domain, date)
+- [x] 4.4 Implement topic listing by scanning vault root
+- [x] 4.5 Implement topic info by reading metadata from the topic skeleton
+- [x] 4.6 Write unit tests using `t.TempDir()` for filesystem operations
 
 ## Implementation Details
 
@@ -72,15 +72,15 @@ The existing vault writer (`internal/vault/writer.go`) already has `ensureTopicS
 ## Tests
 
 - Unit tests:
-  - [ ] New creates all expected subdirectories (raw/articles, raw/bookmarks, raw/codebase, raw/github, raw/youtube, wiki/concepts, wiki/index, outputs/queries, outputs/briefings, outputs/diagrams, outputs/reports, bases/)
-  - [ ] New installs Dashboard, Concept Index, Source Index templates with substituted variables
-  - [ ] New creates CLAUDE.md with correct topic metadata
-  - [ ] New creates AGENTS.md as symlink pointing to CLAUDE.md
-  - [ ] New appends scaffold entry to log.md
-  - [ ] New returns error if topic directory already exists
-  - [ ] List returns empty slice for vault with no topics
-  - [ ] List returns topic slugs for vault with multiple topics
-  - [ ] Info returns correct article/source counts for a populated topic
+  - [x] New creates all expected subdirectories (raw/articles, raw/bookmarks, raw/codebase, raw/github, raw/youtube, wiki/concepts, wiki/index, outputs/queries, outputs/briefings, outputs/diagrams, outputs/reports, bases/)
+  - [x] New installs Dashboard, Concept Index, Source Index templates with substituted variables
+  - [x] New creates CLAUDE.md with correct topic metadata
+  - [x] New creates AGENTS.md as symlink pointing to CLAUDE.md
+  - [x] New appends scaffold entry to log.md
+  - [x] New returns error if topic directory already exists
+  - [x] List returns empty slice for vault with no topics
+  - [x] List returns topic slugs for vault with multiple topics
+  - [x] Info returns correct article/source counts for a populated topic
 - Test coverage target: >=80%
 - All tests must pass
 

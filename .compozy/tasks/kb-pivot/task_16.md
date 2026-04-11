@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement CLI ingest commands
 type: backend
 complexity: high
@@ -38,13 +38,13 @@ Implement the `kb ingest` parent command and its subcommands: `url`, `file`, `yo
 
 ## Subtasks
 
-- [ ] 16.1 Create `internal/cli/ingest.go` parent command
-- [ ] 16.2 Implement `ingest url` subcommand wired to Firecrawl client → ingest orchestrator
-- [ ] 16.3 Implement `ingest file` subcommand wired to converter registry → ingest orchestrator
-- [ ] 16.4 Implement `ingest youtube` subcommand wired to YouTube extractor → ingest orchestrator
-- [ ] 16.5 Implement `ingest codebase` subcommand wired to adapted generate pipeline
-- [ ] 16.6 Implement `ingest bookmarks` subcommand wired to ingest orchestrator
-- [ ] 16.7 Write unit tests for flag parsing and command routing
+- [x] 16.1 Create `internal/cli/ingest.go` parent command
+- [x] 16.2 Implement `ingest url` subcommand wired to Firecrawl client → ingest orchestrator
+- [x] 16.3 Implement `ingest file` subcommand wired to converter registry → ingest orchestrator
+- [x] 16.4 Implement `ingest youtube` subcommand wired to YouTube extractor → ingest orchestrator
+- [x] 16.5 Implement `ingest codebase` subcommand wired to adapted generate pipeline
+- [x] 16.6 Implement `ingest bookmarks` subcommand wired to ingest orchestrator
+- [x] 16.7 Write unit tests for flag parsing and command routing
 
 ## Implementation Details
 
@@ -86,16 +86,16 @@ Each subcommand follows the pattern: parse CLI flags → create client/load conf
 ## Tests
 
 - Unit tests:
-  - [ ] `ingest` parent shows help listing all subcommands
-  - [ ] `ingest url` requires URL positional arg and --topic flag
-  - [ ] `ingest url` returns error when --topic is missing
-  - [ ] `ingest file` requires file path positional arg and --topic flag
-  - [ ] `ingest file` returns error for non-existent file
-  - [ ] `ingest youtube` requires YouTube URL positional arg and --topic flag
-  - [ ] `ingest youtube` accepts --stt flag
-  - [ ] `ingest codebase` requires path positional arg and --topic flag
-  - [ ] `ingest codebase` accepts --include, --exclude, --semantic flags
-  - [ ] `ingest bookmarks` requires path positional arg and --topic flag
+  - [x] `ingest` parent shows help listing all subcommands
+  - [x] `ingest url` requires URL positional arg and --topic flag
+  - [x] `ingest url` returns error when --topic is missing
+  - [x] `ingest file` requires file path positional arg and --topic flag
+  - [x] `ingest file` returns error for non-existent file
+  - [x] `ingest youtube` requires YouTube URL positional arg and --topic flag
+  - [x] `ingest youtube` accepts --stt flag
+  - [x] `ingest codebase` requires path positional arg and --topic flag
+  - [x] `ingest codebase` accepts --include, --exclude, --semantic flags
+  - [x] `ingest bookmarks` requires path positional arg and --topic flag
 - Test coverage target: >=80%
 - All tests must pass
 

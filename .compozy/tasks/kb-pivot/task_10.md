@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement Firecrawl REST client
 type: backend
 complexity: medium
@@ -33,11 +33,11 @@ Create the `internal/firecrawl/` package that provides a Go client for the Firec
 
 ## Subtasks
 
-- [ ] 10.1 Create `internal/firecrawl/` package with Client struct and Scrape method
-- [ ] 10.2 Implement HTTP request construction with Bearer auth and JSON body
-- [ ] 10.3 Implement response parsing for markdown content and metadata
-- [ ] 10.4 Implement exponential backoff retry logic for transient errors
-- [ ] 10.5 Write unit tests using `httptest.NewServer` mock
+- [x] 10.1 Create `internal/firecrawl/` package with Client struct and Scrape method
+- [x] 10.2 Implement HTTP request construction with Bearer auth and JSON body
+- [x] 10.3 Implement response parsing for markdown content and metadata
+- [x] 10.4 Implement exponential backoff retry logic for transient errors
+- [x] 10.5 Write unit tests using `httptest.NewServer` mock
 
 ## Implementation Details
 
@@ -67,15 +67,15 @@ Reference TechSpec "Integration Points" Firecrawl section for the API contract a
 ## Tests
 
 - Unit tests:
-  - [ ] Scrape sends correct POST request with Bearer auth and JSON body
-  - [ ] Scrape returns markdown content and title from successful response
-  - [ ] Scrape retries on 429 (rate limit) up to 3 times with backoff
-  - [ ] Scrape retries on 500/502/503 up to 3 times
-  - [ ] Scrape does NOT retry on 400/401/404 (client errors)
-  - [ ] Scrape returns descriptive error when API key is empty
-  - [ ] Scrape returns descriptive error when URL is unreachable (non-2xx after retries)
-  - [ ] Scrape respects context cancellation during retry
-  - [ ] Scrape uses custom API URL when configured
+  - [x] Scrape sends correct POST request with Bearer auth and JSON body
+  - [x] Scrape returns markdown content and title from successful response
+  - [x] Scrape retries on 429 (rate limit) up to 3 times with backoff
+  - [x] Scrape retries on 500/502/503 up to 3 times
+  - [x] Scrape does NOT retry on 400/401/404 (client errors)
+  - [x] Scrape returns descriptive error when API key is empty
+  - [x] Scrape returns descriptive error when URL is unreachable (non-2xx after retries)
+  - [x] Scrape respects context cancellation during retry
+  - [x] Scrape uses custom API URL when configured
 - Test coverage target: >=80%
 - All tests must pass
 

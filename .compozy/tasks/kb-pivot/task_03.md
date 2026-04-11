@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Extend config with Firecrawl and OpenRouter
 type: backend
 complexity: low
@@ -30,11 +30,11 @@ Extend the existing `internal/config/` package with new configuration sections f
 
 ## Subtasks
 
-- [ ] 3.1 Add `FirecrawlConfig` and `OpenRouterConfig` structs to `Config`
-- [ ] 3.2 Add environment variable loading for new API keys and URLs
-- [ ] 3.3 Set defaults for API URLs and STT model
-- [ ] 3.4 Update `config.example.toml` with documented new sections
-- [ ] 3.5 Write unit tests for new config loading and env override behavior
+- [x] 3.1 Add `FirecrawlConfig` and `OpenRouterConfig` structs to `Config`
+- [x] 3.2 Add environment variable loading for new API keys and URLs
+- [x] 3.3 Set defaults for API URLs and STT model
+- [x] 3.4 Update `config.example.toml` with documented new sections
+- [x] 3.5 Write unit tests for new config loading and env override behavior
 
 ## Implementation Details
 
@@ -68,13 +68,13 @@ Reference TechSpec "Data Models" Config model section for struct definitions.
 ## Tests
 
 - Unit tests:
-  - [ ] Load TOML with `[firecrawl]` section populates FirecrawlConfig fields
-  - [ ] Load TOML with `[openrouter]` section populates OpenRouterConfig fields
-  - [ ] Missing `[firecrawl]` section uses default API URL
-  - [ ] Missing `[openrouter]` section uses default API URL and STT model
-  - [ ] FIRECRAWL_API_KEY env var overrides TOML `api_key`
-  - [ ] OPENROUTER_API_KEY env var overrides TOML `api_key`
-  - [ ] FIRECRAWL_API_URL env var overrides TOML `api_url`
+  - [x] Load TOML with `[firecrawl]` section populates FirecrawlConfig fields
+  - [x] Load TOML with `[openrouter]` section populates OpenRouterConfig fields
+  - [x] Missing `[firecrawl]` section uses default API URL
+  - [x] Missing `[openrouter]` section uses default API URL and STT model
+  - [x] FIRECRAWL_API_KEY env var overrides TOML `api_key`
+  - [x] OPENROUTER_API_KEY env var overrides TOML `api_key`
+  - [x] FIRECRAWL_API_URL env var overrides TOML `api_url`
 - Test coverage target: >=80%
 - All tests must pass
 

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Rename binary and rewrite CLI root and topic commands
 type: refactor
 complexity: medium
@@ -34,12 +34,12 @@ Rename the binary from `kodebase` to `kb`, restructure the CLI root command, and
 
 ## Subtasks
 
-- [ ] 15.1 Rename `cmd/kodebase/` to `cmd/kb/` and update main.go
-- [ ] 15.2 Update root command (Use, Short, Long descriptions)
-- [ ] 15.3 Add `--vault` persistent flag with auto-discovery default
-- [ ] 15.4 Implement `topic` parent command with `new`, `list`, `info` subcommands
-- [ ] 15.5 Wire topic subcommands to `internal/topic/` functions
-- [ ] 15.6 Write unit tests for command parsing and flag handling
+- [x] 15.1 Rename `cmd/kodebase/` to `cmd/kb/` and update main.go
+- [x] 15.2 Update root command (Use, Short, Long descriptions)
+- [x] 15.3 Add `--vault` persistent flag with auto-discovery default
+- [x] 15.4 Implement `topic` parent command with `new`, `list`, `info` subcommands
+- [x] 15.5 Wire topic subcommands to `internal/topic/` functions
+- [x] 15.6 Write unit tests for command parsing and flag handling
 
 ## Implementation Details
 
@@ -76,13 +76,13 @@ The `--vault` persistent flag is added to the root command and inherited by all 
 ## Tests
 
 - Unit tests:
-  - [ ] Root command has Use: "kb" and correct description
-  - [ ] `--vault` flag is registered as persistent and accessible by subcommands
-  - [ ] `topic new` requires exactly 3 positional args (slug, title, domain)
-  - [ ] `topic new` returns error for missing args
-  - [ ] `topic list` accepts `--vault` flag and returns formatted output
-  - [ ] `topic info` requires exactly 1 positional arg (slug)
-  - [ ] `version` command still works
+  - [x] Root command has Use: "kb" and correct description
+  - [x] `--vault` flag is registered as persistent and accessible by subcommands
+  - [x] `topic new` requires exactly 3 positional args (slug, title, domain)
+  - [x] `topic new` returns error for missing args
+  - [x] `topic list` accepts `--vault` flag and returns formatted output
+  - [x] `topic info` requires exactly 1 positional arg (slug)
+  - [x] `version` command still works
 - Test coverage target: >=80%
 - All tests must pass
 

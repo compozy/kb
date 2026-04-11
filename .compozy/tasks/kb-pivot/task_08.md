@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement Office format converters (DOCX, PPTX, XLSX)
 type: backend
 complexity: high
@@ -32,13 +32,13 @@ Add converters for Microsoft Office formats to the `internal/convert/` package. 
 
 ## Subtasks
 
-- [ ] 8.1 Add excelize dependency
-- [ ] 8.2 Implement DOCX converter with ZIP+XML paragraph/heading extraction
-- [ ] 8.3 Implement PPTX converter with ZIP+XML per-slide text extraction
-- [ ] 8.4 Implement XLSX converter using excelize for sheet-to-table conversion
-- [ ] 8.5 Extract document properties (title, author) from docProps/core.xml
-- [ ] 8.6 Register all three converters in the registry
-- [ ] 8.7 Write unit tests with fixture Office files
+- [x] 8.1 Add excelize dependency
+- [x] 8.2 Implement DOCX converter with ZIP+XML paragraph/heading extraction
+- [x] 8.3 Implement PPTX converter with ZIP+XML per-slide text extraction
+- [x] 8.4 Implement XLSX converter using excelize for sheet-to-table conversion
+- [x] 8.5 Extract document properties (title, author) from docProps/core.xml
+- [x] 8.6 Register all three converters in the registry
+- [x] 8.7 Write unit tests with fixture Office files
 
 ## Implementation Details
 
@@ -75,16 +75,16 @@ For XLSX: use excelize's `GetRows()` per sheet and format as Markdown tables.
 ## Tests
 
 - Unit tests:
-  - [ ] DOCX converter extracts paragraphs as Markdown text
-  - [ ] DOCX converter converts heading styles to Markdown headings (# H1, ## H2)
-  - [ ] DOCX converter extracts title from document properties
-  - [ ] DOCX converter handles empty document gracefully
-  - [ ] PPTX converter extracts text from multiple slides with slide separators
-  - [ ] PPTX converter handles slides with no text (image-only) gracefully
-  - [ ] XLSX converter converts single sheet to Markdown table with headers
-  - [ ] XLSX converter converts multiple sheets with sheet name headers
-  - [ ] XLSX converter handles empty sheet gracefully
-  - [ ] All converters return error for corrupted ZIP files
+  - [x] DOCX converter extracts paragraphs as Markdown text
+  - [x] DOCX converter converts heading styles to Markdown headings (# H1, ## H2)
+  - [x] DOCX converter extracts title from document properties
+  - [x] DOCX converter handles empty document gracefully
+  - [x] PPTX converter extracts text from multiple slides with slide separators
+  - [x] PPTX converter handles slides with no text (image-only) gracefully
+  - [x] XLSX converter converts single sheet to Markdown table with headers
+  - [x] XLSX converter converts multiple sheets with sheet name headers
+  - [x] XLSX converter handles empty sheet gracefully
+  - [x] All converters return error for corrupted ZIP files
 - Test coverage target: >=80%
 - All tests must pass
 

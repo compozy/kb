@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Extend domain models with KB types
 type: backend
 complexity: medium
@@ -31,12 +31,12 @@ Extend `internal/models/` with new domain types required by the knowledge base p
 
 ## Subtasks
 
-- [ ] 2.1 Create `internal/models/kb_models.go` with all new types and constants
-- [ ] 2.2 Define the Converter interface and its input/output types
-- [ ] 2.3 Define ingest domain types (IngestResult, SourceKind constants)
-- [ ] 2.4 Define lint domain types (LintIssue, LintIssueKind constants)
-- [ ] 2.5 Define topic management types (TopicInfo)
-- [ ] 2.6 Write unit tests for constants and type helper functions
+- [x] 2.1 Create `internal/models/kb_models.go` with all new types and constants
+- [x] 2.2 Define the Converter interface and its input/output types
+- [x] 2.3 Define ingest domain types (IngestResult, SourceKind constants)
+- [x] 2.4 Define lint domain types (LintIssue, LintIssueKind constants)
+- [x] 2.5 Define topic management types (TopicInfo)
+- [x] 2.6 Write unit tests for constants and type helper functions
 
 ## Implementation Details
 
@@ -69,11 +69,11 @@ Reference TechSpec "Core Interfaces" section for the Converter, ConvertInput, Co
 ## Tests
 
 - Unit tests:
-  - [ ] All SourceKind constants are unique non-empty strings
-  - [ ] All LintIssueKind constants are unique non-empty strings
-  - [ ] ConvertResult fields are accessible and zero-valued by default
-  - [ ] IngestResult fields are accessible and zero-valued by default
-  - [ ] LintIssue fields are accessible and zero-valued by default
+  - [x] All SourceKind constants are unique non-empty strings
+  - [x] All LintIssueKind constants are unique non-empty strings
+  - [x] ConvertResult fields are accessible and zero-valued by default
+  - [x] IngestResult fields are accessible and zero-valued by default
+  - [x] LintIssue fields are accessible and zero-valued by default
 - Test coverage target: >=80%
 - All tests must pass
 

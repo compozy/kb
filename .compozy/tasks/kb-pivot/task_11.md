@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Implement YouTube transcript extractor
 type: backend
 complexity: high
@@ -33,12 +33,12 @@ Create the `internal/youtube/` package that extracts video transcripts from YouT
 
 ## Subtasks
 
-- [ ] 11.1 Add kkdai/youtube dependency
-- [ ] 11.2 Implement YouTube video metadata extraction (title, channel, duration)
-- [ ] 11.3 Implement caption/transcript extraction and formatting as timestamped Markdown
-- [ ] 11.4 Implement OpenRouter STT fallback (audio download → transcription)
-- [ ] 11.5 Implement fallback routing logic (try transcript first, STT if configured and needed)
-- [ ] 11.6 Write unit tests with mocked YouTube and OpenRouter responses
+- [x] 11.1 Add kkdai/youtube dependency
+- [x] 11.2 Implement YouTube video metadata extraction (title, channel, duration)
+- [x] 11.3 Implement caption/transcript extraction and formatting as timestamped Markdown
+- [x] 11.4 Implement OpenRouter STT fallback (audio download → transcription)
+- [x] 11.5 Implement fallback routing logic (try transcript first, STT if configured and needed)
+- [x] 11.6 Write unit tests with mocked YouTube and OpenRouter responses
 
 ## Implementation Details
 
@@ -68,16 +68,16 @@ Reference TechSpec "Integration Points" sections for OpenRouter API and YouTube.
 ## Tests
 
 - Unit tests:
-  - [ ] Extracts video metadata (title, channel, duration) from mock video info
-  - [ ] Extracts transcript text from mock caption data
-  - [ ] Formats transcript with timestamps as Markdown headers
-  - [ ] Falls back to STT when transcript extraction returns no captions
-  - [ ] Does NOT invoke STT when API key is not configured and --stt is not set
-  - [ ] OpenRouter STT sends correct chat completion request with base64 audio
-  - [ ] OpenRouter STT parses transcription from response
-  - [ ] Returns error for private/unavailable video
-  - [ ] Returns error for invalid YouTube URL format
-  - [ ] Handles YouTube URL variations (youtube.com/watch?v=, youtu.be/, youtube.com/shorts/)
+  - [x] Extracts video metadata (title, channel, duration) from mock video info
+  - [x] Extracts transcript text from mock caption data
+  - [x] Formats transcript with timestamps as Markdown headers
+  - [x] Falls back to STT when transcript extraction returns no captions
+  - [x] Does NOT invoke STT when API key is not configured and --stt is not set
+  - [x] OpenRouter STT sends correct chat completion request with base64 audio
+  - [x] OpenRouter STT parses transcription from response
+  - [x] Returns error for private/unavailable video
+  - [x] Returns error for invalid YouTube URL format
+  - [x] Handles YouTube URL variations (youtube.com/watch?v=, youtu.be/, youtube.com/shorts/)
 - Test coverage target: >=80%
 - All tests must pass
 
