@@ -35,7 +35,7 @@ func buildStarterWikiArticles(
 		createModuleHealthArticle(topic, graph, metrics),
 		createDeadCodeReportArticle(topic, graph, metrics),
 		createCodeSmellsArticle(topic, graph, metrics),
-		createCircularDependenciesArticle(topic, metrics),
+		createCircularDependenciesArticle(topic, graph, metrics),
 		createHighImpactSymbolsArticle(topic, graph, metrics),
 	}
 }
@@ -864,10 +864,17 @@ func createCodeSmellsArticle(
 
 func createCircularDependenciesArticle(
 	topic models.TopicMetadata,
+	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
 	sources := make([]string, 0)
 	cycles := []string{"No circular dependencies detected."}
+
+	if len(metrics.CircularDependencies) == 0 {
+		for _, file := range graph.Files {
+			sources = append(sources, GetRawFileDocumentPath(file.FilePath))
+		}
+	}
 
 	if len(metrics.CircularDependencies) > 0 {
 		cycles = make([]string, 0, len(metrics.CircularDependencies))

@@ -179,13 +179,21 @@ func TestIngestWritesExpectedSubdirectories(t *testing.T) {
 			t.Parallel()
 
 			vaultPath, topicSlug := scaffoldTopic(t)
+			markdown := "# " + tc.title + "\n\ncontent\n"
+			if tc.kind == models.SourceKindBookmarkCluster {
+				markdown = strings.Join([]string{
+					"# " + tc.title,
+					"",
+					"- [Go Tour](https://go.dev/tour/)",
+				}, "\n")
+			}
 
 			result, err := Ingest(context.Background(), Options{
 				VaultPath:  vaultPath,
 				Topic:      topicSlug,
 				SourceKind: tc.kind,
 				Title:      tc.title,
-				Markdown:   "# " + tc.title + "\n\ncontent\n",
+				Markdown:   markdown,
 				ScrapedAt:  fixedScrapeTime,
 			})
 			if err != nil {
@@ -200,6 +208,69 @@ func TestIngestWritesExpectedSubdirectories(t *testing.T) {
 				t.Fatalf("source_kind = %#v, want %q", got, tc.kind)
 			}
 		})
+	}
+}
+
+func TestIngestBookmarkClusterExtractsSourceURLsAndLifecycleFields(t *testing.T) {
+	t.Parallel()
+
+	vaultPath, topicSlug := scaffoldTopic(t)
+
+	result, err := Ingest(context.Background(), Options{
+		VaultPath:  vaultPath,
+		Topic:      topicSlug,
+		SourceKind: models.SourceKindBookmarkCluster,
+		Title:      "April Links",
+		Markdown: strings.Join([]string{
+			"# April Links",
+			"",
+			"- [Go Tour](https://go.dev/tour/)",
+			"- [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)",
+			"- https://go.dev/tour/",
+		}, "\n"),
+		ScrapedAt: fixedScrapeTime,
+	})
+	if err != nil {
+		t.Fatalf("Ingest returned error: %v", err)
+	}
+
+	if result.FilePath != "systems-design/raw/bookmarks/april-links.md" {
+		t.Fatalf("file path = %q, want systems-design/raw/bookmarks/april-links.md", result.FilePath)
+	}
+
+	values, _ := parseMarkdownFile(t, filepath.Join(vaultPath, filepath.FromSlash(result.FilePath)))
+	assertFrontmatter(t, values, map[string]any{
+		"title":       "April Links",
+		"type":        "source",
+		"stage":       "raw",
+		"domain":      "systems",
+		"source_kind": "bookmark-cluster",
+		"status":      "seeded",
+		"created":     "2026-04-11",
+		"updated":     "2026-04-11",
+		"source_urls": []string{
+			"https://go.dev/tour/",
+			"https://tree-sitter.github.io/tree-sitter/",
+		},
+		"tags": []string{"systems", "raw", "bookmark-cluster"},
+	})
+}
+
+func TestIngestBookmarkClusterRejectsContentWithoutURLs(t *testing.T) {
+	t.Parallel()
+
+	vaultPath, topicSlug := scaffoldTopic(t)
+
+	_, err := Ingest(context.Background(), Options{
+		VaultPath:  vaultPath,
+		Topic:      topicSlug,
+		SourceKind: models.SourceKindBookmarkCluster,
+		Title:      "Invalid Links",
+		Markdown:   "# Invalid Links\n\nNo actual URLs here.\n",
+		ScrapedAt:  fixedScrapeTime,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must contain at least one URL") {
+		t.Fatalf("error = %v, want bookmark URL validation", err)
 	}
 }
 

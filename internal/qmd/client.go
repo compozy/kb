@@ -206,11 +206,32 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 		return nil, err
 	}
 
-	stdout, _, err := client.run(ctx, command)
+	stdout, stderr, err := client.run(ctx, command)
 	if err != nil {
-		return nil, err
+		if shouldFallbackToLexical(options.Mode, stdout, stderr, err) {
+			fallbackOptions := options
+			fallbackOptions.Mode = SearchModeLexical
+
+			fallbackCommand, fallbackErr := client.searchCommand(fallbackOptions)
+			if fallbackErr != nil {
+				return nil, fallbackErr
+			}
+
+			stdout, _, fallbackErr = client.run(ctx, fallbackCommand)
+			if fallbackErr != nil {
+				return nil, fallbackErr
+			}
+		} else if isVectorUnavailableSearchFailure(stdout, stderr, err) {
+			return nil, vectorUnavailableSearchError()
+		} else {
+			return nil, err
+		}
 	}
 
+	return parseSearchResults(stdout, options)
+}
+
+func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, error) {
 	var rawResults []searchResultPayload
 	if err := json.Unmarshal([]byte(stdout), &rawResults); err != nil {
 		return nil, fmt.Errorf("qmd search: parse JSON output: %w", err)
@@ -226,6 +247,33 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 	}
 
 	return results, nil
+}
+
+func shouldFallbackToLexical(mode SearchMode, stdout, stderr string, err error) bool {
+	normalizedMode, _, normalizeErr := normalizeSearchMode(mode)
+	if normalizeErr != nil {
+		return false
+	}
+	if normalizedMode != SearchModeHybrid {
+		return false
+	}
+
+	return isVectorUnavailableSearchFailure(stdout, stderr, err)
+}
+
+func isVectorUnavailableSearchFailure(stdout, stderr string, err error) bool {
+	parts := []string{stdout, stderr}
+	if err != nil {
+		parts = append(parts, err.Error())
+	}
+	text := strings.ToLower(strings.Join(parts, "\n"))
+
+	return strings.Contains(text, "no such module: vec0") ||
+		strings.Contains(text, "sqlite-vec is not available")
+}
+
+func vectorUnavailableSearchError() error {
+	return fmt.Errorf("qmd search: vector search is unavailable on this system; use --lex or install QMD with sqlite-vec support")
 }
 
 // Index creates or updates a QMD collection and returns the structured summary.

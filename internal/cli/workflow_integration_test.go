@@ -150,6 +150,41 @@ func TestCLIIntegrationScaffoldIngestCodebaseAndInspect(t *testing.T) {
 	}
 }
 
+func TestCLIIntegrationGeneratedContentPassesLint(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "rewrite-qa", "Rewrite QA", "engineering")
+	codebasePath := filepath.Join("..", "generate", "testdata", "fixture-go-repo")
+
+	bookmarkPath := filepath.Join(t.TempDir(), "bookmarks.md")
+	writeFile(t, bookmarkPath, strings.Join([]string{
+		"# QA Links",
+		"",
+		"- [Go Tour](https://go.dev/tour/)",
+		"- [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)",
+	}, "\n"))
+
+	runCLIJSON[models.IngestResult](t,
+		"ingest", "bookmarks", bookmarkPath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+	)
+	runCLIJSON[codebaseIngestResult](t,
+		"ingest", "codebase", codebasePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+		"--progress", "never",
+	)
+
+	issues := runCLIJSON[[]models.LintIssue](t,
+		"lint", topic.Slug,
+		"--format", "json",
+		"--vault", vaultRoot,
+	)
+	if len(issues) != 0 {
+		t.Fatalf("generated content should pass lint, found %#v", issues)
+	}
+}
+
 func TestCLIIntegrationScaffoldIngestAndLint(t *testing.T) {
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "knowledge-ops", "Knowledge Ops", "knowledge")

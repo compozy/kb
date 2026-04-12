@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/user/go-devstack/internal/topic"
 	"github.com/user/go-devstack/internal/vault"
 )
+
+var bookmarkURLPattern = regexp.MustCompile(`https?://[^\s<>()]+`)
 
 // Registry converts file-backed inputs into markdown content.
 type Registry interface {
@@ -77,7 +80,12 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 	relativeTopicPath := path.Join("raw", sourceDirectory, slug+".md")
 	absoluteTargetPath := filepath.Join(topicInfo.RootPath, filepath.FromSlash(relativeTopicPath))
 
-	document, err := frontmatter.Generate(buildFrontmatter(topicInfo, options, title, now), markdown)
+	values, err := buildFrontmatter(topicInfo, options, title, markdown, now)
+	if err != nil {
+		return models.IngestResult{}, fmt.Errorf("ingest: %w", err)
+	}
+
+	document, err := frontmatter.Generate(values, markdown)
 	if err != nil {
 		return models.IngestResult{}, fmt.Errorf("ingest: generate frontmatter: %w", err)
 	}
@@ -144,14 +152,21 @@ func resolveMarkdown(ctx context.Context, options Options) (string, string, erro
 	return title, result.Markdown, nil
 }
 
-func buildFrontmatter(topicInfo models.TopicInfo, options Options, title string, scrapedAt time.Time) map[string]any {
+func buildFrontmatter(
+	topicInfo models.TopicInfo,
+	options Options,
+	title string,
+	markdown string,
+	scrapedAt time.Time,
+) (map[string]any, error) {
+	stamp := scrapedAt.Format(frontmatter.DateLayout)
 	values := map[string]any{
 		"title":       title,
 		"type":        "source",
 		"stage":       "raw",
 		"domain":      topicInfo.Domain,
 		"source_kind": string(options.SourceKind),
-		"scraped":     scrapedAt.Format(frontmatter.DateLayout),
+		"scraped":     stamp,
 		"tags":        []string{topicInfo.Domain, "raw", string(options.SourceKind)},
 	}
 
@@ -162,7 +177,19 @@ func buildFrontmatter(topicInfo models.TopicInfo, options Options, title string,
 		values["source_path"] = sourcePath
 	}
 
-	return values
+	if options.SourceKind == models.SourceKindBookmarkCluster {
+		sourceURLs := extractSourceURLs(markdown)
+		if len(sourceURLs) == 0 {
+			return nil, errors.New("bookmark cluster must contain at least one URL")
+		}
+
+		values["status"] = "seeded"
+		values["created"] = stamp
+		values["updated"] = stamp
+		values["source_urls"] = sourceURLs
+	}
+
+	return values, nil
 }
 
 func appendLogEntry(logPath string, when time.Time, slug string, sourceKind models.SourceKind, filePath string, title string) error {
@@ -295,6 +322,29 @@ func normalizedSourcePath(sourcePath string) string {
 	}
 
 	return vault.ToPosixPath(filepath.Clean(sourcePath))
+}
+
+func extractSourceURLs(markdown string) []string {
+	matches := bookmarkURLPattern.FindAllString(markdown, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(matches))
+	urls := make([]string, 0, len(matches))
+	for _, match := range matches {
+		cleaned := strings.TrimRight(strings.TrimSpace(match), ".,;:")
+		if cleaned == "" {
+			continue
+		}
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		urls = append(urls, cleaned)
+	}
+
+	return urls
 }
 
 func cloneMap(values map[string]any) map[string]any {

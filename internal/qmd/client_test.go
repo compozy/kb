@@ -211,6 +211,55 @@ func TestSearchHybridModeUsesQueryCommand(t *testing.T) {
 	}
 }
 
+func TestSearchHybridFallsBackToLexicalWhenVectorModuleUnavailable(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "args.log")
+	binaryPath := writeFakeQMD(t, fakeQMDOptions{
+		LogPath: logPath,
+		ScriptBody: `
+cmd=$1
+if [ "$cmd" = "query" ]; then
+  printf 'SQLiteError: no such module: vec0\n' >&2
+  exit 1
+fi
+if [ "$cmd" = "search" ]; then
+  cat <<'EOF'
+` + lexicalSearchJSONFixture + `
+EOF
+  exit 0
+fi
+printf 'unexpected command: %s\n' "$cmd" >&2
+exit 9
+`,
+	})
+
+	client := newFakeQMDClient(binaryPath)
+
+	results, err := client.Search(context.Background(), SearchOptions{
+		Query:      "authentication flow",
+		Mode:       SearchModeHybrid,
+		Collection: "docs",
+	})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Doc" {
+		t.Fatalf("results = %#v, want lexical fallback payload", results)
+	}
+
+	invocations := readInvocationLog(t, logPath)
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want query then lexical fallback", len(invocations))
+	}
+	if !reflect.DeepEqual(invocations[0], []string{"query", "--json", "-c", "docs", "authentication flow"}) {
+		t.Fatalf("hybrid args = %#v", invocations[0])
+	}
+	if !reflect.DeepEqual(invocations[1], []string{"search", "--json", "-c", "docs", "authentication flow"}) {
+		t.Fatalf("fallback args = %#v", invocations[1])
+	}
+}
+
 func TestSearchAllOmitsLimitAndAcceptsModeAlias(t *testing.T) {
 	t.Parallel()
 

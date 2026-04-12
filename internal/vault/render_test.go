@@ -150,6 +150,40 @@ func TestRenderDocumentsCircularDependenciesListsGroups(t *testing.T) {
 	}
 }
 
+func TestRenderDocumentsRawSourcesIncludeScrapedFrontmatter(t *testing.T) {
+	t.Parallel()
+
+	documents := renderFixtureDocuments(t)
+	wantScraped := "2026-04-09"
+
+	for _, relativePath := range []string{
+		"raw/codebase/files/src/alpha.ts.md",
+		"raw/codebase/symbols/alpha--src-alpha-ts-l10.md",
+		"raw/codebase/indexes/directories/src.md",
+		"raw/codebase/indexes/languages/ts.md",
+	} {
+		document := findDocument(t, documents, relativePath)
+		if got := document.Frontmatter["scraped"]; got != wantScraped {
+			t.Fatalf("%s scraped = %#v, want %q", relativePath, got, wantScraped)
+		}
+	}
+}
+
+func TestRenderDocumentsCircularDependenciesKeepSourceEvidenceWithoutCycles(t *testing.T) {
+	t.Parallel()
+
+	documents := renderFixtureDocuments(t)
+	document := findDocument(t, documents, vault.GetWikiConceptPath("Circular Dependencies"))
+
+	sources, ok := document.Frontmatter["sources"].([]string)
+	if !ok {
+		t.Fatalf("sources type = %T, want []string", document.Frontmatter["sources"])
+	}
+	if len(sources) == 0 {
+		t.Fatal("expected circular dependency article to keep source evidence even when no cycles are detected")
+	}
+}
+
 func TestRenderDocumentsDashboardLinksToAllConceptArticles(t *testing.T) {
 	t.Parallel()
 
