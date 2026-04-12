@@ -1,3 +1,4 @@
+// Package graph normalizes and deduplicates code relations from parsed files into a clean dependency graph.
 package graph
 
 import (

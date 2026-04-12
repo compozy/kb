@@ -1,3 +1,4 @@
+// Package generate orchestrates the codebase-to-vault pipeline: scan, parse, normalize, compute metrics, render, and write.
 package generate
 
 import (

@@ -1,6 +1,6 @@
-# Contributing to Kodebase
+# Contributing to kb
 
-Thanks for your interest in contributing. Whether it's a bug report, a new language adapter, or a documentation fix, every contribution helps.
+Thanks for your interest in contributing. Whether it's a bug report, a new language adapter, a file converter, or a documentation fix, every contribution helps.
 
 ---
 
@@ -28,18 +28,33 @@ make verify   # Verify everything passes before making changes
 
 ```text
 cmd/
-  kodebase/
+  kb/
     main.go                       # Program entrypoint
 internal/
   cli/                            # Cobra command tree and command adapters
     root.go
-    generate.go
+    topic.go                      # kb topic {new,list,info}
+    ingest.go                     # kb ingest parent command + shared helpers
+    ingest_url.go                 # kb ingest url
+    ingest_file.go                # kb ingest file
+    ingest_youtube.go             # kb ingest youtube
+    ingest_codebase.go            # kb ingest codebase
+    ingest_bookmarks.go           # kb ingest bookmarks
+    lint.go                       # kb lint
+    generate.go                   # Hidden compatibility alias
     inspect.go                    # Router for inspect subcommands
     inspect_*.go                  # Inspect subcommand implementations
     search.go
     index.go
     version.go
-  generate/                       # Repository-to-vault orchestration
+  topic/                          # Topic scaffolding and metadata
+  ingest/                         # Ingest orchestration and vault writes
+  convert/                        # Converter registry and format-specific converters
+  firecrawl/                      # Firecrawl REST API client
+  youtube/                        # YouTube transcript extraction + STT fallback
+  frontmatter/                    # YAML frontmatter parsing and generation
+  lint/                           # KB structural lint engine
+  generate/                       # Codebase-to-vault pipeline orchestration
   models/                         # Domain types, snapshots, and interfaces
   scanner/                        # Workspace discovery and ignore filtering
   adapter/                        # Tree-sitter parsing adapters
@@ -67,7 +82,7 @@ magefile.go                       # Mage build tasks (wrapped by Makefile)
 | `make lint`             | Run golangci-lint v2 with zero tolerance  |
 | `make test`             | Unit tests with race detector             |
 | `make test-integration` | Unit + integration tests                  |
-| `make build`            | Build binary to `bin/kodebase` with ldflags|
+| `make build`            | Build binary to `bin/kb` with ldflags     |
 | `make verify`           | fmt -> lint -> test -> build -> boundaries|
 | `make deps`             | Run `go mod tidy`                         |
 
@@ -83,7 +98,7 @@ magefile.go                       # Mage build tasks (wrapped by Makefile)
 - **Linting:** golangci-lint v2 with zero warnings -- warnings are treated as errors
 - **Imports:** Group in order: stdlib, third-party, internal
 - **Dependencies:** Use `go get` for dependency changes, never hand-edit `go.mod`
-- **CLI commands:** Use [Cobra](https://github.com/spf13/cobra). Keep commands thin -- delegate to packages like `internal/generate`, `internal/vault`, and `internal/qmd`
+- **CLI commands:** Use [Cobra](https://github.com/spf13/cobra). Keep commands thin -- delegate to packages like `internal/topic`, `internal/ingest`, `internal/lint`, `internal/generate`, `internal/vault`, and `internal/qmd`
 
 ---
 
@@ -127,7 +142,7 @@ PR titles must follow the same format (enforced by CI).
 
 ## Adding a New Language Adapter
 
-This is one of the most impactful contributions you can make. Kodebase uses a clean adapter interface that makes adding new languages straightforward.
+This is one of the most impactful contributions you can make. `kb` uses a clean adapter interface that makes adding new languages straightforward.
 
 ### Step 1: Create the Adapter File
 
@@ -181,6 +196,43 @@ Add the language to the "Supported Languages" table in `README.md`.
 
 ---
 
+## Adding a New File Converter
+
+The converter registry (`internal/convert`) makes adding new file format support straightforward.
+
+### Step 1: Create the Converter File
+
+```text
+internal/convert/<format>.go
+```
+
+### Step 2: Implement the Converter Interface
+
+The interface is defined in `internal/models/models.go`:
+
+```go
+type Converter interface {
+    Extensions() []string
+    Convert(ctx context.Context, input ConvertInput) (*ConvertResult, error)
+}
+```
+
+### Step 3: Register the Converter
+
+Add your converter to `NewRegistry()` in `internal/convert/registry.go`.
+
+### Step 4: Write Tests
+
+Add `<format>_test.go` in `internal/convert/` with fixture files in `internal/convert/testdata/`.
+
+### Reference Implementations
+
+- **`pdf.go`** -- PDF text extraction via pdfcpu
+- **`docx.go`** -- DOCX XML extraction
+- **`html.go`** -- HTML-to-markdown conversion
+
+---
+
 ## Pull Request Process
 
 1. Fork the repository and create a feature branch from `main`
@@ -197,7 +249,7 @@ Add the language to the "Supported Languages" table in `README.md`.
 - **Bugs:** Use the [bug report template](https://github.com/pedronauck/kodebase-go/issues/new?template=bug-report.yml)
 - **Features:** Use the [feature request template](https://github.com/pedronauck/kodebase-go/issues/new?template=feature-request.yml)
 
-Include the command you ran, the output you got, and the output you expected. Kodebase version (`kodebase version`) and Go version help us reproduce faster.
+Include the command you ran, the output you got, and the output you expected. `kb version` output and Go version help us reproduce faster.
 
 ---
 

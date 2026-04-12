@@ -1,8 +1,8 @@
 <div align="center">
 
-# Kodebase
+# kb
 
-### Turn any codebase into a knowledge base.
+### Build and maintain topic-based knowledge bases.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/pedronauck/kodebase-go/ci.yaml?branch=main&label=CI)](https://github.com/pedronauck/kodebase-go/actions)
@@ -14,7 +14,7 @@
 
 ---
 
-Kodebase parses your TypeScript, JavaScript, or Go repository and generates a structured [Obsidian](https://obsidian.md) vault -- complete with every symbol, file, and dependency relationship mapped into interconnected markdown notes. It computes cyclomatic complexity, blast radius, coupling, instability, and dead code detection, then compiles 10 starter wiki articles and 11 interactive [Base](https://obsidian.md/blog/bases/) views so you can explore your architecture the same way you explore your notes.
+`kb` is a single-binary Go CLI for building and maintaining topic-based knowledge bases in the [Karpathy KB](https://github.com/karpathy) pattern. It handles the non-LLM workflow: topic scaffolding, multi-source ingestion (URLs, files, YouTube, codebases, bookmarks), structural linting, codebase analysis, QMD indexing/search, and KB-oriented inspection commands. LLM compilation stays in your agent layer.
 
 No SaaS. No cloud. Just markdown.
 
@@ -27,7 +27,7 @@ No SaaS. No cloud. Just markdown.
 git clone https://github.com/pedronauck/kodebase-go.git
 cd kodebase-go
 make build
-# binary is at bin/kodebase
+# binary is at bin/kb
 ```
 
 **Optional** -- for semantic search capabilities:
@@ -37,16 +37,16 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. All other commands work standalone.
+> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube --stt` fallback requires an [OpenRouter](https://openrouter.ai) API key. All other commands work standalone.
 
 <details>
 <summary><strong>What it touches</strong></summary>
 
-- **Creates files** in `.kodebase/vault/` inside the target repository (or a custom `--output` path)
+- **Creates files** in `.kodebase/vault/` inside the target repository (or a custom `--vault` path)
 - **Reads** source files in the target repository (never modifies them)
-- **No network calls** -- all analysis is local. The optional QMD integration runs a local index at `~/.qmd/`
+- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube --stt` calls OpenRouter. All other commands are fully local.
 - **No telemetry** -- nothing is sent anywhere
-- **Uninstall:** Remove the `kodebase` binary from your `PATH` and delete the `.kodebase/` directory
+- **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kodebase/` directory
 
 </details>
 
@@ -54,28 +54,37 @@ npm install -g @tobilu/qmd
 
 ## See It Work
 
-Generate a knowledge vault from any repository:
+Create a topic and ingest content from multiple sources:
 
 ```bash
-$ kodebase generate ./my-project
-```
-
-```json
+# scaffold a new topic
+$ kb topic new rust-lang "Rust Language" programming
 {
-  "filesScanned": 147,
-  "filesParsed": 142,
-  "symbolsExtracted": 891,
-  "relationsEmitted": 2347,
-  "rawDocumentsWritten": 1033,
-  "wikiDocumentsWritten": 10,
-  "indexDocumentsWritten": 3
+  "slug": "rust-lang",
+  "title": "Rust Language",
+  "domain": "programming"
 }
+
+# ingest a web article
+$ kb ingest url https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html --topic rust-lang
+
+# ingest a local PDF
+$ kb ingest file ./rust-reference.pdf --topic rust-lang
+
+# ingest a YouTube video transcript
+$ kb ingest youtube https://www.youtube.com/watch?v=... --topic rust-lang
+
+# ingest a codebase snapshot with full analysis
+$ kb ingest codebase ./my-rust-project --topic rust-lang
+
+# lint the topic for structural issues
+$ kb lint rust-lang
 ```
 
-Query metrics from the terminal -- no external services required:
+Analyze codebase snapshots from the terminal:
 
 ```bash
-$ kodebase inspect complexity --top 5
+$ kb inspect complexity --top 5
 
  symbol_name       | cyclomatic_complexity | loc | source_path
  computeMetrics    | 12                    | 89  | src/compute-metrics.ts
@@ -86,7 +95,7 @@ $ kodebase inspect complexity --top 5
 ```
 
 ```bash
-$ kodebase inspect dead-code
+$ kb inspect dead-code
 
  kind   | name           | source_path                | reason
  symbol | oldHelper      | src/utils.ts               | dead-export
@@ -96,7 +105,7 @@ $ kodebase inspect dead-code
 Search your vault with natural language (requires QMD):
 
 ```bash
-$ kodebase search "error handling patterns" --limit 3
+$ kb search "error handling patterns" --limit 3
 
  title                  | score | path
  Error Handling Guide   | 0.89  | wiki/concepts/Error Handling.md
@@ -108,69 +117,90 @@ $ kodebase search "error handling patterns" --limit 3
 
 ## Features
 
-**Knowledge base generation** -- Point Kodebase at a repository and it generates a [Karpathy-style](https://github.com/karpathy) Obsidian vault with raw source snapshots in `raw/codebase/`, 10 synthesized wiki articles in `wiki/`, and 11 Base views in `bases/`. Every file, symbol, and dependency becomes a linked markdown note you can browse, search, and extend.
+**Topic-based knowledge bases** -- `kb` organizes knowledge into topics, each with its own `raw/`, `wiki/`, `outputs/`, and `bases/` directories. Scaffold a topic with `kb topic new`, then ingest content from any supported source.
 
-**Metrics without a dashboard** -- Kodebase computes cyclomatic complexity, blast radius, coupling, instability, and betweenness centrality at the symbol and file level. Seven code smell detectors flag specific problems, not just a letter grade.
+**Multi-source ingestion** -- Ingest web articles via Firecrawl, local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube transcripts (with optional OpenRouter STT fallback), codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
+
+**Codebase analysis** -- Point `kb ingest codebase` at a repository and it generates an [Obsidian](https://obsidian.md) vault layer with every symbol, file, and dependency relationship mapped into interconnected markdown notes. It computes cyclomatic complexity, blast radius, coupling, instability, and dead code detection, then compiles wiki articles and interactive [Base](https://obsidian.md/blog/bases/) views.
+
+**Structural linting** -- `kb lint` checks topics for missing frontmatter, broken wikilinks, orphaned files, and other structural health issues. Reports can be saved as markdown in `outputs/reports/`.
 
 **10 inspect subcommands** -- Query your codebase like a database, from the terminal. Rank functions by complexity, find dead exports nobody imports, trace dependency chains, detect circular imports. Three output formats (table, JSON, TSV), zero external dependencies.
 
-**Obsidian-native output** -- Every generated note uses wikilinks, YAML frontmatter, and backlink-aware cross-references. The 11 Base views give you filterable, sortable tables inside Obsidian -- Symbol Explorer, Complexity Hotspots, Danger Zone, Module Health, and more.
+**Obsidian-native output** -- Every generated note uses wikilinks, YAML frontmatter, and backlink-aware cross-references. Base views give you filterable, sortable tables inside Obsidian -- Symbol Explorer, Complexity Hotspots, Danger Zone, Module Health, and more.
 
 **Semantic search** -- Index your vault with QMD for hybrid, lexical, or vector search across all documentation. Useful for onboarding, architecture review, or feeding context to LLMs.
 
-**Safe reruns** -- The `raw/codebase/` layer is machine-managed and refreshes on every run. Your manual notes, `outputs/` directory, and custom wiki pages are preserved across reruns.
-
 **AI-friendly output** -- Every vault includes `CLAUDE.md` and `AGENTS.md` as schema documents. The structured markdown output is designed for direct consumption by LLMs -- frontmatter metadata, consistent structure, and explicit cross-references.
 
-**Single binary** -- No runtime dependencies. One `kodebase` binary handles everything. Built in Go for fast startup and low memory usage.
+**Single binary** -- No runtime dependencies. One `kb` binary handles everything. Built in Go for fast startup and low memory usage.
 
 ---
 
-## Why Kodebase
+## Why kb
 
-Most code analysis tools give you a dashboard. Kodebase gives you a knowledge base.
+Most code analysis tools give you a dashboard. `kb` gives you a knowledge base.
 
-**SonarQube and CodeClimate** tell you your code has problems. Kodebase tells you which problems, where they connect, and gives you a structured workspace to reason about them. The output is markdown you own, not a SaaS dashboard that disappears when you cancel the subscription.
+**SonarQube and CodeClimate** tell you your code has problems. `kb` tells you which problems, where they connect, and gives you a structured workspace to reason about them. The output is markdown you own, not a SaaS dashboard that disappears when you cancel the subscription.
 
-**Sourcegraph** is excellent for code search across repositories. Kodebase is for understanding a single repository deeply -- its architecture, its coupling patterns, its risk surface -- and building a persistent knowledge artifact around that understanding.
+**Sourcegraph** is excellent for code search across repositories. `kb` is for understanding a single repository deeply -- its architecture, its coupling patterns, its risk surface -- and building a persistent knowledge artifact around that understanding.
 
-**Static analyzers** produce reports. Kodebase produces a living document system where analysis results are woven into wiki articles, linked to raw source snapshots, and searchable with semantic queries. The output gets better as you add your own notes.
+**Obsidian and Notion** are great note-taking tools. `kb` automates the scaffolding and ingestion so you start with structure instead of a blank page, then extend the vault with your own notes and analysis.
 
-The key difference: Kodebase outputs compound. A SonarQube scan from last month is stale data. A Kodebase vault from last month is a knowledge base you've been building on for 30 days.
+The key difference: `kb` outputs compound. A SonarQube scan from last month is stale data. A `kb` vault from last month is a knowledge base you've been building on for 30 days.
 
 ---
 
 ## Commands
 
-### `generate`
+### `kb topic`
 
-Parse a repository and create a knowledge vault.
+Scaffold and manage knowledge base topics.
 
 ```bash
-kodebase generate <root> [options]
+kb topic new <slug> <title> <domain>   # Create a new topic
+kb topic list                           # List all topics in the vault
+kb topic info <slug>                    # Show metadata for a topic
 ```
 
-| Argument       | Type       | Required | Description                                              |
-| -------------- | ---------- | -------- | -------------------------------------------------------- |
-| `root`         | positional | yes      | Path to the repository root to scan                      |
-| `--output`     | string     | no       | Vault root where the topic folder will be created        |
-| `--topic`      | string     | no       | Override the generated topic slug                        |
-| `--title`      | string     | no       | Override the generated topic title                       |
-| `--domain`     | string     | no       | Override the topic domain used in frontmatter            |
-| `--include`    | string[]   | no       | Re-include path patterns that would otherwise be ignored |
-| `--exclude`    | string[]   | no       | Exclude additional path patterns from scanning           |
-| `--semantic`   | boolean    | no       | Enable semantic relation extraction                      |
-| `--progress`   | boolean    | no       | Show progress bar during generation                      |
-| `--log-format` | string     | no       | Log output format (`text` or `json`)                     |
+### `kb ingest`
 
-Output: JSON summary on stdout with vault path, scan counts, generated document counts, and diagnostics.
-
-### `inspect`
-
-Query vault data using frontmatter and extracted metrics. No external dependencies required.
+Ingest source material into an existing topic.
 
 ```bash
-kodebase inspect <subcommand> [options]
+kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
+kb ingest file <path> --topic <slug>              # Convert and ingest a local file
+kb ingest youtube <url> --topic <slug> [--stt]    # Extract a YouTube transcript
+kb ingest codebase <path> --topic <slug>          # Analyze a codebase
+kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster markdown file
+```
+
+**Supported file formats** for `ingest file`: PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text (`.txt`, `.md`), and images (PNG, JPG, TIFF, BMP, GIF -- with optional OCR via Tesseract).
+
+| Ingest subcommand | `--topic` | Additional flags |
+| --- | --- | --- |
+| `url` | required | -- |
+| `file` | required | -- |
+| `youtube` | required | `--stt` (enable OpenRouter STT fallback) |
+| `codebase` | required | `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
+| `bookmarks` | required | -- |
+
+### `kb lint`
+
+Check a topic for structural KB issues.
+
+```bash
+kb lint [<slug>] [--format table|json|tsv] [--save] [--topic <slug>]
+```
+
+`--save` writes a markdown report to `outputs/reports/<date>-lint.md`.
+
+### `kb inspect`
+
+Query codebase vault data using frontmatter and extracted metrics.
+
+```bash
+kb inspect <subcommand> [options]
 ```
 
 | Category | Subcommand      | Description                                          |
@@ -188,44 +218,47 @@ kodebase inspect <subcommand> [options]
 
 Shared flags: `--format table|json|tsv` (default: `table`), `--vault <path>`, `--topic <slug>`.
 
-### `search`
+### `kb search`
 
 Semantic search across vault documents. Requires [QMD](https://github.com/tobilu/qmd).
 
 ```bash
-kodebase search <query> [options]
+kb search <query> [options]
 ```
 
-| Argument       | Type       | Default | Description                              |
-| -------------- | ---------- | ------- | ---------------------------------------- |
-| `query`        | positional | --      | Search query string                      |
-| `--lex`        | boolean    | false   | Use BM25 keyword search only             |
-| `--vec`        | boolean    | false   | Use vector similarity search only        |
-| `--limit`      | number     | 10      | Maximum results to return                |
-| `--full`       | boolean    | false   | Show full document instead of snippet    |
-| `--min-score`  | number     | --      | Minimum similarity threshold             |
-| `--all`        | boolean    | false   | Return all matches above threshold       |
-| `--collection` | string     | --      | Explicit QMD collection name             |
-| `--format`     | enum       | table   | Output format: `table`, `json`, or `tsv` |
+| Flag           | Default | Description                              |
+| -------------- | ------- | ---------------------------------------- |
+| `--lex`        | false   | Use BM25 keyword search only             |
+| `--vec`        | false   | Use vector similarity search only        |
+| `--limit`      | 10      | Maximum results to return                |
+| `--full`       | false   | Show full document instead of snippet    |
+| `--min-score`  | --      | Minimum similarity threshold             |
+| `--all`        | false   | Return all matches above threshold       |
+| `--collection` | --      | Explicit QMD collection name             |
+| `--format`     | table   | Output format: `table`, `json`, or `tsv` |
 
 Default mode is hybrid (BM25 + vector similarity). Use `--lex` or `--vec` to restrict.
 
-### `index`
+### `kb index`
 
-Create or update a QMD collection for semantic indexing. Requires [QMD](https://github.com/tobilu/qmd). Also available as `kodebase index-vault`.
+Create or update a QMD collection for semantic indexing. Requires [QMD](https://github.com/tobilu/qmd).
 
 ```bash
-kodebase index [options]
+kb index [options]
 ```
 
-| Argument        | Type    | Default | Description                                |
-| --------------- | ------- | ------- | ------------------------------------------ |
-| `--vault`       | string  | --      | Vault root path                            |
-| `--topic`       | string  | --      | Topic slug inside vault                    |
-| `--name`        | string  | --      | Override derived QMD collection name       |
-| `--embed`       | boolean | true    | Run embedding after syncing files          |
-| `--context`     | string  | --      | Attach context to improve search relevance |
-| `--force-embed` | boolean | false   | Force re-embedding of all documents        |
+| Flag            | Default | Description                                |
+| --------------- | ------- | ------------------------------------------ |
+| `--vault`       | --      | Vault root path                            |
+| `--topic`       | --      | Topic slug inside vault                    |
+| `--name`        | --      | Override derived QMD collection name       |
+| `--embed`       | true    | Run embedding after syncing files          |
+| `--context`     | --      | Attach context to improve search relevance |
+| `--force-embed` | false   | Force re-embedding of all documents        |
+
+### `kb version`
+
+Print build version metadata.
 
 ---
 
@@ -233,19 +266,20 @@ kodebase index [options]
 
 ```text
 .kodebase/vault/
-  my-repo/
+  <topic-slug>/
     CLAUDE.md                    # Schema document for LLMs
-    AGENTS.md -> CLAUDE.md       # Symlink for Codex parity
+    AGENTS.md                    # Agent-facing project reference
     log.md                       # Append-only operation log
     raw/
-      codebase/
-        files/                   # One markdown note per source file
-        symbols/                 # One markdown note per extracted symbol
+      codebase/                  # Machine-generated codebase snapshot
+        files/                   #   One markdown note per source file
+        symbols/                 #   One markdown note per extracted symbol
         indexes/
-          directories/           # Directory-level inventories
-          languages/             # Language-level inventories
+          directories/           #   Directory-level inventories
+          languages/             #   Language-level inventories
+      <ingested-sources>.md      # Ingested articles, transcripts, documents
     wiki/
-      concepts/                  # 10 generated wiki articles
+      concepts/                  # Synthesized wiki articles (codebase topics)
         Codebase Overview.md
         Directory Map.md
         Symbol Taxonomy.md
@@ -259,19 +293,20 @@ kodebase index [options]
       index/
         Dashboard.md             # Landing page
         Concept Index.md         # Article listing
-        Source Index.md          # Reverse index (raw -> articles)
+        Source Index.md          # Reverse index
     outputs/                     # Your analysis outputs (preserved)
-    bases/                       # 11 Obsidian Base views
+      reports/                   # Lint reports (when --save is used)
+    bases/                       # Obsidian Base views
 ```
 
-- **`raw/`** -- Machine-generated source snapshots. Refreshed on every run.
-- **`wiki/`** -- Starter articles synthesized from metrics. Managed areas refresh; your additions are preserved.
-- **`outputs/`** -- A place for your own briefings, queries, diagrams, and reports. Never touched by Kodebase.
+- **`raw/`** -- Machine-generated source snapshots and ingested documents. Codebase snapshots refresh on every run; ingested documents are append-only.
+- **`wiki/`** -- Starter articles synthesized from codebase metrics. Managed areas refresh; your additions are preserved.
+- **`outputs/`** -- A place for your own briefings, queries, diagrams, and reports. Never touched by `kb`.
 - **`bases/`** -- Obsidian Base `.base` files for interactive table/card/list views of metrics.
 
 ---
 
-## Supported Languages
+## Supported Languages (Codebase Analysis)
 
 | Language   | Extensions    | Parser        | Relation Confidence |
 | ---------- | ------------- | ------------- | ------------------- |
@@ -280,6 +315,24 @@ kodebase index [options]
 | Go         | `.go`         | `tree-sitter` | syntactic           |
 
 Want to add a language? See [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-new-language-adapter).
+
+---
+
+## Supported File Formats (Ingest)
+
+| Format     | Extensions                        | Notes                                  |
+| ---------- | --------------------------------- | -------------------------------------- |
+| PDF        | `.pdf`                            | Native text extraction via pdfcpu      |
+| DOCX       | `.docx`                           | XML-based extraction                   |
+| XLSX       | `.xlsx`                           | Sheet-to-markdown table conversion     |
+| PPTX       | `.pptx`                           | Slide text extraction                  |
+| EPUB       | `.epub`                           | Chapter extraction with HTML-to-MD     |
+| HTML       | `.html`, `.htm`                   | HTML-to-markdown conversion            |
+| CSV        | `.csv`                            | Table conversion                       |
+| JSON       | `.json`                           | Pretty-printed code block              |
+| XML        | `.xml`                            | Pretty-printed code block              |
+| Plain text | `.txt`, `.md`                     | Pass-through                           |
+| Images     | `.png`, `.jpg`, `.tiff`, `.bmp`, `.gif` | Optional OCR via Tesseract       |
 
 ---
 
@@ -324,6 +377,24 @@ The scanner:
 
 ---
 
+## Configuration
+
+`kb` is primarily configured through CLI flags. Optional runtime configuration is loaded from a TOML file and environment variables.
+
+| Variable            | Source     | Description                                |
+| ------------------- | ---------- | ------------------------------------------ |
+| `APP_CONFIG`        | env        | Path to TOML config file                   |
+| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url`         |
+| `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint                     |
+| `OPENROUTER_API_KEY`| env / TOML | OpenRouter API key for `ingest youtube --stt` |
+| `OPENROUTER_API_URL`| env / TOML | OpenRouter API endpoint                    |
+| `DATABASE_URL`      | env        | Database connection string                 |
+| `API_KEY`           | env        | General API key                            |
+
+See [`config.example.toml`](config.example.toml) for the full TOML schema.
+
+---
+
 ## Development
 
 **Prerequisites:** [Go](https://go.dev) >= 1.24
@@ -340,7 +411,7 @@ make verify    # format + lint + test + build + boundaries
 | `make lint`            | Run golangci-lint with zero tolerance    |
 | `make test`            | Unit tests with race detector            |
 | `make test-integration`| Unit + integration tests                 |
-| `make build`           | Build binary to `bin/kodebase`           |
+| `make build`           | Build binary to `bin/kb`                 |
 | `make verify`          | fmt -> lint -> test -> build -> boundaries|
 | `make deps`            | Run `go mod tidy`                        |
 
@@ -350,9 +421,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, testing requirements, and
 
 ## Contributing
 
-Kodebase is MIT-licensed and built in the open. We welcome contributions of all kinds:
+`kb` is MIT-licensed and built in the open. We welcome contributions of all kinds:
 
 - **Language adapters** -- Add support for Python, Rust, Java, or any language with a tree-sitter grammar
+- **File converters** -- Add support for new file formats in the converter registry
 - **New code smell detectors** -- The metrics engine is designed to be extended
 - **Wiki article templates** -- Better starter articles mean better vaults out of the box
 - **Bug reports and feature requests** -- [Open an issue](https://github.com/pedronauck/kodebase-go/issues), we read them all

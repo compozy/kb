@@ -1,3 +1,4 @@
+// Package ingest orchestrates multi-source content ingestion into knowledge base topics, handling frontmatter assembly, raw file writes, and operation log entries.
 package ingest
 
 import (

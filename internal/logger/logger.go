@@ -1,3 +1,4 @@
+// Package logger provides structured slog-based logging with configurable output and an observer pattern for log forwarding.
 package logger
 
 import (

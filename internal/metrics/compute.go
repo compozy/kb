@@ -1,3 +1,4 @@
+// Package metrics computes file-level, symbol-level, and directory-level code metrics including complexity, coupling, blast radius, and code smell detection.
 package metrics
 
 import (

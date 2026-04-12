@@ -1,3 +1,4 @@
+// Package convert provides a converter registry and format-specific converters that transform files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, text, images) into markdown.
 package convert
 
 import (

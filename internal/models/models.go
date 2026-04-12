@@ -1,3 +1,4 @@
+// Package models defines shared domain types, interfaces, and snapshot structures used across the kb CLI.
 package models
 
 // SupportedLanguage identifies a source language handled by the pipeline.

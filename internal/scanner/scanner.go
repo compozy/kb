@@ -1,3 +1,4 @@
+// Package scanner discovers source files in a workspace directory, respecting gitignore rules and custom include/exclude patterns.
 package scanner
 
 import (

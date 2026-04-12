@@ -1,3 +1,4 @@
+// Package output renders structured data as table, JSON, or TSV for CLI display.
 package output
 
 import (

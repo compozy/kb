@@ -1,3 +1,4 @@
+// Package version exposes build metadata (version, commit, date) injected at compile time via ldflags.
 package version
 
 import "fmt"

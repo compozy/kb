@@ -1,3 +1,4 @@
+// Package lint checks knowledge base topics for structural issues such as missing frontmatter, broken wikilinks, and orphaned files.
 package lint
 
 import (

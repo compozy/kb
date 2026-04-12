@@ -1,3 +1,4 @@
+// Package frontmatter provides helpers for parsing and generating YAML frontmatter in markdown documents.
 package frontmatter
 
 import (

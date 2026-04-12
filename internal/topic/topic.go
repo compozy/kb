@@ -1,3 +1,4 @@
+// Package topic scaffolds, lists, and retrieves metadata for knowledge base topics within a vault.
 package topic
 
 import (

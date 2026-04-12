@@ -1,3 +1,4 @@
+// Package vault provides path resolution, document rendering, reading, writing, and query helpers for Obsidian-compatible knowledge vaults.
 package vault
 
 import (

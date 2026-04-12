@@ -1,3 +1,4 @@
+// Package adapter provides tree-sitter parsing adapters that extract symbols, relations, and diagnostics from Go, TypeScript, and JavaScript source files.
 package adapter
 
 import (

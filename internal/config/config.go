@@ -1,3 +1,4 @@
+// Package config loads TOML configuration and environment-backed runtime overrides for the kb CLI.
 package config
 
 import (
