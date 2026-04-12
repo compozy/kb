@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 // CSVConverter renders CSV content as a Markdown table.

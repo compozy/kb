@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestImageConverterWithoutOCRReturnsMetadataOnly(t *testing.T) {

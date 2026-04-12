@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 const rootVaultFlagName = "vault"
@@ -16,7 +16,7 @@ func bindRootPersistentFlags(command *cobra.Command) {
 	command.PersistentFlags().String(
 		rootVaultFlagName,
 		"",
-		"Vault root path. Commands that read existing topics auto-discover .kodebase/vault/ from the current working directory when omitted.",
+		"Vault root path. Commands that read existing topics auto-discover .kb/vault/ from the current working directory when omitted.",
 	)
 }
 

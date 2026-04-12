@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/metrics"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/metrics"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
 
@@ -313,8 +313,8 @@ func testTopicFixture() models.TopicMetadata {
 		Title:     "Demo Repo",
 		Domain:    "demo-repo",
 		Today:     "2026-04-09",
-		VaultPath: "/repo/.kodebase/vault",
-		TopicPath: "/repo/.kodebase/vault/demo-repo",
+		VaultPath: "/repo/.kb/vault",
+		TopicPath: "/repo/.kb/vault/demo-repo",
 	}
 }
 

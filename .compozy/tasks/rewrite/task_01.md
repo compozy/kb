@@ -12,7 +12,7 @@ dependencies: []
 
 ## Overview
 
-Rename the Go module from `github.com/user/go-devstack` to `github.com/pedronauck/kodebase`, install cobra, and create the CLI skeleton with root command and stub subcommands. This establishes the project identity and command-routing foundation that all subsequent tasks build upon.
+Rename the Go module from `github.com/user/kb` to `github.com/pedronauck/kodebase`, install cobra, and create the CLI skeleton with root command and stub subcommands. This establishes the project identity and command-routing foundation that all subsequent tasks build upon.
 
 <critical>
 - ALWAYS READ the PRD and TechSpec before starting
@@ -35,6 +35,7 @@ Rename the Go module from `github.com/user/go-devstack` to `github.com/pedronauc
 </requirements>
 
 ## Subtasks
+
 - [ ] 1.1 Rename module in go.mod and update all import paths across existing files
 - [ ] 1.2 Install cobra dependency
 - [ ] 1.3 Create root command with PersistentPreRun hook for config/logger setup
@@ -49,18 +50,21 @@ Rename module path in go.mod and update all existing imports in `internal/config
 Reference TechSpec Phase 0.1 for root command structure and stub subcommand patterns.
 
 ### Relevant Files
-- `go.mod` — current module is `github.com/user/go-devstack`, needs renaming
+
+- `go.mod` — current module is `github.com/user/kb`, needs renaming
 - `cmd/kodebase/main.go` — existing entry point (127 lines), needs rewrite to use cobra
 - `internal/version/version.go` — existing version package with ldflags, wire into version subcommand
 - `internal/config/config.go` — existing config loading, import paths need updating
 - `internal/logger/logger.go` — existing slog logger, import paths need updating
 
 ### Dependent Files
+
 - `internal/config/config_test.go` — import paths need updating
 - `internal/logger/logger_test.go` — import paths need updating
 - `magefile.go` — may reference module path in build commands
 
 ## Deliverables
+
 - Renamed module with all import paths updated
 - Cobra root command in `internal/cli/root.go`
 - Five stub subcommands in `internal/cli/`
@@ -69,6 +73,7 @@ Reference TechSpec Phase 0.1 for root command structure and stub subcommand patt
 - Build compiles and `kodebase version` outputs version info
 
 ## Tests
+
 - Unit tests:
   - [ ] Root command executes without error
   - [ ] Version subcommand prints version, commit, and date
@@ -82,6 +87,7 @@ Reference TechSpec Phase 0.1 for root command structure and stub subcommand patt
 - All tests must pass
 
 ## Success Criteria
+
 - All tests passing
 - Test coverage >=80%
 - `make verify` passes with zero warnings

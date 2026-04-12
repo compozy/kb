@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/otiai10/gosseract/v2"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 // ImageConverter renders supported image inputs through OCR when the `ocr`

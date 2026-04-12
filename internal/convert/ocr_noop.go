@@ -5,7 +5,7 @@ package convert
 import (
 	"context"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 // ImageConverter preserves supported image metadata when OCR support is not

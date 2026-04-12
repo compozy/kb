@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/user/go-devstack/internal/config"
+	"github.com/user/kb/internal/config"
 )
 
 const (

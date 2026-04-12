@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/go-devstack/internal/version"
+	"github.com/user/kb/internal/version"
 )
 
 func newVersionCommand() *cobra.Command {

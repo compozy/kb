@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 type blastRadiusRow struct {

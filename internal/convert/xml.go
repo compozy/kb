@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 // XMLConverter extracts text content from XML documents.

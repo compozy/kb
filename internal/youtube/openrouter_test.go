@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/config"
+	"github.com/user/kb/internal/config"
 )
 
 func TestOpenRouterClientTranscribeSendsExpectedRequest(t *testing.T) {

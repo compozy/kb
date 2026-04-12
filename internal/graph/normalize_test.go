@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestNormalizeGraphReturnsEmptySnapshotForNoParsedFiles(t *testing.T) {

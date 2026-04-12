@@ -12,7 +12,7 @@ The `<path>` argument is the root directory of the source repository to analyze 
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--output` | string | `""` | Vault root where the generated topic will be written. Defaults to `<path>/.kodebase/vault` |
+| `--output` | string | `""` | Vault root where the generated topic will be written. Defaults to `<path>/.kb/vault` |
 | `--topic` | string | `""` | Override the generated topic slug (derived from directory name if omitted) |
 | `--title` | string | `""` | Override the generated topic title |
 | `--domain` | string | `""` | Override the generated topic domain |
@@ -110,6 +110,6 @@ After generation, the vault directory contains:
 
 ## Default Path Derivation
 
-- If `--output` is omitted: vault path defaults to `<rootPath>/.kodebase/vault`
+- If `--output` is omitted: vault path defaults to `<rootPath>/.kb/vault`
 - If `--topic` is omitted: topic slug is derived from the repository directory name
 - Full topic path: `<vaultPath>/<topicSlug>/`

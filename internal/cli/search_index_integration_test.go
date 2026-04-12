@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	kgenerate "github.com/user/go-devstack/internal/generate"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/qmd"
+	kgenerate "github.com/user/kb/internal/generate"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/qmd"
 )
 
 func TestSearchCommandReturnsResultsAgainstIndexedVault(t *testing.T) {

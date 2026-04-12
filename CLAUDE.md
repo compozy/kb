@@ -86,9 +86,9 @@ make help
 
 ## Runtime Config Notes
 
-- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[server]`, `[log]`, `[firecrawl]`, and `[openrouter]`.
+- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[log]`, `[firecrawl]`, and `[openrouter]`.
 - `APP_CONFIG` selects the TOML file path.
-- `.env` may supply `DATABASE_URL`, `API_KEY`, `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, `OPENROUTER_API_KEY`, and `OPENROUTER_API_URL`.
+- `.env` may supply `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, `OPENROUTER_API_KEY`, and `OPENROUTER_API_URL`.
 - `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
 
 ## Testing Conventions

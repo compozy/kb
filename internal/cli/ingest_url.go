@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	kconfig "github.com/user/go-devstack/internal/config"
-	"github.com/user/go-devstack/internal/firecrawl"
-	kingest "github.com/user/go-devstack/internal/ingest"
-	"github.com/user/go-devstack/internal/models"
+	kconfig "github.com/user/kb/internal/config"
+	"github.com/user/kb/internal/firecrawl"
+	kingest "github.com/user/kb/internal/ingest"
+	"github.com/user/kb/internal/models"
 )
 
 type firecrawlScraper interface {

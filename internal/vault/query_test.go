@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 func TestResolveVaultQueryFindsVaultByWalkingUp(t *testing.T) {
@@ -15,7 +15,7 @@ func TestResolveVaultQueryFindsVaultByWalkingUp(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	repositoryRoot := filepath.Join(workspaceRoot, "repo")
 	nestedCWD := filepath.Join(repositoryRoot, "packages", "cli", "src")
-	vaultPath := filepath.Join(repositoryRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(repositoryRoot, ".kb", "vault")
 	topicPath := filepath.Join(vaultPath, "demo-topic")
 
 	mkdirAll(t, topicPath)
@@ -73,7 +73,7 @@ func TestResolveVaultQueryAutoResolvesSingleTopic(t *testing.T) {
 	t.Parallel()
 
 	workspaceRoot := t.TempDir()
-	vaultPath := filepath.Join(workspaceRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(workspaceRoot, ".kb", "vault")
 	topicPath := filepath.Join(vaultPath, "single-topic")
 
 	mkdirAll(t, topicPath)
@@ -96,7 +96,7 @@ func TestResolveVaultQueryErrorsWhenMultipleTopicsExist(t *testing.T) {
 	t.Parallel()
 
 	workspaceRoot := t.TempDir()
-	vaultPath := filepath.Join(workspaceRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(workspaceRoot, ".kb", "vault")
 
 	for _, topic := range []string{"alpha", "beta"} {
 		topicPath := filepath.Join(vaultPath, topic)
@@ -120,7 +120,7 @@ func TestResolveVaultQueryUsesExplicitTopic(t *testing.T) {
 	t.Parallel()
 
 	workspaceRoot := t.TempDir()
-	vaultPath := filepath.Join(workspaceRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(workspaceRoot, ".kb", "vault")
 	topicPath := filepath.Join(vaultPath, "explicit-topic")
 
 	mkdirAll(t, topicPath)
@@ -145,7 +145,7 @@ func TestResolveVaultQueryErrorsWhenExplicitTopicIsMissing(t *testing.T) {
 	t.Parallel()
 
 	workspaceRoot := t.TempDir()
-	vaultPath := filepath.Join(workspaceRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(workspaceRoot, ".kb", "vault")
 
 	mkdirAll(t, vaultPath)
 
@@ -179,7 +179,7 @@ func TestListAvailableTopicsReturnsSortedTopics(t *testing.T) {
 	t.Parallel()
 
 	workspaceRoot := t.TempDir()
-	vaultPath := filepath.Join(workspaceRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(workspaceRoot, ".kb", "vault")
 
 	for _, topic := range []string{"zeta", "alpha"} {
 		topicPath := filepath.Join(vaultPath, topic)

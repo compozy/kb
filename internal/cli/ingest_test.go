@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	kconfig "github.com/user/go-devstack/internal/config"
-	"github.com/user/go-devstack/internal/firecrawl"
-	kgenerate "github.com/user/go-devstack/internal/generate"
-	kingest "github.com/user/go-devstack/internal/ingest"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/youtube"
+	kconfig "github.com/user/kb/internal/config"
+	"github.com/user/kb/internal/firecrawl"
+	kgenerate "github.com/user/kb/internal/generate"
+	kingest "github.com/user/kb/internal/ingest"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/youtube"
 )
 
 func TestIngestParentHelpListsSubcommands(t *testing.T) {

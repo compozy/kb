@@ -4,7 +4,7 @@ package graph
 import (
 	"sort"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 type relationKey struct {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestRootCommandUsesKBNameAndKnowledgeBaseDescription(t *testing.T) {
@@ -150,7 +150,7 @@ func TestTopicListCommandDiscoversVaultFromCWD(t *testing.T) {
 	})
 
 	repositoryRoot := t.TempDir()
-	vaultPath := filepath.Join(repositoryRoot, ".kodebase", "vault")
+	vaultPath := filepath.Join(repositoryRoot, ".kb", "vault")
 	if err := os.MkdirAll(vaultPath, 0o755); err != nil {
 		t.Fatalf("create vault path: %v", err)
 	}

@@ -8,7 +8,7 @@ These occur when `inspect`, `search`, or `index` cannot locate a vault or topic.
 
 | Error Message | Cause | Recovery |
 |---------------|-------|----------|
-| `unable to find a vault from <path>. walked up looking for .kodebase/vault/` | No `.kodebase/vault/` directory exists above the working directory | Run `kodebase generate <path>` first to create the vault |
+| `unable to find a vault from <path>. walked up looking for .kb/vault/` | No `.kb/vault/` directory exists above the working directory | Run `kodebase generate <path>` first to create the vault |
 | `Vault path was not found or is not a directory: <path>` | The `--vault` flag points to a nonexistent path | Verify the vault path exists and is a directory |
 | `no topics were found in <path>. expected child directories containing CLAUDE.md` | The vault directory exists but contains no generated topics | Run `kodebase generate <path>` to populate the vault |
 | `multiple topics were found in <path>: <slug1>, <slug2>` | The vault contains more than one topic and no `--topic` flag was provided | Re-run the command with `--topic <slug>` to select one |

@@ -9,7 +9,7 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/go-devstack/internal/adapter"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/adapter"
+	"github.com/user/kb/internal/models"
 )
 
 func TestNormalizeGraphMergesOverlappingImportsAcrossParsedFiles(t *testing.T) {

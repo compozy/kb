@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 	"github.com/xuri/excelize/v2"
 )
 

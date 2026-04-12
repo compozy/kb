@@ -14,7 +14,7 @@
 | 06 | Implement HTML-to-Markdown converter | completed | medium | task_05 |
 | 07 | Implement PDF converter | completed | medium | task_05 |
 | 08 | Implement Office format converters (DOCX, PPTX, XLSX) | completed | high | task_05 |
-| 09 | Implement EPUB and image OCR converters | pending | medium | task_05, task_06 |
+| 09 | Implement EPUB and image OCR converters | completed | medium | task_05, task_06 |
 | 10 | Implement Firecrawl REST client | completed | medium | task_03 |
 | 11 | Implement YouTube transcript extractor | completed | high | task_03 |
 | 12 | Implement ingest orchestrator | completed | high | task_01, task_02, task_04, task_05 |

@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/go-devstack/internal/convert"
-	"github.com/user/go-devstack/internal/frontmatter"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/topic"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/convert"
+	"github.com/user/kb/internal/frontmatter"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/topic"
+	"github.com/user/kb/internal/vault"
 )
 
 var bookmarkURLPattern = regexp.MustCompile(`https?://[^\s<>()]+`)

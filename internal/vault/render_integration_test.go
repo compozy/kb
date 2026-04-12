@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/metrics"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/metrics"
+	"github.com/user/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
 

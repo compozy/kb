@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/go-devstack/internal/adapter"
-	"github.com/user/go-devstack/internal/graph"
-	"github.com/user/go-devstack/internal/metrics"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/scanner"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/adapter"
+	"github.com/user/kb/internal/graph"
+	"github.com/user/kb/internal/metrics"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/scanner"
+	"github.com/user/kb/internal/vault"
 )
 
 type scanWorkspaceFunc func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error)
@@ -356,7 +356,7 @@ func resolveTarget(opts models.GenerateOptions) (generationTarget, error) {
 
 	vaultPath := strings.TrimSpace(opts.VaultPath)
 	if vaultPath == "" {
-		vaultPath = filepath.Join(rootPath, ".kodebase", "vault")
+		vaultPath = filepath.Join(rootPath, ".kb", "vault")
 	}
 
 	resolvedVaultPath, err := filepath.Abs(vaultPath)

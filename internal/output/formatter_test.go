@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/output"
+	"github.com/user/kb/internal/output"
 )
 
 func TestFormatOutputTableAlignsColumns(t *testing.T) {

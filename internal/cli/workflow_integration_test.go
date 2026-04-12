@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/frontmatter"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/frontmatter"
+	"github.com/user/kb/internal/models"
 )
 
 func TestCLIIntegrationScaffoldAndIngestFiles(t *testing.T) {

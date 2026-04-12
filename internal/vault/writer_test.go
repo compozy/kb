@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/metrics"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/metrics"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
 
@@ -274,7 +274,7 @@ func testWritableTopicFixture(t *testing.T) models.TopicMetadata {
 
 	root := t.TempDir()
 	rootPath := filepath.Join(root, "repo")
-	vaultPath := filepath.Join(root, ".kodebase", "vault")
+	vaultPath := filepath.Join(root, ".kb", "vault")
 	if err := os.MkdirAll(rootPath, 0o755); err != nil {
 		t.Fatalf("create root path: %v", err)
 	}

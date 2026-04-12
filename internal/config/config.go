@@ -17,27 +17,18 @@ const (
 	defaultOpenRouterSTTModel = "google/gemini-2.5-flash"
 )
 
-// Config contains the complete TOML-backed runtime configuration plus
-// non-TOML runtime helpers such as secrets.
+// Config contains the complete TOML-backed runtime configuration.
 type Config struct {
 	App        AppConfig        `toml:"app"`
-	Server     ServerConfig     `toml:"server"`
 	Log        LogConfig        `toml:"log"`
 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
 	OpenRouter OpenRouterConfig `toml:"openrouter"`
-	Secrets    Secrets          `toml:"-"`
 }
 
 // AppConfig contains the application identity and environment.
 type AppConfig struct {
 	Name string `toml:"name"`
 	Env  string `toml:"env"`
-}
-
-// ServerConfig contains network binding settings.
-type ServerConfig struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
 }
 
 // LogConfig controls structured logging output.
@@ -65,10 +56,6 @@ func Default() Config {
 			Name: "app",
 			Env:  "development",
 		},
-		Server: ServerConfig{
-			Host: "0.0.0.0",
-			Port: 8080,
-		},
 		Log: LogConfig{
 			Level: "info",
 		},
@@ -79,7 +66,6 @@ func Default() Config {
 			APIURL:   defaultOpenRouterAPIURL,
 			STTModel: defaultOpenRouterSTTModel,
 		},
-		Secrets: LoadSecretsFromEnv(),
 	}
 }
 
@@ -123,13 +109,7 @@ func (c Config) Validate() error {
 	if err := c.App.Validate(); err != nil {
 		return err
 	}
-	if err := c.Server.Validate(); err != nil {
-		return err
-	}
 	if err := c.Log.Validate(); err != nil {
-		return err
-	}
-	if err := c.Secrets.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -144,14 +124,6 @@ func (c AppConfig) Validate() error {
 	case "development", "staging", "production":
 	default:
 		return fmt.Errorf("app.env must be development, staging, or production: %q", c.Env)
-	}
-	return nil
-}
-
-// Validate ensures server binding settings are within supported bounds.
-func (c ServerConfig) Validate() error {
-	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("server.port must be between 1 and 65535: %d", c.Port)
 	}
 	return nil
 }

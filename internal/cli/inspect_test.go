@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 func TestToSmellOutputListsSymbolsAndFilesWithSmells(t *testing.T) {

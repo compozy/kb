@@ -13,7 +13,7 @@ import (
 	pdfapi "github.com/pdfcpu/pdfcpu/pkg/api"
 	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestPDFConverterAcceptsPDFOnly(t *testing.T) {

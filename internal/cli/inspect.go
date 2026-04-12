@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/user/go-devstack/internal/output"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/output"
+	"github.com/user/kb/internal/vault"
 )
 
 const inspectCodebaseRelativeRoot = "raw/codebase"

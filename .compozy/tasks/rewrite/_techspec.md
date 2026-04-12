@@ -4,7 +4,7 @@
 
 **Goal:** Port the kodebase TypeScript CLI to Go — a tool that turns source code repositories into Karpathy-style Obsidian knowledge vaults with rich code metrics.
 
-**Architecture:** Single-binary Go CLI with `cobra` for command routing. Internal packages mirror the TypeScript layers: models, scanner, adapters (tree-sitter), metrics engine, vault renderer/writer, and QMD shell integration. Follows go-devstack conventions (config, logger, Makefile verify gate).
+**Architecture:** Single-binary Go CLI with `cobra` for command routing. Internal packages mirror the TypeScript layers: models, scanner, adapters (tree-sitter), metrics engine, vault renderer/writer, and QMD shell integration. Follows kb conventions (config, logger, Makefile verify gate).
 
 **Tech Stack:** Go 1.24, cobra (CLI), tree-sitter/go-tree-sitter + tree-sitter-typescript + tree-sitter-javascript + tree-sitter-go (parsing), slog (logging), BurntSushi/toml (config), mage (build).
 
@@ -16,7 +16,7 @@
 
 ### Task 0.1: Rename module and update cmd entry point
 
-**Objective:** Rename the Go module from `github.com/user/go-devstack` to `github.com/pedronauck/kodebase` and update cmd to use cobra for subcommand routing.
+**Objective:** Rename the Go module from `github.com/user/kb` to `github.com/pedronauck/kodebase` and update cmd to use cobra for subcommand routing.
 
 **Files:**
 

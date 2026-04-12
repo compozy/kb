@@ -12,12 +12,12 @@ import (
 
 	ignore "github.com/sabhiram/go-gitignore"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 var defaultIgnoredPatterns = []string{
 	".git/",
-	".kodebase/",
+	".kb/",
 	".next/",
 	".turbo/",
 	"build/",

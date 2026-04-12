@@ -42,11 +42,11 @@ npm install -g @tobilu/qmd
 <details>
 <summary><strong>What it touches</strong></summary>
 
-- **Creates files** in `.kodebase/vault/` inside the target repository (or a custom `--vault` path)
+- **Creates files** in `.kb/vault/` inside the target repository (or a custom `--vault` path)
 - **Reads** source files in the target repository (never modifies them)
 - **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube --stt` calls OpenRouter. All other commands are fully local.
 - **No telemetry** -- nothing is sent anywhere
-- **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kodebase/` directory
+- **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kb/` directory
 
 </details>
 
@@ -265,7 +265,7 @@ Print build version metadata.
 ## What Gets Generated
 
 ```text
-.kodebase/vault/
+.kb/vault/
   <topic-slug>/
     CLAUDE.md                    # Schema document for LLMs
     AGENTS.md                    # Agent-facing project reference

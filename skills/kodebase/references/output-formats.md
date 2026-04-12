@@ -80,8 +80,8 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
 {
   "command": "generate",
   "rootPath": "/path/to/repo",
-  "vaultPath": "/path/to/repo/.kodebase/vault",
-  "topicPath": "/path/to/repo/.kodebase/vault/my-project",
+  "vaultPath": "/path/to/repo/.kb/vault",
+  "topicPath": "/path/to/repo/.kb/vault/my-project",
   "topicSlug": "my-project",
   "filesScanned": 120,
   "filesParsed": 95,

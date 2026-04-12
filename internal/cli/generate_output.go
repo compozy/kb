@@ -12,7 +12,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/term"
 
-	kgenerate "github.com/user/go-devstack/internal/generate"
+	kgenerate "github.com/user/kb/internal/generate"
 )
 
 type generateProgressMode string

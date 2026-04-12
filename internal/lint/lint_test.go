@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/frontmatter"
-	"github.com/user/go-devstack/internal/lint"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/frontmatter"
+	"github.com/user/kb/internal/lint"
+	"github.com/user/kb/internal/models"
 )
 
 const (

@@ -18,8 +18,6 @@
 #
 # Runtime values and overrides loaded from the environment by internal/config:
 # - APP_CONFIG
-# - DATABASE_URL
-# - API_KEY
 # - FIRECRAWL_API_KEY
 # - FIRECRAWL_API_URL
 # - OPENROUTER_API_KEY
@@ -30,10 +28,6 @@
 [app]
 name = "kb"
 env = "development"
-
-[server]
-host = "0.0.0.0"
-port = 8080
 
 [log]
 level = "info"

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 // JSONConverter renders JSON content inside a fenced Markdown code block.

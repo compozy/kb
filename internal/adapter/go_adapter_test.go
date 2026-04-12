@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestGoAdapterSupportsOnlyGo(t *testing.T) {

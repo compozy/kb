@@ -11,7 +11,7 @@ import (
 
 	ytdl "github.com/kkdai/youtube/v2"
 
-	"github.com/user/go-devstack/internal/config"
+	"github.com/user/kb/internal/config"
 )
 
 func TestExtractorExtractReturnsMetadataAndCaptionMarkdown(t *testing.T) {

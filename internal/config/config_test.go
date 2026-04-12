@@ -39,12 +39,6 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if cfg.App.Env != "development" {
 		t.Errorf("expected default app.env 'development', got %q", cfg.App.Env)
 	}
-	if cfg.Server.Host != "0.0.0.0" {
-		t.Errorf("expected default server.host '0.0.0.0', got %q", cfg.Server.Host)
-	}
-	if cfg.Server.Port != 8080 {
-		t.Errorf("expected default server.port 8080, got %d", cfg.Server.Port)
-	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("expected default log.level 'info', got %q", cfg.Log.Level)
 	}
@@ -66,10 +60,6 @@ func TestLoadConfigRoundTrip(t *testing.T) {
 [app]
 name = "my-service"
 env = "production"
-
-[server]
-host = "127.0.0.1"
-port = 3000
 
 [log]
 level = "debug"
@@ -94,12 +84,6 @@ stt_model = "acme/stt"
 	}
 	if cfg.App.Env != "production" {
 		t.Errorf("expected app.env 'production', got %q", cfg.App.Env)
-	}
-	if cfg.Server.Host != "127.0.0.1" {
-		t.Errorf("expected server.host '127.0.0.1', got %q", cfg.Server.Host)
-	}
-	if cfg.Server.Port != 3000 {
-		t.Errorf("expected server.port 3000, got %d", cfg.Server.Port)
 	}
 	if cfg.Log.Level != "debug" {
 		t.Errorf("expected log.level 'debug', got %q", cfg.Log.Level)
@@ -179,25 +163,12 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			mutate: func(c *Config) { c.App.Env = "local" },
 		},
 		{
-			name:   "port zero",
-			mutate: func(c *Config) { c.Server.Port = 0 },
-		},
-		{
-			name:   "port negative",
-			mutate: func(c *Config) { c.Server.Port = -1 },
-		},
-		{
-			name:   "port too high",
-			mutate: func(c *Config) { c.Server.Port = 70000 },
-		},
-		{
 			name:   "invalid log level",
 			mutate: func(c *Config) { c.Log.Level = "trace" },
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

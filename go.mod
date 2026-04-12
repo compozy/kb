@@ -1,4 +1,4 @@
-module github.com/user/go-devstack
+module github.com/user/kb
 
 go 1.24.0
 

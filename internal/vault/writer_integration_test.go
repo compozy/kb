@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 func TestWriteVaultIntegrationPersistsFullRenderedVault(t *testing.T) {

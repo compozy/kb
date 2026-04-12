@@ -32,7 +32,7 @@ kodebase generate <path> --> kodebase inspect <subcommand>
 kodebase generate <path> --> kodebase index --> kodebase search <query>
 ```
 
-The vault is stored at `<path>/.kodebase/vault/<topic-slug>/` by default. Later commands auto-discover this vault by walking up from the current working directory.
+The vault is stored at `<path>/.kb/vault/<topic-slug>/` by default. Later commands auto-discover this vault by walking up from the current working directory.
 
 ## Command Dispatch
 
@@ -247,5 +247,5 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Pass both `--lex` and `--vec` to `search`
 - Pass `--force-embed` with `--embed=false` to `index`
 - Treat stderr content as failure evidence for `generate`
-- Assume vault location without running `generate` or checking for `.kodebase/vault/`
+- Assume vault location without running `generate` or checking for `.kb/vault/`
 - Use relative paths like `./src/config.ts` for `inspect file` -- use `src/config.ts` instead

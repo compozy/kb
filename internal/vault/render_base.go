@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func RenderBaseFiles(metrics models.MetricsResult) []models.BaseFile {

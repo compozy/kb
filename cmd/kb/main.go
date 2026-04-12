@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/user/go-devstack/internal/cli"
+	"github.com/user/kb/internal/cli"
 )
 
 func main() {

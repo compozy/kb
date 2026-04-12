@@ -5,7 +5,7 @@ package adapter
 import (
 	"testing"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 func TestGoAdapterBuildsCrossFileCallRelations(t *testing.T) {

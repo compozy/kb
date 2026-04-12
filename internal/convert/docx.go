@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 const docxMIMEType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

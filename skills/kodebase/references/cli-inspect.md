@@ -16,7 +16,7 @@ kodebase inspect <subcommand> [flags]
 
 ## Vault Auto-Discovery
 
-When `--vault` is omitted, the CLI walks up from the current working directory looking for `.kodebase/vault/`. If `--topic` is omitted and only one topic exists, it is selected automatically. If multiple topics exist, the command fails with an error listing available slugs.
+When `--vault` is omitted, the CLI walks up from the current working directory looking for `.kb/vault/`. If `--topic` is omitted and only one topic exists, it is selected automatically. If multiple topics exist, the command fails with an error listing available slugs.
 
 ---
 

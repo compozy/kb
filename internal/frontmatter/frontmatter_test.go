@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/frontmatter"
+	"github.com/user/kb/internal/frontmatter"
 	"gopkg.in/yaml.v3"
 )
 

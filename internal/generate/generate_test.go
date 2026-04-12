@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/scanner"
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/scanner"
+	"github.com/user/kb/internal/vault"
 )
 
 type fakeAdapter struct {
@@ -378,8 +378,8 @@ func TestResolveTargetDefaultsVaultPathAndTopicSlugFromRootPath(t *testing.T) {
 		t.Fatalf("resolveTarget returned error: %v", err)
 	}
 
-	if target.VaultPath != "/repo/source/demo-app/.kodebase/vault" {
-		t.Fatalf("vault path = %q, want /repo/source/demo-app/.kodebase/vault", target.VaultPath)
+	if target.VaultPath != "/repo/source/demo-app/.kb/vault" {
+		t.Fatalf("vault path = %q, want /repo/source/demo-app/.kb/vault", target.VaultPath)
 	}
 	if target.TopicSlug != "demo-app" {
 		t.Fatalf("topic slug = %q, want demo-app", target.TopicSlug)

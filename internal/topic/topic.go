@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	repoassets "github.com/user/go-devstack"
-	"github.com/user/go-devstack/internal/frontmatter"
-	"github.com/user/go-devstack/internal/models"
+	repoassets "github.com/user/kb"
+	"github.com/user/kb/internal/frontmatter"
+	"github.com/user/kb/internal/models"
 )
 
 const (

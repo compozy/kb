@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/frontmatter"
-	"github.com/user/go-devstack/internal/models"
-	"github.com/user/go-devstack/internal/topic"
+	"github.com/user/kb/internal/frontmatter"
+	"github.com/user/kb/internal/models"
+	"github.com/user/kb/internal/topic"
 )
 
 var fixedScrapeTime = time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)

@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 )
 
 var windowsDriveRootPattern = regexp.MustCompile(`^[A-Za-z]:/?$`)

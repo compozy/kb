@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/go-devstack/internal/frontmatter"
+	"github.com/user/kb/internal/frontmatter"
 )
 
 func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {

@@ -24,7 +24,7 @@ type VaultQueryOptions struct {
 	CWD   string
 }
 
-// DiscoverVaultPath walks up from cwd until it finds a `.kodebase/vault` directory.
+// DiscoverVaultPath walks up from cwd until it finds a `.kb/vault` directory.
 func DiscoverVaultPath(cwd string) (string, error) {
 	resolvedCWD, err := resolveAbsolutePath(cwd)
 	if err != nil {
@@ -33,7 +33,7 @@ func DiscoverVaultPath(cwd string) (string, error) {
 
 	currentPath := resolvedCWD
 	for {
-		candidatePath := filepath.Join(currentPath, ".kodebase", "vault")
+		candidatePath := filepath.Join(currentPath, ".kb", "vault")
 		if isDirectoryPath(candidatePath) {
 			return candidatePath, nil
 		}
@@ -47,7 +47,7 @@ func DiscoverVaultPath(cwd string) (string, error) {
 	}
 
 	return "", fmt.Errorf(
-		"unable to find a vault from %s. walked up looking for .kodebase/vault/",
+		"unable to find a vault from %s. walked up looking for .kb/vault/",
 		resolvedCWD,
 	)
 }

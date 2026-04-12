@@ -8,9 +8,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/user/go-devstack/internal/adapter"
-	"github.com/user/go-devstack/internal/graph"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/adapter"
+	"github.com/user/kb/internal/graph"
+	"github.com/user/kb/internal/models"
 )
 
 func TestComputeMetricsIntegrationOnMultiDirectoryProject(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/go-devstack/internal/vault"
+	"github.com/user/kb/internal/vault"
 )
 
 func TestReadVaultSnapshotRoundTripsWriterOutput(t *testing.T) {

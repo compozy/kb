@@ -15,12 +15,6 @@ const (
 	// EnvConfigPath overrides the config file path.
 	EnvConfigPath = "APP_CONFIG"
 
-	// EnvDatabaseURL stores the database connection string.
-	EnvDatabaseURL = "DATABASE_URL"
-
-	// EnvAPIKey stores the application API key.
-	EnvAPIKey = "API_KEY"
-
 	// EnvFirecrawlAPIKey stores the Firecrawl API key override.
 	EnvFirecrawlAPIKey = "FIRECRAWL_API_KEY"
 
@@ -34,29 +28,12 @@ const (
 	EnvOpenRouterAPIURL = "OPENROUTER_API_URL"
 )
 
-// Secrets contains the runtime secrets loaded from the environment.
-type Secrets struct {
-	DatabaseURL string
-	APIKey      string
-}
-
-// LoadSecretsFromEnv reads the current process environment into a stable
-// runtime value object.
-func LoadSecretsFromEnv() Secrets {
-	return Secrets{
-		DatabaseURL: os.Getenv(EnvDatabaseURL),
-		APIKey:      os.Getenv(EnvAPIKey),
-	}
-}
-
 // ApplyEnvOverrides overlays config values that are sourced from environment
 // variables at runtime.
 func ApplyEnvOverrides(cfg *Config) {
 	if cfg == nil {
 		return
 	}
-
-	cfg.Secrets = LoadSecretsFromEnv()
 
 	if value, ok := os.LookupEnv(EnvFirecrawlAPIKey); ok && value != "" {
 		cfg.Firecrawl.APIKey = value
@@ -70,11 +47,6 @@ func ApplyEnvOverrides(cfg *Config) {
 	if value, ok := os.LookupEnv(EnvOpenRouterAPIURL); ok && value != "" {
 		cfg.OpenRouter.APIURL = value
 	}
-}
-
-// Validate performs format checks for any secrets that are present.
-func (s Secrets) Validate() error {
-	return nil
 }
 
 // LoadDotEnvIfPresent loads a local dotenv file without overriding env vars

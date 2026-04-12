@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	kconfig "github.com/user/go-devstack/internal/config"
-	kingest "github.com/user/go-devstack/internal/ingest"
-	"github.com/user/go-devstack/internal/models"
-	ktopic "github.com/user/go-devstack/internal/topic"
+	kconfig "github.com/user/kb/internal/config"
+	kingest "github.com/user/kb/internal/ingest"
+	"github.com/user/kb/internal/models"
+	ktopic "github.com/user/kb/internal/topic"
 )
 
 var runIngest = kingest.Ingest

@@ -9,7 +9,7 @@ import (
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
 	tableplugin "github.com/JohannesKaufmann/html-to-markdown/v2/plugin/table"
-	"github.com/user/go-devstack/internal/models"
+	"github.com/user/kb/internal/models"
 	"golang.org/x/net/html"
 )
 
