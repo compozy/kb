@@ -29,7 +29,20 @@ var (
 	headingPattern   = regexp.MustCompile(`(?m)^#\s+(.+?)\s*$`)
 	topicSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-	requiredTopicDirectories = []string{
+	compatibleTopicDirectories = []string{
+		"raw/articles",
+		"raw/bookmarks",
+		"raw/codebase",
+		"wiki/concepts",
+		"wiki/index",
+		"outputs/queries",
+		"outputs/briefings",
+		"outputs/diagrams",
+		"outputs/reports",
+		"bases",
+	}
+
+	currentTopicDirectories = []string{
 		"raw/articles",
 		"raw/bookmarks",
 		"raw/codebase",
@@ -256,11 +269,25 @@ func ensureDirectory(path string) error {
 }
 
 func createTopicSkeleton(topicPath string) error {
-	for _, relativePath := range requiredTopicDirectories {
+	for _, relativePath := range currentTopicDirectories {
 		directoryPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
 		if err := os.MkdirAll(directoryPath, 0o755); err != nil {
 			return fmt.Errorf("create %q: %w", directoryPath, err)
 		}
+	}
+
+	return nil
+}
+
+// EnsureCurrentSkeleton creates the current topic directory structure without
+// modifying topic marker files or templates.
+func EnsureCurrentSkeleton(topicPath string) error {
+	if strings.TrimSpace(topicPath) == "" {
+		return fmt.Errorf("topic path is required")
+	}
+
+	if err := createTopicSkeleton(topicPath); err != nil {
+		return err
 	}
 
 	return nil
@@ -420,7 +447,7 @@ func hasTopicSkeleton(topicPath string) (bool, error) {
 		return false, nil
 	}
 
-	for _, relativePath := range requiredTopicDirectories {
+	for _, relativePath := range compatibleTopicDirectories {
 		requiredPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
 		requiredInfo, err := os.Stat(requiredPath)
 		if errors.Is(err, os.ErrNotExist) {

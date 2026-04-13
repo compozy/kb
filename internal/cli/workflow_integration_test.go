@@ -150,6 +150,52 @@ func TestCLIIntegrationScaffoldIngestCodebaseAndInspect(t *testing.T) {
 	}
 }
 
+func TestCLIIntegrationEmptyCodebaseIngestKeepsTopicDiscoverable(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "empty-codebase", "Empty Codebase", "docs")
+	codebasePath := filepath.Join("..", "..", "docs")
+
+	result := runCLIJSON[codebaseIngestResult](t,
+		"ingest", "codebase", codebasePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+		"--progress", "never",
+	)
+
+	if result.Summary.FilesScanned != 0 {
+		t.Fatalf("FilesScanned = %d, want 0", result.Summary.FilesScanned)
+	}
+	if result.Summary.RawDocumentsWritten != 0 {
+		t.Fatalf("RawDocumentsWritten = %d, want 0", result.Summary.RawDocumentsWritten)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files",
+		"raw/codebase/symbols",
+	} {
+		info, err := os.Stat(filepath.Join(topic.RootPath, filepath.FromSlash(relativePath)))
+		if err != nil {
+			t.Fatalf("stat %q: %v", relativePath, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%q is not a directory", relativePath)
+		}
+	}
+
+	info := runCLIJSON[models.TopicInfo](t,
+		"topic", "info", topic.Slug,
+		"--vault", vaultRoot,
+	)
+	if info.Slug != topic.Slug {
+		t.Fatalf("topic info slug = %q, want %q", info.Slug, topic.Slug)
+	}
+
+	listOutput := runCLI(t, "topic", "list", "--vault", vaultRoot)
+	if !strings.Contains(listOutput, topic.Slug) {
+		t.Fatalf("topic list output missing %q:\n%s", topic.Slug, listOutput)
+	}
+}
+
 func TestCLIIntegrationGeneratedContentPassesLint(t *testing.T) {
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "rewrite-qa", "Rewrite QA", "engineering")

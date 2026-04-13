@@ -258,6 +258,69 @@ func TestIndexCommandHelpShowsFlags(t *testing.T) {
 	}
 }
 
+func TestIndexCommandIncludesEmbedFallbackMetadataInJSON(t *testing.T) {
+	originalClient := newIndexClient
+	originalResolve := resolveIndexVaultQuery
+	originalGetwd := indexGetwd
+	t.Cleanup(func() {
+		newIndexClient = originalClient
+		resolveIndexVaultQuery = originalResolve
+		indexGetwd = originalGetwd
+	})
+
+	indexGetwd = func() (string, error) { return "/workspace/repo", nil }
+	resolveIndexVaultQuery = func(options vault.VaultQueryOptions) (vault.ResolvedVault, error) {
+		return vault.ResolvedVault{
+			VaultPath: "/vault",
+			TopicPath: "/vault/repo-topic",
+			TopicSlug: "repo-topic",
+		}, nil
+	}
+	newIndexClient = func() indexCommandClient {
+		return fakeIndexClient{
+			status: func(ctx context.Context) (qmd.IndexStatus, error) {
+				return qmd.IndexStatus{}, nil
+			},
+			index: func(ctx context.Context, options qmd.IndexOptions) (qmd.IndexResult, error) {
+				return qmd.IndexResult{
+					CollectionName: options.CollectionName,
+					EmbedStatus:    qmd.EmbedStatusSkippedUnavailable,
+					EmbedWarning:   "vector search is unavailable on this system; lexical indexing remains available",
+					Status: qmd.IndexStatus{
+						NeedsEmbedding: 3,
+						TotalDocuments: 3,
+					},
+					UpdateResult: qmd.UpdateResult{
+						Collections: 1,
+						Indexed:     3,
+					},
+				}, nil
+			},
+		}
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"index"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
+	}
+	if payload["embedStatus"] != string(qmd.EmbedStatusSkippedUnavailable) {
+		t.Fatalf("embedStatus = %#v, want %q", payload["embedStatus"], qmd.EmbedStatusSkippedUnavailable)
+	}
+	if !strings.Contains(payload["embedWarning"].(string), "lexical indexing remains available") {
+		t.Fatalf("embedWarning = %#v", payload["embedWarning"])
+	}
+}
+
 type fakeIndexClient struct {
 	status func(ctx context.Context) (qmd.IndexStatus, error)
 	index  func(ctx context.Context, options qmd.IndexOptions) (qmd.IndexResult, error)

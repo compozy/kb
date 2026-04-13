@@ -114,6 +114,8 @@ func runIndexCommand(cmd *cobra.Command, options *indexCommandOptions) error {
 		CollectionName: collectionName,
 		EmbedRequested: options.Embed,
 		EmbedResult:    result.EmbedResult,
+		EmbedStatus:    result.EmbedStatus,
+		EmbedWarning:   result.EmbedWarning,
 		ForceEmbed:     options.ForceEmbed,
 		Status: indexStatusPayload{
 			Collection:     findCollectionStatus(result.Status.Collections, collectionName),
@@ -132,6 +134,8 @@ type indexResultPayload struct {
 	CollectionName string             `json:"collectionName"`
 	EmbedRequested bool               `json:"embedRequested"`
 	EmbedResult    *qmd.EmbedResult   `json:"embedResult,omitempty"`
+	EmbedStatus    qmd.EmbedStatus    `json:"embedStatus"`
+	EmbedWarning   string             `json:"embedWarning,omitempty"`
 	ForceEmbed     bool               `json:"forceEmbed"`
 	Status         indexStatusPayload `json:"status"`
 	TopicPath      string             `json:"topicPath"`

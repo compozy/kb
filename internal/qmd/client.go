@@ -104,6 +104,19 @@ type UpdateResult struct {
 	NeedsEmbedding int `json:"needsEmbedding"`
 }
 
+// EmbedStatus summarizes the outcome of the optional embedding phase.
+type EmbedStatus string
+
+const (
+	// EmbedStatusNotRequested means the caller disabled embeddings.
+	EmbedStatusNotRequested EmbedStatus = "not_requested"
+	// EmbedStatusCompleted means embeddings ran successfully.
+	EmbedStatusCompleted EmbedStatus = "completed"
+	// EmbedStatusSkippedUnavailable means embeddings were skipped because the
+	// runtime lacks sqlite-vec support.
+	EmbedStatusSkippedUnavailable EmbedStatus = "skipped_unavailable"
+)
+
 // EmbedResult mirrors QMD's embedding summary.
 type EmbedResult struct {
 	DocsProcessed  int `json:"docsProcessed"`
@@ -135,6 +148,8 @@ type IndexResult struct {
 	CollectionName string       `json:"collectionName"`
 	UpdateResult   UpdateResult `json:"updateResult"`
 	EmbedResult    *EmbedResult `json:"embedResult,omitempty"`
+	EmbedStatus    EmbedStatus  `json:"embedStatus"`
+	EmbedWarning   string       `json:"embedWarning,omitempty"`
 	Status         IndexStatus  `json:"status"`
 }
 
@@ -201,6 +216,26 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 		return nil, fmt.Errorf("qmd search: query is required")
 	}
 
+	mode, _, err := normalizeSearchMode(options.Mode)
+	if err != nil {
+		return nil, err
+	}
+	if mode == SearchModeHybrid {
+		unavailable, err := client.isVectorSearchUnavailable(ctx, options.Collection)
+		if err != nil {
+			return nil, err
+		}
+		if unavailable {
+			fallbackOptions := options
+			fallbackOptions.Mode = SearchModeLexical
+			return client.executeSearch(ctx, fallbackOptions)
+		}
+	}
+
+	return client.executeSearch(ctx, options)
+}
+
+func (client *QMDClient) executeSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
 	command, err := client.searchCommand(options)
 	if err != nil {
 		return nil, err
@@ -229,6 +264,32 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 	}
 
 	return parseSearchResults(stdout, options)
+}
+
+func (client *QMDClient) isVectorSearchUnavailable(ctx context.Context, collection string) (bool, error) {
+	probeCommand, err := client.searchCommand(SearchOptions{
+		Query:      "__kb_vector_probe__",
+		Mode:       SearchModeVector,
+		Limit:      1,
+		Collection: collection,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	stdout, stderr, err := client.run(ctx, probeCommand)
+	switch {
+	case err == nil:
+		return false, nil
+	case isVectorUnavailableSearchFailure(stdout, stderr, err):
+		return true, nil
+	case ctx != nil && ctx.Err() != nil:
+		return false, ctx.Err()
+	default:
+		// Probe failures unrelated to vector availability should not change the
+		// main search flow; the normal hybrid command will surface the real error.
+		return false, nil
+	}
 }
 
 func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, error) {
@@ -262,6 +323,10 @@ func shouldFallbackToLexical(mode SearchMode, stdout, stderr string, err error) 
 }
 
 func isVectorUnavailableSearchFailure(stdout, stderr string, err error) bool {
+	return isVectorUnavailableFailure(stdout, stderr, err)
+}
+
+func isVectorUnavailableFailure(stdout, stderr string, err error) bool {
 	parts := []string{stdout, stderr}
 	if err != nil {
 		parts = append(parts, err.Error())
@@ -321,17 +386,25 @@ func (client *QMDClient) Index(ctx context.Context, options IndexOptions) (Index
 	}
 
 	var embedResult *EmbedResult
+	embedStatus := EmbedStatusNotRequested
+	embedWarning := ""
 	if options.Embed {
-		embedOutput, _, err := client.run(ctx, client.embedCommand(options.ForceEmbed))
+		embedOutput, embedStderr, err := client.run(ctx, client.embedCommand(options.ForceEmbed))
 		if err != nil {
-			return IndexResult{}, err
+			if !options.ForceEmbed && isVectorUnavailableFailure(embedOutput, embedStderr, err) {
+				embedStatus = EmbedStatusSkippedUnavailable
+				embedWarning = "vector search is unavailable on this system; lexical indexing remains available"
+			} else {
+				return IndexResult{}, err
+			}
+		} else {
+			parsedEmbedResult, err := parseEmbedResult(embedOutput)
+			if err != nil {
+				return IndexResult{}, fmt.Errorf("qmd index: parse embed output: %w", err)
+			}
+			embedResult = &parsedEmbedResult
+			embedStatus = EmbedStatusCompleted
 		}
-
-		parsedEmbedResult, err := parseEmbedResult(embedOutput)
-		if err != nil {
-			return IndexResult{}, fmt.Errorf("qmd index: parse embed output: %w", err)
-		}
-		embedResult = &parsedEmbedResult
 	}
 
 	statusOutput, _, err := client.run(ctx, client.statusCommand())
@@ -348,6 +421,8 @@ func (client *QMDClient) Index(ctx context.Context, options IndexOptions) (Index
 		CollectionName: collectionName,
 		UpdateResult:   updateResult,
 		EmbedResult:    embedResult,
+		EmbedStatus:    embedStatus,
+		EmbedWarning:   embedWarning,
 		Status:         status,
 	}, nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/compozy/kb/internal/metrics"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
@@ -254,6 +255,39 @@ func TestWriteVaultRejectsInvalidRenderedDocument(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing YAML frontmatter") {
 		t.Fatalf("expected frontmatter validation error, got %v", err)
+	}
+}
+
+func TestWriteVaultPreservesCodebaseSkeletonWhenNoRawDocumentsAreRendered(t *testing.T) {
+	t.Parallel()
+
+	writableTopic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	nonRawDocuments := make([]models.RenderedDocument, 0, len(documents))
+	for _, document := range documents {
+		if document.Kind == models.DocRaw {
+			continue
+		}
+		nonRawDocuments = append(nonRawDocuments, document)
+	}
+
+	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     writableTopic,
+		Graph:     graph,
+		Documents: nonRawDocuments,
+		BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files",
+		"raw/codebase/symbols",
+	} {
+		assertDirExists(t, filepath.Join(writableTopic.TopicPath, filepath.FromSlash(relativePath)))
+	}
+
+	if _, err := topic.Info(writableTopic.VaultPath, writableTopic.Slug); err != nil {
+		t.Fatalf("topic.Info returned error after empty raw write: %v", err)
 	}
 }
 

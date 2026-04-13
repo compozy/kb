@@ -20,7 +20,23 @@ var (
 	inlineCodePattern      = regexp.MustCompile("`[^`\n]+`")
 	leadingFrontmatterExpr = regexp.MustCompile(`(?s)^---\r?\n.*?\r?\n---\r?\n?`)
 	wikilinkPattern        = regexp.MustCompile(`\[\[([^\[\]|#]+?)(?:\|[^\[\]]*?)?(?:#[^\[\]]*?)?\]\]`)
+	linkTokenPattern       = regexp.MustCompile(`[\pL\pN]+`)
 )
+
+var linkStopwords = map[string]struct{}{
+	"a":    {},
+	"an":   {},
+	"and":  {},
+	"by":   {},
+	"for":  {},
+	"in":   {},
+	"of":   {},
+	"on":   {},
+	"or":   {},
+	"the":  {},
+	"to":   {},
+	"with": {},
+}
 
 var formatterColumns = []string{"severity", "kind", "filePath", "target", "message"}
 
@@ -32,22 +48,27 @@ type schemaSpec struct {
 }
 
 type vaultFile struct {
-	absolutePath string
-	body         string
-	frontmatter  map[string]any
-	links        []string
-	parseErr     error
-	relativePath string
+	absolutePath      string
+	body              string
+	frontmatter       map[string]any
+	inTopic           bool
+	links             []string
+	parseErr          error
+	relativePath      string
+	vaultRelativePath string
 }
 
 type vaultState struct {
 	domain     string
 	files      []*vaultFile
+	allFiles   []*vaultFile
+	aliasIndex map[string][]*vaultFile
 	pathIndex  map[string]*vaultFile
 	stemIndex  map[string][]*vaultFile
 	titleIndex map[string][]*vaultFile
 	topicPath  string
 	topicSlug  string
+	vaultPath  string
 }
 
 // Lint walks one KB topic, validates structural issues, and returns sorted lint
@@ -158,81 +179,120 @@ func loadVault(topicPath string) (vaultState, error) {
 
 	state := vaultState{
 		files:      make([]*vaultFile, 0),
+		allFiles:   make([]*vaultFile, 0),
+		aliasIndex: make(map[string][]*vaultFile),
 		pathIndex:  make(map[string]*vaultFile),
 		stemIndex:  make(map[string][]*vaultFile),
 		titleIndex: make(map[string][]*vaultFile),
 		topicPath:  cleanTopicPath,
 		topicSlug:  filepath.Base(cleanTopicPath),
+		vaultPath:  filepath.Dir(cleanTopicPath),
 	}
 
-	if err := filepath.WalkDir(cleanTopicPath, func(currentPath string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk %q: %w", currentPath, walkErr)
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if strings.ToLower(filepath.Ext(entry.Name())) != ".md" {
-			return nil
-		}
-
-		relativePath, err := filepath.Rel(cleanTopicPath, currentPath)
-		if err != nil {
-			return fmt.Errorf("resolve relative path for %q: %w", currentPath, err)
-		}
-		relativePath = filepath.ToSlash(relativePath)
-		if relativePath == "AGENTS.md" {
-			return nil
-		}
-
-		content, err := os.ReadFile(currentPath)
-		if err != nil {
-			return fmt.Errorf("read %q: %w", currentPath, err)
-		}
-
-		values, _, parseErr := frontmatter.Parse(string(content))
-		if parseErr != nil {
-			values = map[string]any{}
-		}
-
-		body := markdownBody(string(content))
-		file := &vaultFile{
-			absolutePath: currentPath,
-			body:         body,
-			frontmatter:  values,
-			links:        extractWikilinks(body),
-			parseErr:     parseErr,
-			relativePath: relativePath,
-		}
-		state.files = append(state.files, file)
-
-		if state.domain == "" {
-			if domain := strings.TrimSpace(frontmatter.GetString(values, "domain")); domain != "" {
-				state.domain = domain
-			}
-		}
-
-		return nil
-	}); err != nil {
+	topicRoots, err := discoverTopicRoots(state.vaultPath, cleanTopicPath)
+	if err != nil {
 		return vaultState{}, err
+	}
+
+	for _, topicRoot := range topicRoots {
+		rootSlug := filepath.Base(topicRoot)
+		if err := filepath.WalkDir(topicRoot, func(currentPath string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return fmt.Errorf("walk %q: %w", currentPath, walkErr)
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			if strings.ToLower(filepath.Ext(entry.Name())) != ".md" {
+				return nil
+			}
+
+			relativeToRoot, err := filepath.Rel(topicRoot, currentPath)
+			if err != nil {
+				return fmt.Errorf("resolve relative path for %q: %w", currentPath, err)
+			}
+			relativeToRoot = filepath.ToSlash(relativeToRoot)
+			if relativeToRoot == "AGENTS.md" {
+				return nil
+			}
+
+			content, err := os.ReadFile(currentPath)
+			if err != nil {
+				return fmt.Errorf("read %q: %w", currentPath, err)
+			}
+
+			values, _, parseErr := frontmatter.Parse(string(content))
+			if parseErr != nil {
+				values = map[string]any{}
+			}
+
+			body := markdownBody(string(content))
+			vaultRelativePath := path.Join(rootSlug, relativeToRoot)
+			file := &vaultFile{
+				absolutePath:      currentPath,
+				body:              body,
+				frontmatter:       values,
+				inTopic:           topicRoot == cleanTopicPath,
+				links:             extractWikilinks(body),
+				parseErr:          parseErr,
+				relativePath:      vaultRelativePath,
+				vaultRelativePath: vaultRelativePath,
+			}
+			state.allFiles = append(state.allFiles, file)
+
+			if file.inTopic {
+				file.relativePath = relativeToRoot
+				state.files = append(state.files, file)
+				if state.domain == "" {
+					if domain := strings.TrimSpace(frontmatter.GetString(values, "domain")); domain != "" {
+						state.domain = domain
+					}
+				}
+			}
+
+			return nil
+		}); err != nil {
+			return vaultState{}, err
+		}
 	}
 
 	sort.Slice(state.files, func(i, j int) bool {
 		return state.files[i].relativePath < state.files[j].relativePath
 	})
+	sort.Slice(state.allFiles, func(i, j int) bool {
+		return state.allFiles[i].vaultRelativePath < state.allFiles[j].vaultRelativePath
+	})
 
-	for _, file := range state.files {
-		relativeNoExt := strings.TrimSuffix(file.relativePath, ".md")
-		state.pathIndex[relativeNoExt] = file
-		state.pathIndex[path.Join(state.topicSlug, relativeNoExt)] = file
+	for _, file := range state.allFiles {
+		vaultRelativeNoExt := strings.TrimSuffix(file.vaultRelativePath, ".md")
+		state.pathIndex[vaultRelativeNoExt] = file
 
-		stem := path.Base(relativeNoExt)
+		if file.inTopic {
+			relativeNoExt := strings.TrimSuffix(file.relativePath, ".md")
+			state.pathIndex[relativeNoExt] = file
+			state.pathIndex[path.Join(state.topicSlug, relativeNoExt)] = file
+		}
+
+		stem := path.Base(vaultRelativeNoExt)
 		if stem != "" {
 			state.stemIndex[stem] = append(state.stemIndex[stem], file)
 		}
 
 		if title := strings.TrimSpace(frontmatter.GetString(file.frontmatter, "title")); title != "" {
 			state.titleIndex[title] = append(state.titleIndex[title], file)
+		}
+
+		seenAliases := make(map[string]struct{})
+		for _, alias := range linkAliasesForFile(file, state.topicSlug) {
+			key := canonicalLinkKey(alias)
+			if key == "" {
+				continue
+			}
+			if _, exists := seenAliases[key]; exists {
+				continue
+			}
+			seenAliases[key] = struct{}{}
+			state.aliasIndex[key] = append(state.aliasIndex[key], file)
 		}
 	}
 
@@ -325,10 +385,13 @@ func buildLinkGraph(state vaultState) ([]models.LintIssue, map[string]map[string
 	incoming := make(map[string]map[string]struct{})
 	seenDeadLinks := make(map[string]struct{})
 
-	for _, file := range state.files {
+	for _, file := range state.allFiles {
 		for _, target := range file.links {
 			resolved := state.resolveTarget(target, false)
 			if resolved == nil {
+				if !file.inTopic {
+					continue
+				}
 				key := file.relativePath + "\x00" + target
 				if _, exists := seenDeadLinks[key]; exists {
 					continue
@@ -343,6 +406,9 @@ func buildLinkGraph(state vaultState) ([]models.LintIssue, map[string]map[string
 				))
 				continue
 			}
+			if !resolved.inTopic {
+				continue
+			}
 
 			if incoming[resolved.relativePath] == nil {
 				incoming[resolved.relativePath] = make(map[string]struct{})
@@ -352,6 +418,46 @@ func buildLinkGraph(state vaultState) ([]models.LintIssue, map[string]map[string
 	}
 
 	return issues, incoming
+}
+
+func discoverTopicRoots(vaultPath, topicPath string) ([]string, error) {
+	entries, err := os.ReadDir(vaultPath)
+	if err != nil {
+		return nil, fmt.Errorf("read vault path %q: %w", vaultPath, err)
+	}
+
+	roots := make([]string, 0, len(entries)+1)
+	seen := map[string]struct{}{topicPath: {}}
+	roots = append(roots, topicPath)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		candidate := filepath.Join(vaultPath, entry.Name())
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+
+		markerPath := filepath.Join(candidate, "CLAUDE.md")
+		info, err := os.Stat(markerPath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stat topic marker %q: %w", markerPath, err)
+		}
+		if info.IsDir() {
+			continue
+		}
+
+		seen[candidate] = struct{}{}
+		roots = append(roots, candidate)
+	}
+
+	sort.Strings(roots)
+	return roots, nil
 }
 
 func findOrphans(state vaultState, incoming map[string]map[string]struct{}) []models.LintIssue {
@@ -661,6 +767,7 @@ func normalizeLinkTarget(target string) string {
 	}
 	trimmed = strings.TrimSpace(trimmed)
 	trimmed = strings.TrimPrefix(strings.ReplaceAll(trimmed, "\\", "/"), "./")
+	trimmed = strings.Trim(trimmed, "/")
 	return strings.TrimSuffix(trimmed, ".md")
 }
 
@@ -684,8 +791,101 @@ func (state vaultState) resolveTarget(target string, rawOnly bool) *vaultFile {
 	if file := pickCandidate(state.titleIndex[normalized], rawOnly); file != nil {
 		return file
 	}
+	canonical := canonicalLinkKey(normalized)
+	if canonical == "" {
+		return nil
+	}
+	if file := pickCandidate(state.aliasIndex[canonical], rawOnly); file != nil {
+		return file
+	}
+	if file := state.resolveCanonicalPrefixTarget(canonical, rawOnly); file != nil {
+		return file
+	}
 
 	return nil
+}
+
+func canonicalLinkKey(target string) string {
+	normalized := strings.ToLower(normalizeLinkTarget(target))
+	tokens := linkTokenPattern.FindAllString(normalized, -1)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	filtered := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if _, isStopword := linkStopwords[token]; isStopword {
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	if len(filtered) == 0 {
+		filtered = tokens
+	}
+
+	return strings.Join(filtered, " ")
+}
+
+func linkAliasesForFile(file *vaultFile, topicSlug string) []string {
+	aliases := make([]string, 0, 8)
+
+	vaultRelativeNoExt := strings.TrimSuffix(file.vaultRelativePath, ".md")
+	if vaultRelativeNoExt != "" {
+		aliases = append(aliases, vaultRelativeNoExt, path.Base(vaultRelativeNoExt))
+	}
+	if file.inTopic {
+		relativeNoExt := strings.TrimSuffix(file.relativePath, ".md")
+		if relativeNoExt != "" {
+			aliases = append(aliases, relativeNoExt, path.Join(topicSlug, relativeNoExt), path.Base(relativeNoExt))
+		}
+	}
+
+	title := strings.TrimSpace(frontmatter.GetString(file.frontmatter, "title"))
+	if title == "" {
+		return aliases
+	}
+
+	aliases = append(aliases, title)
+	if colon := strings.IndexRune(title, ':'); colon > 0 {
+		aliases = append(aliases, strings.TrimSpace(title[:colon]))
+	}
+
+	return aliases
+}
+
+func (state vaultState) resolveCanonicalPrefixTarget(target string, rawOnly bool) *vaultFile {
+	matches := make(map[*vaultFile]struct{})
+	for key, candidates := range state.aliasIndex {
+		if !hasCanonicalPrefixRelation(key, target) {
+			continue
+		}
+		for _, candidate := range candidates {
+			if !isAcceptableTarget(candidate, rawOnly) {
+				continue
+			}
+			matches[candidate] = struct{}{}
+		}
+	}
+
+	if len(matches) != 1 {
+		return nil
+	}
+
+	for candidate := range matches {
+		return candidate
+	}
+
+	return nil
+}
+
+func hasCanonicalPrefixRelation(candidate, target string) bool {
+	if candidate == "" || target == "" {
+		return false
+	}
+	if candidate == target {
+		return true
+	}
+	return strings.HasPrefix(candidate, target+" ") || strings.HasPrefix(target, candidate+" ")
 }
 
 func pickCandidate(candidates []*vaultFile, rawOnly bool) *vaultFile {

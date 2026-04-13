@@ -356,6 +356,51 @@ func TestIngestEndToEndWithScaffoldedTopic(t *testing.T) {
 	}
 }
 
+func TestIngestNormalizesCurrentSkeletonForLegacyTopic(t *testing.T) {
+	t.Parallel()
+
+	vaultPath, topicSlug := scaffoldTopic(t)
+	topicPath := filepath.Join(vaultPath, topicSlug)
+
+	for _, relativePath := range []string{
+		"raw/codebase/files",
+		"raw/codebase/symbols",
+		"raw/github",
+		"raw/youtube",
+	} {
+		if err := os.RemoveAll(filepath.Join(topicPath, filepath.FromSlash(relativePath))); err != nil {
+			t.Fatalf("remove %q: %v", relativePath, err)
+		}
+	}
+
+	_, err := Ingest(context.Background(), Options{
+		VaultPath:  vaultPath,
+		Topic:      topicSlug,
+		SourceKind: models.SourceKindArticle,
+		Title:      "Legacy Topic Upgrade",
+		Markdown:   "# Legacy Topic Upgrade\n",
+		ScrapedAt:  fixedScrapeTime,
+	})
+	if err != nil {
+		t.Fatalf("Ingest returned error: %v", err)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files",
+		"raw/codebase/symbols",
+		"raw/github",
+		"raw/youtube",
+	} {
+		info, err := os.Stat(filepath.Join(topicPath, filepath.FromSlash(relativePath)))
+		if err != nil {
+			t.Fatalf("stat %q: %v", relativePath, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%q is not a directory", relativePath)
+		}
+	}
+}
+
 func TestResolveMarkdownValidationAndRegistryFailures(t *testing.T) {
 	t.Parallel()
 

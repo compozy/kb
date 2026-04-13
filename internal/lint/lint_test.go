@@ -192,6 +192,57 @@ func TestLintReturnsEmptySliceForHealthyVault(t *testing.T) {
 	}
 }
 
+func TestLintResolvesCrossTopicWikilinksWithinVault(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+	topicPath := newTestTopicAt(t, vaultPath, testTopicSlug)
+	otherTopicPath := newTestTopicAt(t, vaultPath, "agent-platforms")
+
+	writeMarkdownFile(t, otherTopicPath, "wiki/concepts/Protocol Reference.md", conceptFrontmatter("Protocol Reference", "2026-04-11", nil), "# Protocol Reference\n")
+	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[agent-platforms/wiki/concepts/Protocol Reference|Protocol]]\n")
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintResolvesCanonicalizedRawAliasesAndTrailingSlashes(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/articles/anytool.md", sourceFrontmatter("AnyTool: Self-Reflective, Hierarchical Agents for Large-Scale API Calls", "article", "2026-04-10"), "# AnyTool\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/chain-of-thought.md", sourceFrontmatter("Chain-of-Thought Prompting Elicits Reasoning in Large Language Models", "article", "2026-04-10"), "# Chain of Thought\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/plan-and-solve.md", sourceFrontmatter("Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning by Large Language Models", "article", "2026-04-10"), "# Plan and Solve\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/connections.md", sourceFrontmatter("Connections", "article", "2026-04-10"), "# Connections\n\n[[AnyTool]]\n[[Chain-of-Thought Prompting]]\n[[Plan-and-Solve Prompting]]\n[[Coding Agents Deep Dive/]]\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Coding Agents Deep Dive.md", conceptFrontmatter("Coding Agents Deep Dive", "2026-04-11", []string{"[[AnyTool]]"}), "# Coding Agents\n")
+	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Coding Agents Deep Dive|Coding]]\n")
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintLeavesAmbiguousCanonicalPrefixMatchesUnresolved(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/articles/agent-system-overview.md", sourceFrontmatter("Agent System Overview", "article", "2026-04-10"), "# Overview\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/agent-system-design.md", sourceFrontmatter("Agent System Design", "article", "2026-04-10"), "# Design\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/ambiguous-link.md", sourceFrontmatter("Ambiguous Link", "article", "2026-04-10"), "# Ambiguous\n\n[[Agent System]]\n")
+	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "# Dashboard\n")
+
+	issues := mustLint(t, topicPath)
+	assertHasIssue(t, issues, models.LintIssue{
+		Kind:     models.LintIssueKindDeadLink,
+		Severity: models.SeverityError,
+		FilePath: "raw/articles/ambiguous-link.md",
+		Target:   "Agent System",
+	})
+}
+
 func TestLintOnMixedVaultDetectsAllRequiredIssueKinds(t *testing.T) {
 	t.Parallel()
 
@@ -264,7 +315,13 @@ func TestSaveReportWritesLintReport(t *testing.T) {
 func newTestTopic(t *testing.T) string {
 	t.Helper()
 
-	topicPath := filepath.Join(t.TempDir(), testTopicSlug)
+	return newTestTopicAt(t, t.TempDir(), testTopicSlug)
+}
+
+func newTestTopicAt(t *testing.T, vaultPath, topicSlug string) string {
+	t.Helper()
+
+	topicPath := filepath.Join(vaultPath, topicSlug)
 	directories := []string{
 		"raw/articles",
 		"raw/bookmarks",
@@ -284,6 +341,10 @@ func newTestTopic(t *testing.T) string {
 		if err := os.MkdirAll(filepath.Join(topicPath, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
+	}
+
+	if err := os.WriteFile(filepath.Join(topicPath, "CLAUDE.md"), []byte("# Topic\n"), 0o644); err != nil {
+		t.Fatalf("write CLAUDE.md: %v", err)
 	}
 
 	return topicPath

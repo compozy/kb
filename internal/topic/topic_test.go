@@ -368,6 +368,55 @@ func TestListReturnsTopicSlugsForMultipleTopics(t *testing.T) {
 	}
 }
 
+func TestListAndInfoAcceptLegacyTopicScaffold(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+	if _, err := newWithDate(
+		vaultPath,
+		"legacy-topic",
+		"Legacy Topic",
+		"legacy",
+		time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("create topic: %v", err)
+	}
+
+	topicPath := filepath.Join(vaultPath, "legacy-topic")
+	for _, relativePath := range []string{
+		"raw/codebase/files",
+		"raw/codebase/symbols",
+		"raw/github",
+		"raw/youtube",
+	} {
+		if err := os.RemoveAll(filepath.Join(topicPath, filepath.FromSlash(relativePath))); err != nil {
+			t.Fatalf("remove %q: %v", relativePath, err)
+		}
+	}
+
+	topics, err := List(vaultPath)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(topics) != 1 {
+		t.Fatalf("topics length = %d, want 1", len(topics))
+	}
+	if topics[0].Slug != "legacy-topic" {
+		t.Fatalf("topic slug = %q, want legacy-topic", topics[0].Slug)
+	}
+
+	info, err := Info(vaultPath, "legacy-topic")
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if info.Title != "Legacy Topic" {
+		t.Fatalf("title = %q, want Legacy Topic", info.Title)
+	}
+	if info.Domain != "legacy" {
+		t.Fatalf("domain = %q, want legacy", info.Domain)
+	}
+}
+
 func TestListReturnsEmptySliceForMissingVaultPath(t *testing.T) {
 	t.Parallel()
 

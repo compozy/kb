@@ -51,6 +51,9 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 	if err != nil {
 		return models.IngestResult{}, fmt.Errorf("ingest: validate topic: %w", err)
 	}
+	if err := topic.EnsureCurrentSkeleton(topicInfo.RootPath); err != nil {
+		return models.IngestResult{}, fmt.Errorf("ingest: ensure topic skeleton: %w", err)
+	}
 
 	sourceDirectory, err := rawDirectoryForSourceKind(options.SourceKind)
 	if err != nil {

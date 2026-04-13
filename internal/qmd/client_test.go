@@ -145,6 +145,106 @@ func TestIndexWithContextAndEmbedRunsExpectedCommands(t *testing.T) {
 	}
 }
 
+func TestIndexSkipsEmbeddingWhenVectorModuleIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "args.log")
+	binaryPath := writeFakeQMD(t, fakeQMDOptions{
+		LogPath: logPath,
+		ScriptBody: `
+if [ "$1" = "--index" ]; then
+  shift 2
+fi
+cmd=$1
+if [ "$cmd" = "collection" ] && [ "$2" = "add" ]; then
+  cat <<'EOF'
+` + addOutputFixture + `
+EOF
+  exit 0
+fi
+if [ "$cmd" = "embed" ]; then
+  printf 'sqlite-vec is not available\n' >&2
+  exit 1
+fi
+if [ "$cmd" = "status" ]; then
+  cat <<'EOF'
+` + statusOutputFixture + `
+EOF
+  exit 0
+fi
+printf 'unexpected command: %s\n' "$cmd" >&2
+exit 9
+`,
+	})
+
+	client := newFakeQMDClient(binaryPath)
+
+	result, err := client.Index(context.Background(), IndexOptions{
+		Operation:      IndexOperationAdd,
+		VaultPath:      "/tmp/vault",
+		CollectionName: "docs",
+		Embed:          true,
+	})
+	if err != nil {
+		t.Fatalf("Index returned error: %v", err)
+	}
+	if result.EmbedResult != nil {
+		t.Fatalf("embed result = %#v, want nil", result.EmbedResult)
+	}
+	if result.EmbedStatus != EmbedStatusSkippedUnavailable {
+		t.Fatalf("embed status = %q, want %q", result.EmbedStatus, EmbedStatusSkippedUnavailable)
+	}
+	if !strings.Contains(result.EmbedWarning, "vector search is unavailable") {
+		t.Fatalf("embed warning = %q, want vector warning", result.EmbedWarning)
+	}
+
+	invocations := readInvocationLog(t, logPath)
+	if len(invocations) != 3 {
+		t.Fatalf("invocations = %d, want 3", len(invocations))
+	}
+	if !reflect.DeepEqual(invocations[1], []string{"embed"}) {
+		t.Fatalf("embed args = %#v, want [embed]", invocations[1])
+	}
+}
+
+func TestIndexForceEmbedStillFailsWhenVectorModuleIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	binaryPath := writeFakeQMD(t, fakeQMDOptions{
+		ScriptBody: `
+if [ "$1" = "--index" ]; then
+  shift 2
+fi
+cmd=$1
+if [ "$cmd" = "collection" ] && [ "$2" = "add" ]; then
+  cat <<'EOF'
+` + addOutputFixture + `
+EOF
+  exit 0
+fi
+if [ "$cmd" = "embed" ]; then
+  printf 'sqlite-vec is not available\n' >&2
+  exit 1
+fi
+printf 'unexpected command: %s\n' "$cmd" >&2
+exit 9
+`,
+	})
+
+	client := newFakeQMDClient(binaryPath)
+
+	_, err := client.Index(context.Background(), IndexOptions{
+		Operation:      IndexOperationAdd,
+		VaultPath:      "/tmp/vault",
+		CollectionName: "docs",
+		Embed:          true,
+		ForceEmbed:     true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "sqlite-vec is not available") {
+		t.Fatalf("Index error = %v, want sqlite-vec failure", err)
+	}
+}
+
 func TestIndexRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 
@@ -185,7 +285,8 @@ func TestSearchHybridModeUsesQueryCommand(t *testing.T) {
 	binaryPath := writeFakeQMD(t, fakeQMDOptions{
 		LogPath: logPath,
 		StdoutByCommand: map[string]string{
-			"query": lexicalSearchJSONFixture,
+			"vsearch": "[]",
+			"query":   lexicalSearchJSONFixture,
 		},
 	})
 
@@ -201,17 +302,22 @@ func TestSearchHybridModeUsesQueryCommand(t *testing.T) {
 	}
 
 	invocations := readInvocationLog(t, logPath)
-	if len(invocations) != 1 {
-		t.Fatalf("invocations = %d, want 1", len(invocations))
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want 2", len(invocations))
+	}
+
+	expectedProbe := []string{"vsearch", "--json", "-n", "1", "-c", "docs", "__kb_vector_probe__"}
+	if !reflect.DeepEqual(invocations[0], expectedProbe) {
+		t.Fatalf("probe args = %#v, want %#v", invocations[0], expectedProbe)
 	}
 
 	expected := []string{"query", "--json", "-c", "docs", "authentication flow"}
-	if !reflect.DeepEqual(invocations[0], expected) {
-		t.Fatalf("hybrid args = %#v, want %#v", invocations[0], expected)
+	if !reflect.DeepEqual(invocations[1], expected) {
+		t.Fatalf("hybrid args = %#v, want %#v", invocations[1], expected)
 	}
 }
 
-func TestSearchHybridFallsBackToLexicalWhenVectorModuleUnavailable(t *testing.T) {
+func TestSearchHybridFallsBackToLexicalWhenVectorProbeFails(t *testing.T) {
 	t.Parallel()
 
 	logPath := filepath.Join(t.TempDir(), "args.log")
@@ -219,7 +325,7 @@ func TestSearchHybridFallsBackToLexicalWhenVectorModuleUnavailable(t *testing.T)
 		LogPath: logPath,
 		ScriptBody: `
 cmd=$1
-if [ "$cmd" = "query" ]; then
+if [ "$cmd" = "vsearch" ]; then
   printf 'SQLiteError: no such module: vec0\n' >&2
   exit 1
 fi
@@ -250,13 +356,69 @@ exit 9
 
 	invocations := readInvocationLog(t, logPath)
 	if len(invocations) != 2 {
-		t.Fatalf("invocations = %d, want query then lexical fallback", len(invocations))
+		t.Fatalf("invocations = %d, want vector probe then lexical fallback", len(invocations))
 	}
-	if !reflect.DeepEqual(invocations[0], []string{"query", "--json", "-c", "docs", "authentication flow"}) {
-		t.Fatalf("hybrid args = %#v", invocations[0])
+	if !reflect.DeepEqual(invocations[0], []string{"vsearch", "--json", "-n", "1", "-c", "docs", "__kb_vector_probe__"}) {
+		t.Fatalf("probe args = %#v", invocations[0])
 	}
 	if !reflect.DeepEqual(invocations[1], []string{"search", "--json", "-c", "docs", "authentication flow"}) {
 		t.Fatalf("fallback args = %#v", invocations[1])
+	}
+}
+
+func TestSearchHybridFallsBackToLexicalWhenQueryFailsAfterSuccessfulProbe(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "args.log")
+	binaryPath := writeFakeQMD(t, fakeQMDOptions{
+		LogPath: logPath,
+		ScriptBody: `
+cmd=$1
+if [ "$cmd" = "vsearch" ]; then
+  printf '[]\n'
+  exit 0
+fi
+if [ "$cmd" = "query" ]; then
+  printf 'SQLiteError: no such module: vec0\n' >&2
+  exit 1
+fi
+if [ "$cmd" = "search" ]; then
+  cat <<'EOF'
+` + lexicalSearchJSONFixture + `
+EOF
+  exit 0
+fi
+printf 'unexpected command: %s\n' "$cmd" >&2
+exit 9
+`,
+	})
+
+	client := newFakeQMDClient(binaryPath)
+
+	results, err := client.Search(context.Background(), SearchOptions{
+		Query:      "authentication flow",
+		Mode:       SearchModeHybrid,
+		Collection: "docs",
+	})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Doc" {
+		t.Fatalf("results = %#v, want lexical fallback payload", results)
+	}
+
+	invocations := readInvocationLog(t, logPath)
+	if len(invocations) != 3 {
+		t.Fatalf("invocations = %d, want 3", len(invocations))
+	}
+	if !reflect.DeepEqual(invocations[0], []string{"vsearch", "--json", "-n", "1", "-c", "docs", "__kb_vector_probe__"}) {
+		t.Fatalf("probe args = %#v", invocations[0])
+	}
+	if !reflect.DeepEqual(invocations[1], []string{"query", "--json", "-c", "docs", "authentication flow"}) {
+		t.Fatalf("hybrid args = %#v", invocations[1])
+	}
+	if !reflect.DeepEqual(invocations[2], []string{"search", "--json", "-c", "docs", "authentication flow"}) {
+		t.Fatalf("fallback args = %#v", invocations[2])
 	}
 }
 

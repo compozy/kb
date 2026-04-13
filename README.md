@@ -260,6 +260,7 @@ kb search <query> [options]
 | `--format`     | table   | Output format: `table`, `json`, or `tsv` |
 
 Default mode is hybrid (BM25 + vector similarity). Use `--lex` or `--vec` to restrict.
+On hosts where QMD cannot run vector search because `sqlite-vec` is unavailable, the default hybrid mode falls back to lexical search automatically.
 
 ### `kb index`
 
@@ -277,6 +278,8 @@ kb index [options]
 | `--embed`       | true    | Run embedding after syncing files          |
 | `--context`     | --      | Attach context to improve search relevance |
 | `--force-embed` | false   | Force re-embedding of all documents        |
+
+If QMD is installed without `sqlite-vec` support, `kb index` still syncs the collection and reports `embedStatus: "skipped_unavailable"` in JSON output so lexical search remains usable. Use `--force-embed` only when vector embedding is required on the current host.
 
 ### `kb version`
 

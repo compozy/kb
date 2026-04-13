@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/topic"
 )
 
 const fileWriteBatchSize = 64
@@ -124,26 +125,7 @@ func validateTopic(topic models.TopicMetadata) error {
 }
 
 func ensureTopicSkeleton(topicPath string) error {
-	for _, directoryPath := range []string{
-		topicPath,
-		filepath.Join(topicPath, "raw", "articles"),
-		filepath.Join(topicPath, "raw", "bookmarks"),
-		filepath.Join(topicPath, "raw", "github"),
-		filepath.Join(topicPath, "raw", "codebase"),
-		filepath.Join(topicPath, "wiki", "concepts"),
-		filepath.Join(topicPath, "wiki", "index"),
-		filepath.Join(topicPath, "outputs", "briefings"),
-		filepath.Join(topicPath, "outputs", "queries"),
-		filepath.Join(topicPath, "outputs", "diagrams"),
-		filepath.Join(topicPath, "outputs", "reports"),
-		filepath.Join(topicPath, "bases"),
-	} {
-		if err := os.MkdirAll(directoryPath, 0o755); err != nil {
-			return fmt.Errorf("create %q: %w", directoryPath, err)
-		}
-	}
-
-	return nil
+	return topic.EnsureCurrentSkeleton(topicPath)
 }
 
 func resetManagedSubtrees(topicPath string) error {
@@ -160,7 +142,7 @@ func resetManagedSubtrees(topicPath string) error {
 		}
 	}
 
-	return nil
+	return topic.EnsureCurrentSkeleton(topicPath)
 }
 
 func buildWriteRequests(options WriteVaultOptions) ([]fileWriteRequest, error) {
