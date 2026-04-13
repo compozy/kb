@@ -25,10 +25,29 @@ No SaaS. No cloud. Just markdown.
 > [!NOTE]
 > `kb` works even better with its companion skill in [`skills/`](skills/). Install it with `npx skills add https://github.com/compozy/kb --skill kb`.
 
+### Homebrew
+
 ```bash
-# build from source
-git clone https://github.com/pedronauck/kodebase-go.git
-cd kodebase-go
+brew install compozy/kb/kb
+```
+
+### npm
+
+```bash
+npm install -g @compozy/kb
+```
+
+### Go
+
+```bash
+go install github.com/compozy/kb/cmd/kb@latest
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/compozy/kb.git
+cd kb
 make build
 # binary is at bin/kb
 ```

@@ -159,6 +159,11 @@ release:
     #### Binary Download
     Download the appropriate binary for your platform from the assets below.
 
+    #### NPM
+    ```bash
+    npm install -g @compozy/kb
+    ```
+
     #### Go Install
     ```bash
     go install github.com/compozy/kb/cmd/kb@{{ .Tag }}
@@ -217,6 +222,22 @@ nfpms:
       - deb
       - rpm
       - archlinux
+
+npms:
+  - ids:
+      - kb-archive
+    name: "@compozy/kb"
+    description: "CLI for building topic-based knowledge bases in the Karpathy KB pattern"
+    repository: "git+https://github.com/compozy/kb.git"
+    bugs: "https://github.com/compozy/kb/issues"
+    homepage: "https://github.com/compozy/kb"
+    access: public
+    license: "BSL-1.1"
+    keywords:
+      - cli
+      - knowledge-base
+      - obsidian
+      - go
 
 before:
   hooks:
