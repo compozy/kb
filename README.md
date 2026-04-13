@@ -410,8 +410,6 @@ The scanner:
 | `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint                     |
 | `OPENROUTER_API_KEY`| env / TOML | OpenRouter API key for `ingest youtube --stt` |
 | `OPENROUTER_API_URL`| env / TOML | OpenRouter API endpoint                    |
-| `DATABASE_URL`      | env        | Database connection string                 |
-| `API_KEY`           | env        | General API key                            |
 
 See [`config.example.toml`](config.example.toml) for the full TOML schema.
 

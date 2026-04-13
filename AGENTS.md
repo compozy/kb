@@ -103,7 +103,6 @@ make help                # mage target list
 - `config.example.toml` documents the TOML keys currently supported by `internal/config`.
 - `APP_CONFIG` overrides the config file path.
 - `.env` is loaded automatically when present.
-- `DATABASE_URL` and `API_KEY` remain environment-only runtime secrets.
 - `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the Firecrawl client for `ingest url`.
 - `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model` (TOML-only) configure the OpenRouter client for `ingest youtube --stt`.
 - Generation, inspect, search, and index behavior is configured by CLI flags rather than TOML keys.
