@@ -15,10 +15,12 @@ metadata:
 
 env:
   - GO111MODULE=on
-  - CGO_ENABLED=0
 
 git:
   tag_sort: -version:refname
+
+partial:
+  by: target
 
 builds:
   - id: kb
@@ -44,7 +46,7 @@ builds:
       - -X github.com/compozy/kb/internal/version.Commit={{.ShortCommit}}
       - -X github.com/compozy/kb/internal/version.Date={{.Date}}
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
