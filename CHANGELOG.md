@@ -4,22 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## Unreleased
 
-### 📦 Build System
 
+### 🐛 Bug Fixes
+- Changelog
+
+
+
+### 📦 Build System
 - Fix release
 
 ## 0.0.1 - 2026-04-13
 
-### ♻️ Refactoring
 
+### ♻️ Refactoring
 - Adapt generate pipeline to topic vaults
 - Rename CLI binary to kb
 
-### 🎉 Features
 
+
+### 🎉 Features
 - Implement workspace scanner
 - Add tree-sitter parser infrastructure
 - Implement go language adapter
@@ -49,8 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(convert)* Add EPUB, image and OCR converters; update task tracker
 - Change skill
 
-### 🐛 Bug Fixes
 
+
+### 🐛 Bug Fixes
 - Wiki concepts prefix
 - Improvements
 - Legacy stuff
@@ -58,26 +64,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release
 - Ci release
 
-### 📚 Documentation
 
+
+### 📚 Documentation
 - Refresh project docs and config example
 - Update prd
 - Readme
 - Pivot prd
 - Update all project documentation for kb pivot
 
-### 📦 Build System
 
+
+### 📦 Build System
 - Stabilize verification tooling
 - Release setup
 
-### 🔧 CI/CD
 
+
+### 🔧 CI/CD
 - Windows release
 - *(release)* Release v0.0.1 ([#4](https://github.com/compozy/kb/issues/4))
 
-### 🔧 Miscellaneous Tasks
 
+
+### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
 ---
