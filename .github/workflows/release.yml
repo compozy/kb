@@ -33,7 +33,6 @@ env:
   GO_VERSION: "1.24"
   INITIAL_VERSION: "v0.0.1"
   PR_RELEASE_MODULE: github.com/compozy/releasepr@v0.0.15
-  GOTMPDIR: ${{ runner.temp }}/go-tmp
 
 permissions:
   contents: write
@@ -61,7 +60,10 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
-        run: mkdir -p "$GOTMPDIR"
+        run: |
+          export GOTMPDIR="$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
+          mkdir -p "$GOTMPDIR"
 
       - uses: ./.github/actions/setup-go
         with:
@@ -93,7 +95,10 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
-        run: mkdir -p "$GOTMPDIR"
+        run: |
+          export GOTMPDIR="$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
+          mkdir -p "$GOTMPDIR"
 
       - uses: ./.github/actions/setup-go
         with:
@@ -130,7 +135,10 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
-        run: mkdir -p "$GOTMPDIR"
+        run: |
+          export GOTMPDIR="$RUNNER_TEMP/go-tmp"
+          echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
+          mkdir -p "$GOTMPDIR"
 
       - name: Set up Go with caching
         uses: ./.github/actions/setup-go

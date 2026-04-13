@@ -12,17 +12,16 @@ import (
 	"strings"
 	"time"
 
-	repoassets "github.com/compozy/kb"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 )
 
 const (
-	claudeTemplatePath       = ".agents/skills/karpathy-kb/assets/topic-claude-template.md"
-	conceptIndexTemplatePath = ".agents/skills/karpathy-kb/assets/concept-index-template.md"
-	dashboardTemplatePath    = ".agents/skills/karpathy-kb/assets/dashboard-template.md"
-	logTemplatePath          = ".agents/skills/karpathy-kb/assets/log-template.md"
-	sourceIndexTemplatePath  = ".agents/skills/karpathy-kb/assets/source-index-template.md"
+	claudeTemplatePath       = "assets/topic-claude-template.md"
+	conceptIndexTemplatePath = "assets/concept-index-template.md"
+	dashboardTemplatePath    = "assets/dashboard-template.md"
+	logTemplatePath          = "assets/log-template.md"
+	sourceIndexTemplatePath  = "assets/source-index-template.md"
 )
 
 var (
@@ -70,7 +69,7 @@ var (
 		{assetPath: logTemplatePath, outputPath: "log.md"},
 	}
 
-	templateFS fs.FS = repoassets.KarpathyKBTemplates
+	templateFS fs.FS = topicTemplateFS
 )
 
 type templateContext struct {
