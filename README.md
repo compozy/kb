@@ -22,6 +22,9 @@ No SaaS. No cloud. Just markdown.
 
 ## Install
 
+> [!NOTE]
+> `kb` works even better with its companion skill in [`skills/`](skills/). Install it with `npx skills add https://github.com/compozy/kb --skill kb`.
+
 ```bash
 # build from source
 git clone https://github.com/pedronauck/kodebase-go.git
