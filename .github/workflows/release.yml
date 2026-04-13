@@ -60,6 +60,7 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
+        shell: bash
         run: |
           export GOTMPDIR="$RUNNER_TEMP/go-tmp"
           echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
@@ -122,6 +123,7 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
+        shell: bash
         run: |
           export GOTMPDIR="$RUNNER_TEMP/go-tmp"
           echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
@@ -171,6 +173,7 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
+        shell: bash
         run: |
           export GOTMPDIR="$RUNNER_TEMP/go-tmp"
           echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
@@ -299,6 +302,7 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
+        shell: bash
         run: |
           export GOTMPDIR="$RUNNER_TEMP/go-tmp"
           echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
@@ -353,6 +357,7 @@ jobs:
           fetch-tags: true
 
       - name: Prepare Go temporary directory
+        shell: bash
         run: |
           export GOTMPDIR="$RUNNER_TEMP/go-tmp"
           echo "GOTMPDIR=$GOTMPDIR" >> "$GITHUB_ENV"
