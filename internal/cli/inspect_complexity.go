@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/compozy/kb/internal/vault"
 	"github.com/spf13/cobra"
-	"github.com/user/kb/internal/vault"
 )
 
 type complexityRow struct {

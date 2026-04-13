@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	kconfig "github.com/user/kb/internal/config"
-	"github.com/user/kb/internal/firecrawl"
-	kgenerate "github.com/user/kb/internal/generate"
-	kingest "github.com/user/kb/internal/ingest"
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/youtube"
+	kconfig "github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/firecrawl"
+	kgenerate "github.com/compozy/kb/internal/generate"
+	kingest "github.com/compozy/kb/internal/ingest"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/youtube"
 )
 
 func TestIngestParentHelpListsSubcommands(t *testing.T) {

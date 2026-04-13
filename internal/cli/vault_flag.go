@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/vault"
 )
 
 const rootVaultFlagName = "vault"

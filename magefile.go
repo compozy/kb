@@ -20,7 +20,7 @@ const (
 	gotestsumVersion    = "v1.13.0"
 	binDir              = "bin"
 	cliBinary           = "kb"
-	versionPackage      = "github.com/user/kb/internal/version"
+	versionPackage      = "github.com/compozy/kb/internal/version"
 )
 
 var Default = Verify
@@ -100,7 +100,7 @@ func Boundaries() error {
 		if _, err := os.Stat(importerDir); os.IsNotExist(err) {
 			continue
 		}
-		importPath := "github.com/user/kb/" + rule.imported
+		importPath := "github.com/compozy/kb/" + rule.imported
 		cmd := exec.Command("grep", "-r", "--include=*.go", "-l", importPath, importerDir)
 		out, err := cmd.Output()
 		if err != nil {

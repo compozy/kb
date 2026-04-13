@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestImageConverterWithoutOCRReturnsMetadataOnly(t *testing.T) {

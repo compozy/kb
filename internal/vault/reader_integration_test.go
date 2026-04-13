@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestReadVaultSnapshotRoundTripsWriterOutput(t *testing.T) {

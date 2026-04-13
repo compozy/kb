@@ -3,7 +3,7 @@ package convert
 import (
 	"context"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 // TextConverter passes plain text and Markdown files through as Markdown.

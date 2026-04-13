@@ -1,0 +1,99 @@
+name: "Setup Release Tools"
+description: "Sets up all necessary tools for release processes (GoReleaser, git-cliff, Syft, Cosign)"
+
+inputs:
+  goreleaser-version:
+    description: "GoReleaser version to install"
+    required: false
+    default: "latest"
+  goreleaser-distribution:
+    description: "GoReleaser distribution (goreleaser or goreleaser-pro)"
+    required: false
+    default: "goreleaser-pro"
+  git-cliff-version:
+    description: "git-cliff version to install"
+    required: false
+    default: "2.7.0"
+  cosign-version:
+    description: "Cosign version to install"
+    required: false
+    default: "v2.2.4"
+
+outputs:
+  goreleaser-version:
+    description: "The GoReleaser version that was installed"
+    value: ${{ steps.setup-goreleaser.outputs.version }}
+  git-cliff-version:
+    description: "The git-cliff version that was installed"
+    value: ${{ steps.setup-git-cliff.outputs.version }}
+  cosign-version:
+    description: "The Cosign version that was installed"
+    value: ${{ steps.setup-cosign.outputs.version }}
+  syft-version:
+    description: "The Syft version that was installed"
+    value: ${{ steps.setup-syft.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup git-cliff
+      id: setup-git-cliff
+      uses: ./.github/actions/setup-git-cliff
+      with:
+        version: ${{ inputs.git-cliff-version }}
+
+    - name: Setup GoReleaser
+      id: setup-goreleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        distribution: ${{ inputs.goreleaser-distribution }}
+        version: ${{ inputs.goreleaser-version }}
+        install-only: true
+
+    - name: Setup Syft for SBOM generation
+      id: setup-syft
+      uses: anchore/sbom-action/download-syft@v0
+
+    - name: Setup Cosign for artifact signing
+      id: setup-cosign
+      uses: sigstore/cosign-installer@v3
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    - name: Verify tool installations
+      shell: bash
+      run: |-
+        set -e
+        echo "=== Release Tools Verification ==="
+
+        echo "Go version: $(go version)"
+
+        if command -v git-cliff &> /dev/null; then
+          echo "git-cliff version: $(git-cliff --version)"
+        else
+          echo "::error::git-cliff not found"
+          exit 1
+        fi
+
+        if command -v goreleaser &> /dev/null; then
+          echo "GoReleaser version: $(goreleaser --version)"
+        else
+          echo "::error::GoReleaser not found"
+          exit 1
+        fi
+
+        if command -v syft &> /dev/null; then
+          echo "Syft version: $(syft version)"
+        else
+          echo "::error::Syft not found"
+          exit 1
+        fi
+
+        if command -v cosign &> /dev/null; then
+          echo "Cosign version: $(cosign version --short)"
+        else
+          echo "::error::Cosign not found"
+          exit 1
+        fi
+
+        echo "=== All tools verified successfully ==="

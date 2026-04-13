@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/kb/internal/output"
-	"github.com/user/kb/internal/qmd"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/output"
+	"github.com/compozy/kb/internal/qmd"
+	"github.com/compozy/kb/internal/vault"
 )
 
 type searchCommandClient interface {

@@ -3,8 +3,8 @@ package vault_test
 import (
 	"testing"
 
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestCreateFileIDDeterministic(t *testing.T) {

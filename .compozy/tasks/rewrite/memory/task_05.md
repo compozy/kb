@@ -16,7 +16,7 @@ Keep only task-local execution context here. Do not duplicate facts that are obv
 
 - The current branch only contains the scanner-facing subset of `internal/models`; Task 05 cannot compile without restoring graph, relation, diagnostic, and adapter interface types locally.
 - The TypeScript Go adapter only emits `calls` relations for direct identifier calls inside function or method bodies; selector calls such as `fmt.Println` are intentionally ignored for call-graph edges.
-- The current branch still uses `module github.com/user/kb`; new Task 05 code must import `internal/models` through that module path until Task 01 lands.
+- The current branch still uses `module github.com/compozy/kb`; new Task 05 code must import `internal/models` through that module path until Task 01 lands.
 - Tree-sitter Go exposes aliases as `type_alias`, not `type_spec`, so alias extraction must handle both node kinds.
 
 ## Files / Surfaces

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestComputeMetricsReturnsEmptyResultForEmptyGraph(t *testing.T) {

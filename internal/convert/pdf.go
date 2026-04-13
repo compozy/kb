@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compozy/kb/internal/models"
 	pdfapi "github.com/pdfcpu/pdfcpu/pkg/api"
 	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	pdfmodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	pdftypes "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
-	"github.com/user/kb/internal/models"
 )
 
 const pdfPageSeparator = "\n\n---\n\n"

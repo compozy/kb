@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/config"
+	"github.com/compozy/kb/internal/config"
 )
 
 func TestOpenRouterClientTranscribeSendsExpectedRequest(t *testing.T) {

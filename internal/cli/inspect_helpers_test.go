@@ -5,9 +5,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/kb/internal/output"
-	"github.com/user/kb/internal/vault"
-	"github.com/user/kb/internal/version"
+	"github.com/compozy/kb/internal/output"
+	"github.com/compozy/kb/internal/vault"
+	"github.com/compozy/kb/internal/version"
 )
 
 func TestParseInspectOutputFormat(t *testing.T) {

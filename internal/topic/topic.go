@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	repoassets "github.com/user/kb"
-	"github.com/user/kb/internal/frontmatter"
-	"github.com/user/kb/internal/models"
+	repoassets "github.com/compozy/kb"
+	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/models"
 )
 
 const (

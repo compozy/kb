@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	kconfig "github.com/user/kb/internal/config"
-	kingest "github.com/user/kb/internal/ingest"
-	"github.com/user/kb/internal/models"
-	ktopic "github.com/user/kb/internal/topic"
+	kconfig "github.com/compozy/kb/internal/config"
+	kingest "github.com/compozy/kb/internal/ingest"
+	"github.com/compozy/kb/internal/models"
+	ktopic "github.com/compozy/kb/internal/topic"
 )
 
 var runIngest = kingest.Ingest

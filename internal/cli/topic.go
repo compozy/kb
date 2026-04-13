@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/output"
-	ktopic "github.com/user/kb/internal/topic"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/output"
+	ktopic "github.com/compozy/kb/internal/topic"
 )
 
 var runTopicNew = ktopic.New

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/kb/internal/frontmatter"
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/topic"
+	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/topic"
 )
 
 var fixedScrapeTime = time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC)

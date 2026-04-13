@@ -12,7 +12,7 @@ Keep only task-local execution context here. Do not duplicate facts that are obv
 
 ## Learnings
 
-- Current repo state still uses `github.com/user/kb` in `go.mod`, `cmd/kodebase/main.go`, and `magefile.go`.
+- Current repo state still uses `github.com/compozy/kb` in `go.mod`, `cmd/kodebase/main.go`, and `magefile.go`.
 - The repository currently has no `internal/cli` package; the only CLI entrypoint is `cmd/kodebase/main.go`.
 - The task documents conflict: requirements say all stub subcommands print `not implemented`, while deliverables/tests require `kodebase version` to output version info and bare `inspect` to show help text.
 

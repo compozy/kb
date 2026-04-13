@@ -1,4 +1,4 @@
-module github.com/user/kb
+module github.com/compozy/kb
 
 go 1.24.0
 

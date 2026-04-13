@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestPPTXConverterAcceptsExtensionsAndMIMETypes(t *testing.T) {

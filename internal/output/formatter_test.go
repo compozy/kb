@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/output"
+	"github.com/compozy/kb/internal/output"
 )
 
 func TestFormatOutputTableAlignsColumns(t *testing.T) {

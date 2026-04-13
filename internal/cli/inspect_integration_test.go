@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	kgenerate "github.com/user/kb/internal/generate"
-	"github.com/user/kb/internal/models"
+	kgenerate "github.com/compozy/kb/internal/generate"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestInspectCommandsAgainstGeneratedFixtureVault(t *testing.T) {

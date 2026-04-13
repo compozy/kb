@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 const fileWriteBatchSize = 64

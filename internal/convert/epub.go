@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 const epubMIMEType = "application/epub+zip"

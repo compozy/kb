@@ -3,7 +3,7 @@ package vault_test
 import (
 	"testing"
 
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestNormalizeComment(t *testing.T) {

@@ -4,7 +4,7 @@ package graph
 import (
 	"sort"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 type relationKey struct {

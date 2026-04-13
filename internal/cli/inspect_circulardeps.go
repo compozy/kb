@@ -4,9 +4,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/compozy/kb/internal/metrics"
+	"github.com/compozy/kb/internal/vault"
 	"github.com/spf13/cobra"
-	"github.com/user/kb/internal/metrics"
-	"github.com/user/kb/internal/vault"
 )
 
 func newInspectCircularDepsCommand(options *inspectSharedOptions) *cobra.Command {

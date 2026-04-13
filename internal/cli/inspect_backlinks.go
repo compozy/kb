@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/compozy/kb/internal/vault"
 	"github.com/spf13/cobra"
-	"github.com/user/kb/internal/vault"
 )
 
 func newInspectBacklinksCommand(options *inspectSharedOptions) *cobra.Command {

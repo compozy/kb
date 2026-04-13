@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	kingest "github.com/user/kb/internal/ingest"
-	"github.com/user/kb/internal/models"
+	kingest "github.com/compozy/kb/internal/ingest"
+	"github.com/compozy/kb/internal/models"
 )
 
 func newIngestBookmarksCommand() *cobra.Command {

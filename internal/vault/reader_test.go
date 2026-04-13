@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestReadVaultSnapshotParsesFrontmatterAndClassifiesDocuments(t *testing.T) {

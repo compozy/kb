@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestGenerateIntegrationBuildsVaultFromFixtureRepository(t *testing.T) {

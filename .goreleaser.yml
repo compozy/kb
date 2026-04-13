@@ -1,0 +1,227 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
+# vim: set ts=2 sw=2 tw=0 fo=jcroql
+version: 2
+pro: true
+
+project_name: kb
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+  license: "BSL-1.1"
+  homepage: "https://github.com/compozy/kb"
+  description: "CLI for building topic-based knowledge bases in the Karpathy KB pattern"
+  maintainers:
+    - "Compozy Team <support@compozy.com>"
+
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=0
+
+git:
+  tag_sort: -version:refname
+
+builds:
+  - id: kb
+    main: ./cmd/kb
+    binary: kb
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X github.com/compozy/kb/internal/version.Version={{.Version}}
+      - -X github.com/compozy/kb/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/compozy/kb/internal/version.Date={{.Date}}
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: kb-archive
+    ids:
+      - kb
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE*
+    wrap_in_directory: true
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+snapshot:
+  version_template: "0.0.0-{{ .Timestamp }}"
+
+source:
+  enabled: true
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: "\U0001F389"
+      regexp: "^.*feat[\\(\\w)]*:+.*$"
+      order: 0
+    - title: "\U0001F41B"
+      regexp: "^.*fix[\\(\\w)]*:+.*$"
+      order: 1
+    - title: "\u26A1"
+      regexp: "^.*perf[\\(\\w)]*:+.*$"
+      order: 2
+    - title: "\U0001F510"
+      regexp: "^.*security[\\(\\w)]*:+.*$"
+      order: 3
+    - title: "\U0001F4DA"
+      regexp: "^.*docs[\\(\\w)]*:+.*$"
+      order: 4
+    - title: "\U0001F527"
+      regexp: "^.*refactor[\\(\\w)]*:+.*$"
+      order: 5
+    - title: "\U0001F4E6"
+      regexp: "^.*deps[\\(\\w)]*:+.*$"
+      order: 6
+    - title: "\U0001F9EA"
+      regexp: "^.*test[\\(\\w)]*:+.*$"
+      order: 7
+    - title: "\U0001F504"
+      order: 999
+  filters:
+    exclude:
+      - "^(build|ci): "
+      - "^chore: auto-update generated files$"
+      - "^chore: docs$"
+      - "^chore: typo$"
+      - "^chore\\(deps\\): "
+      - "^docs: update$"
+      - "^test:"
+      - "^test\\("
+      - "merge conflict"
+      - Merge branch
+      - Merge pull request
+      - Merge remote-tracking branch
+      - go mod tidy
+      - "^wip "
+      - "^wip:"
+
+release:
+  github:
+    owner: compozy
+    name: kb
+  name_template: "Release {{ .Version }}"
+  mode: replace
+  draft: false
+  prerelease: auto
+  header: |
+    ## kb {{ .Version }}
+
+    Knowledge Base CLI release.
+
+    ### Installation
+
+    #### Binary Download
+    Download the appropriate binary for your platform from the assets below.
+
+    #### Go Install
+    ```bash
+    go install github.com/compozy/kb/cmd/kb@{{ .Tag }}
+    ```
+
+    #### Homebrew
+    ```bash
+    brew install compozy/kb/kb
+    ```
+
+  footer: |
+    ### Verification
+
+    All release artifacts are signed and can be verified:
+
+    ```bash
+    cosign verify-blob \
+      --signature checksums.txt.sig \
+      --certificate checksums.txt.pem \
+      checksums.txt
+    ```
+
+    **Full Changelog**: https://github.com/compozy/kb/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+homebrew_casks:
+  - name: kb
+    repository:
+      owner: compozy
+      name: homebrew-kb
+      branch: main
+      token: "{{ .Env.RELEASE_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    directory: Casks
+    caveats: |
+      To get started with kb:
+        kb topic new my-topic
+      See https://github.com/compozy/kb for more information.
+    homepage: "https://github.com/compozy/kb"
+    description: "CLI for building topic-based knowledge bases in the Karpathy KB pattern"
+    skip_upload: auto
+
+nfpms:
+  - id: kb-packages
+    package_name: kb
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: "Compozy"
+    homepage: "https://github.com/compozy/kb"
+    maintainer: "Compozy Team <support@compozy.com>"
+    description: "CLI for building topic-based knowledge bases in the Karpathy KB pattern"
+    license: "BSL-1.1"
+    formats:
+      - apk
+      - deb
+      - rpm
+      - archlinux
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+sboms:
+  - artifacts: archive
+  - id: source
+    artifacts: source

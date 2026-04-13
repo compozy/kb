@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	klint "github.com/user/kb/internal/lint"
-	"github.com/user/kb/internal/output"
-	"github.com/user/kb/internal/vault"
+	klint "github.com/compozy/kb/internal/lint"
+	"github.com/compozy/kb/internal/output"
+	"github.com/compozy/kb/internal/vault"
 )
 
 type lintCommandOptions struct {

@@ -5,7 +5,7 @@ package convert
 import (
 	"context"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 // ImageConverter preserves supported image metadata when OCR support is not

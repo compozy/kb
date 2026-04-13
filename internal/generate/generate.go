@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/kb/internal/adapter"
-	"github.com/user/kb/internal/graph"
-	"github.com/user/kb/internal/metrics"
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/scanner"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/adapter"
+	"github.com/compozy/kb/internal/graph"
+	"github.com/compozy/kb/internal/metrics"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/scanner"
+	"github.com/compozy/kb/internal/vault"
 )
 
 type scanWorkspaceFunc func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error)

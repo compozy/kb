@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 const docxMIMEType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

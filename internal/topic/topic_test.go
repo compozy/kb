@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/frontmatter"
 )
 
 func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {

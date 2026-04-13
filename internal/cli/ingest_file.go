@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/kb/internal/convert"
-	kingest "github.com/user/kb/internal/ingest"
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/convert"
+	kingest "github.com/compozy/kb/internal/ingest"
+	"github.com/compozy/kb/internal/models"
 )
 
 var newIngestRegistry = func() kingest.Registry {

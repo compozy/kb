@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/metrics"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/metrics"
+	"github.com/compozy/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
 

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	kgenerate "github.com/user/kb/internal/generate"
-	"github.com/user/kb/internal/models"
+	kgenerate "github.com/compozy/kb/internal/generate"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestGenerateCommandPassesFlagsAndPrintsJSONSummary(t *testing.T) {

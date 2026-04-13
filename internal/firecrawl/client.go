@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/kb/internal/config"
+	"github.com/compozy/kb/internal/config"
 )
 
 const (

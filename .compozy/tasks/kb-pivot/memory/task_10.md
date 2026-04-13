@@ -14,7 +14,7 @@ Keep only task-local execution context here. Do not duplicate facts that are obv
 
 ## Learnings
 
-- The repository module path is still `github.com/user/kb`; new internal packages must import that path until the module rename task happens.
+- The repository module path is still `github.com/compozy/kb`; new internal packages must import that path until the module rename task happens.
 - `make lint` enforces explicit handling of `resp.Body.Close()` through `errcheck`, so deferred closes in new HTTP clients must use a closure or another checked path.
 - Focused Firecrawl coverage started at `69.3%`; adding direct helper/error-path tests raised the package to `85.1%`.
 

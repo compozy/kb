@@ -16,7 +16,7 @@ import (
 
 	ytdl "github.com/kkdai/youtube/v2"
 
-	"github.com/user/kb/internal/config"
+	"github.com/compozy/kb/internal/config"
 )
 
 const (

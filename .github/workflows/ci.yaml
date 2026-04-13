@@ -7,6 +7,15 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   validate-title:
@@ -24,19 +33,36 @@ jobs:
             docs
             feat
             fix
+            perf
             refactor
             test
           scopes: |
             repo
+            release
             cli
+            topic
+            ingest
+            convert
+            lint
+            inspect
+            vault
+            qmd
+            config
+            version
             docs
             test
             ci
+
   check:
     runs-on: ubuntu-latest
+    if: |
+      !(github.event_name == 'pull_request' &&
+        startsWith(github.event.pull_request.title, 'ci(release):'))
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-go
         with:
           go-version: "1.24"
+
       - run: make verify

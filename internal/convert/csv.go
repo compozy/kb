@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 // CSVConverter renders CSV content as a Markdown table.

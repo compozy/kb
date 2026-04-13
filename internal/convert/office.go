@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 const officeNoTextWarning = "no extractable text found"

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/user/kb/internal/adapter"
-	"github.com/user/kb/internal/graph"
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/adapter"
+	"github.com/compozy/kb/internal/graph"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestComputeMetricsIntegrationOnMultiDirectoryProject(t *testing.T) {

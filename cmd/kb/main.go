@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/user/kb/internal/cli"
+	"github.com/compozy/kb/internal/cli"
 )
 
 func main() {

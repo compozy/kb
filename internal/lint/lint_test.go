@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/kb/internal/frontmatter"
-	"github.com/user/kb/internal/lint"
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/lint"
+	"github.com/compozy/kb/internal/models"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/kb/internal/adapter"
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/adapter"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestNormalizeGraphMergesOverlappingImportsAcrossParsedFiles(t *testing.T) {

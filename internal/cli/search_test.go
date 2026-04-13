@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/kb/internal/qmd"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/qmd"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestSearchCommandDefaultsToHybridMode(t *testing.T) {

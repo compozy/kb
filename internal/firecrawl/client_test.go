@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/kb/internal/config"
+	"github.com/compozy/kb/internal/config"
 )
 
 func TestScrapeSendsExpectedRequestAndReturnsContent(t *testing.T) {

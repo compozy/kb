@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/kb/internal/models"
-	"github.com/user/kb/internal/scanner"
-	"github.com/user/kb/internal/vault"
+	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/scanner"
+	"github.com/compozy/kb/internal/vault"
 )
 
 type fakeAdapter struct {

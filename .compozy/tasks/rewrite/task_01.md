@@ -12,7 +12,7 @@ dependencies: []
 
 ## Overview
 
-Rename the Go module from `github.com/user/kb` to `github.com/pedronauck/kodebase`, install cobra, and create the CLI skeleton with root command and stub subcommands. This establishes the project identity and command-routing foundation that all subsequent tasks build upon.
+Rename the Go module from `github.com/compozy/kb` to `github.com/pedronauck/kodebase`, install cobra, and create the CLI skeleton with root command and stub subcommands. This establishes the project identity and command-routing foundation that all subsequent tasks build upon.
 
 <critical>
 - ALWAYS READ the PRD and TechSpec before starting
@@ -51,7 +51,7 @@ Reference TechSpec Phase 0.1 for root command structure and stub subcommand patt
 
 ### Relevant Files
 
-- `go.mod` — current module is `github.com/user/kb`, needs renaming
+- `go.mod` — current module is `github.com/compozy/kb`, needs renaming
 - `cmd/kodebase/main.go` — existing entry point (127 lines), needs rewrite to use cobra
 - `internal/version/version.go` — existing version package with ldflags, wire into version subcommand
 - `internal/config/config.go` — existing config loading, import paths need updating

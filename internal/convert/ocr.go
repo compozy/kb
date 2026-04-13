@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/compozy/kb/internal/models"
 	"github.com/otiai10/gosseract/v2"
-	"github.com/user/kb/internal/models"
 )
 
 // ImageConverter renders supported image inputs through OCR when the `ocr`

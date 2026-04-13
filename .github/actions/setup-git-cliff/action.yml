@@ -1,0 +1,52 @@
+name: "Setup git-cliff"
+description: "Sets up git-cliff changelog generator with caching"
+
+inputs:
+  version:
+    description: "git-cliff version to install"
+    required: false
+    default: "2.7.0"
+
+outputs:
+  version:
+    description: "The git-cliff version that was installed"
+    value: ${{ steps.install-cliff.outputs.version }}
+  cache-hit:
+    description: "Whether the git-cliff cache was hit"
+    value: ${{ steps.cache-cliff.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache git-cliff installation
+      id: cache-cliff
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/bin/git-cliff
+        key: ${{ runner.os }}-git-cliff-pip-${{ inputs.version }}
+
+    - name: Ensure ~/.local/bin is on PATH
+      shell: bash
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Install git-cliff
+      id: install-cliff
+      if: steps.cache-cliff.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -e
+        echo "Installing git-cliff via pip..."
+        pip install --user "git-cliff==${{ inputs.version }}" || pip install --user git-cliff
+        INSTALLED_VERSION=$(git-cliff --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "version=$INSTALLED_VERSION" >> $GITHUB_OUTPUT
+        echo "git-cliff installed: v$INSTALLED_VERSION"
+
+    - name: Verify installation
+      shell: bash
+      run: |-
+        set -e
+        if ! git-cliff --version &>/dev/null; then
+          echo "::error::git-cliff verification failed"
+          exit 1
+        fi
+        echo "git-cliff version: $(git-cliff --version)"

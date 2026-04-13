@@ -16,7 +16,7 @@
 
 ### Task 0.1: Rename module and update cmd entry point
 
-**Objective:** Rename the Go module from `github.com/user/kb` to `github.com/pedronauck/kodebase` and update cmd to use cobra for subcommand routing.
+**Objective:** Rename the Go module from `github.com/compozy/kb` to `github.com/pedronauck/kodebase` and update cmd to use cobra for subcommand routing.
 
 **Files:**
 

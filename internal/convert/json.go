@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 // JSONConverter renders JSON content inside a fenced Markdown code block.

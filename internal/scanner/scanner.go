@@ -12,7 +12,7 @@ import (
 
 	ignore "github.com/sabhiram/go-gitignore"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 var defaultIgnoredPatterns = []string{

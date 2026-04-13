@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/user/kb/internal/models"
+	"github.com/compozy/kb/internal/models"
 )
 
 var windowsDriveRootPattern = regexp.MustCompile(`^[A-Za-z]:/?$`)

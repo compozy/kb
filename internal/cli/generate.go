@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	kgenerate "github.com/user/kb/internal/generate"
-	"github.com/user/kb/internal/models"
+	kgenerate "github.com/compozy/kb/internal/generate"
+	"github.com/compozy/kb/internal/models"
 )
 
 var runGenerate = kgenerate.GenerateWithObserver
