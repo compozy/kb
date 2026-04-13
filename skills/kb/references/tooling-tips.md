@@ -8,9 +8,9 @@ Converts web articles to clean markdown with a single click, writing directly in
 
 - Install from the Obsidian Web Clipper page (official extension for Chrome/Firefox/Safari).
 - Configure the default save location to `<topic>/raw/articles/` per topic.
-- Configure a default template that includes `source_url`, `scraped`, and topic tags in frontmatter (match the raw-article schema in `frontmatter-schemas.md`).
+- Configure a default template that includes `source_url`, `scraped`, and topic tags in frontmatter (the `kb` CLI auto-generates correct frontmatter on `kb ingest`, so this is only needed for manual clips).
 
-After clipping, still run Procedure 2 steps 3-6 (frontmatter fix-up, re-index, log entry).
+After clipping, verify the frontmatter matches `kb` conventions (the CLI auto-generates it on `kb ingest`, but manual clips need manual frontmatter). Then re-index with `kb index --topic <slug>` and append a log entry.
 
 ## Image download and asset handling
 
@@ -59,14 +59,14 @@ Karpathy's original pattern notes that at small scale, the static `index.md` (ou
 | Scale | Navigation |
 |-------|-----------|
 | 1-20 sources, <30 wiki articles | Concept Index + Source Index only |
-| 20-50 sources, 30-80 articles | Add qmd collection, still read indexes first |
+| 20-50 sources, 30-80 articles | Run `kb index --topic <slug>`, still read indexes first |
 | 50+ sources, 80+ articles | qmd primary, indexes become secondary browsing aids |
 
 The indexes never go away — they serve as the LLM's *mental model* of the topic. qmd serves as its *search tool*.
 
 ## Graph view
 
-Obsidian's graph view is the fastest way to see the shape of a topic — what's central, what's orphan, what's overconnected. Run it after each lint pass to eyeball the structure. Orphan nodes in the graph corroborate orphan detection from `lint-wiki.py`.
+Obsidian's graph view is the fastest way to see the shape of a topic — what's central, what's orphan, what's overconnected. Run it after each lint pass to eyeball the structure. Orphan nodes in the graph corroborate orphan detection from `kb lint`.
 
 ## The wiki is just a git repo
 

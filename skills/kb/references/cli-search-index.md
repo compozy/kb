@@ -9,7 +9,7 @@ Both commands require the QMD binary on PATH. Install with `npm install -g @tobi
 ### Usage
 
 ```
-kodebase search <query> [flags]
+kb search <query> [flags]
 ```
 
 The `<query>` argument is the search text (required, non-empty).
@@ -57,19 +57,19 @@ When `--collection` is omitted, the collection name is derived from the topic sl
 
 ```bash
 # Hybrid search (default)
-kodebase search "authentication middleware" --format json
+kb search "authentication middleware" --format json
 
 # Lexical search with higher result limit
-kodebase search "parseConfig" --lex --limit 20 --format json
+kb search "parseConfig" --lex --limit 20 --format json
 
 # Vector search with score threshold
-kodebase search "error handling patterns" --vec --min-score 0.5 --format json
+kb search "error handling patterns" --vec --min-score 0.5 --format json
 
 # Full document content
-kodebase search "auth" --full --format json
+kb search "auth" --full --format json
 
 # Explicit collection name
-kodebase search "auth" --collection my-project --format json
+kb search "auth" --collection my-project --format json
 ```
 
 ---
@@ -79,10 +79,8 @@ kodebase search "auth" --collection my-project --format json
 ### Usage
 
 ```
-kodebase index [flags]
+kb index [flags]
 ```
-
-Alias: `kodebase index-vault`
 
 ### Flags
 
@@ -101,7 +99,7 @@ The index command is idempotent. It checks `qmd status` first and selects the op
 - If the collection already exists: performs an **update** (syncs changes)
 - If the collection does not exist: performs an **add** (creates and populates)
 
-Run `kodebase index` repeatedly without side effects.
+Run `kb index` repeatedly without side effects.
 
 ### Output Schema (indexResultPayload)
 
@@ -146,20 +144,20 @@ Run `kodebase index` repeatedly without side effects.
 
 ```bash
 # Index with default settings (embed enabled)
-kodebase index
+kb index
 
 # Index with custom context for search relevance
-kodebase index --context "React application with Redux state management"
+kb index --context "React application with Redux state management"
 
 # Force re-embedding all documents
-kodebase index --force-embed
+kb index --force-embed
 
 # Index without embedding (sync files only)
-kodebase index --embed=false
+kb index --embed=false
 
 # Index with explicit vault and topic
-kodebase index --vault /path/to/vault --topic my-project
+kb index --vault /path/to/vault --topic my-project
 
 # Index with custom collection name
-kodebase index --name custom-collection
+kb index --name custom-collection
 ```

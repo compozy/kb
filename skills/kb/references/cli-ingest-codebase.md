@@ -1,9 +1,9 @@
-# Generate Command Reference
+# Ingest Codebase Command Reference
 
 ## Usage
 
 ```
-kodebase generate <path> [flags]
+kb ingest codebase <path> [flags]
 ```
 
 The `<path>` argument is the root directory of the source repository to analyze (required).
@@ -12,8 +12,8 @@ The `<path>` argument is the root directory of the source repository to analyze 
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `--topic` | string | `""` | Topic slug for the ingested codebase (derived from directory name if omitted) |
 | `--output` | string | `""` | Vault root where the generated topic will be written. Defaults to `<path>/.kb/vault` |
-| `--topic` | string | `""` | Override the generated topic slug (derived from directory name if omitted) |
 | `--title` | string | `""` | Override the generated topic title |
 | `--domain` | string | `""` | Override the generated topic domain |
 | `--include` | string[] | `nil` | Re-include a path pattern that would otherwise be ignored; repeatable |
@@ -27,12 +27,12 @@ The `<path>` argument is the root directory of the source repository to analyze 
 When invoking from an agent context, always set `--progress never` to prevent TTY progress bars from corrupting stdout output.
 
 ```
-kodebase generate /path/to/repo --progress never
+kb ingest codebase /path/to/repo --topic my-project --progress never
 ```
 
 ## Pipeline Stages
 
-The generate pipeline executes these stages in order:
+The codebase ingestion pipeline executes these stages in order:
 
 1. **scan** -- Discover source files by language
 2. **select_adapters** -- Choose language parsers (tree-sitter for TS/JS, Go parser)
@@ -97,7 +97,7 @@ The command writes JSON to stdout. Parse the following fields:
 
 ## Vault Structure
 
-After generation, the vault directory contains:
+After ingestion, the vault directory contains:
 
 ```
 <vaultPath>/<topicSlug>/

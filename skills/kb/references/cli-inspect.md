@@ -3,7 +3,7 @@
 ## Usage
 
 ```
-kodebase inspect <subcommand> [flags]
+kb inspect <subcommand> [flags]
 ```
 
 ## Shared Flags (All Subcommands)
@@ -27,7 +27,7 @@ When `--vault` is omitted, the CLI walks up from the current working directory l
 List symbols and files with detected code smells.
 
 ```
-kodebase inspect smells [--type <smell-type>] [--format json]
+kb inspect smells [--type <smell-type>] [--format json]
 ```
 
 **Flags:** `--type` (string) -- filter to a specific smell type (e.g., `long-function`, `high-complexity`, `dead-export`, `orphan-file`, `god-file`)
@@ -49,7 +49,7 @@ kodebase inspect smells [--type <smell-type>] [--format json]
 List dead exports and orphan files.
 
 ```
-kodebase inspect dead-code [--format json]
+kb inspect dead-code [--format json]
 ```
 
 **Output Columns:**
@@ -70,7 +70,7 @@ kodebase inspect dead-code [--format json]
 Rank functions by cyclomatic complexity (descending).
 
 ```
-kodebase inspect complexity [--top N] [--format json]
+kb inspect complexity [--top N] [--format json]
 ```
 
 **Flags:** `--top` (int, default 20) -- maximum number of rows to return
@@ -94,7 +94,7 @@ kodebase inspect complexity [--top N] [--format json]
 Rank symbols by blast radius (how many symbols transitively depend on a given symbol).
 
 ```
-kodebase inspect blast-radius [--min N] [--top N] [--format json]
+kb inspect blast-radius [--min N] [--top N] [--format json]
 ```
 
 **Flags:**
@@ -119,7 +119,7 @@ kodebase inspect blast-radius [--min N] [--top N] [--format json]
 Rank files by instability (Martin coupling metric).
 
 ```
-kodebase inspect coupling [--unstable] [--format json]
+kb inspect coupling [--unstable] [--format json]
 ```
 
 **Flags:** `--unstable` (bool) -- only show files with instability > 0.5
@@ -142,7 +142,7 @@ kodebase inspect coupling [--unstable] [--format json]
 Lookup symbols by case-insensitive substring match.
 
 ```
-kodebase inspect symbol <name> [--format json]
+kb inspect symbol <name> [--format json]
 ```
 
 **Behavior:**
@@ -194,7 +194,7 @@ Each relation entry has: `target_path` (string), `type` (string: imports|calls|r
 Lookup a file by its exact source path.
 
 ```
-kodebase inspect file <path> [--format json]
+kb inspect file <path> [--format json]
 ```
 
 **Detail Fields:**
@@ -223,7 +223,7 @@ kodebase inspect file <path> [--format json]
 Show incoming references for a symbol or file.
 
 ```
-kodebase inspect backlinks <name-or-path> [--format json]
+kb inspect backlinks <name-or-path> [--format json]
 ```
 
 **Entity Resolution:** Tries exact file path match first, falls back to single symbol name match.
@@ -243,7 +243,7 @@ kodebase inspect backlinks <name-or-path> [--format json]
 Show outgoing dependencies for a symbol or file.
 
 ```
-kodebase inspect deps <name-or-path> [--format json]
+kb inspect deps <name-or-path> [--format json]
 ```
 
 **Entity Resolution:** Same as backlinks (file path first, then symbol name).
@@ -263,7 +263,7 @@ kodebase inspect deps <name-or-path> [--format json]
 List files that participate in circular dependencies.
 
 ```
-kodebase inspect circular-deps [--format json]
+kb inspect circular-deps [--format json]
 ```
 
 **Behavior:**

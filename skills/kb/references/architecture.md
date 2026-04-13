@@ -55,14 +55,17 @@ Every phase ends with an append to `<topic>/log.md`. Each phase enhances the nex
 
 ### Phase 1: Ingest
 
-Raw source material enters through multiple channels and is staged immutably:
+Raw source material enters through the `kb` CLI and is staged immutably:
 
-- **Web clipping** (articles, blog posts, papers) → `raw/articles/`
-- **GitHub READMEs, docs, architecture notes** → `raw/github/`
-- **Bookmark clusters** (e.g., TweetSmash exports) → `raw/bookmarks/`
-- **Manual curation** (diagrams, screenshots, PDFs) → `raw/articles/` or `raw/images/`
+```bash
+kb ingest url <url> --topic <slug>        # web articles, blog posts, papers → raw/articles/
+kb ingest file <path> --topic <slug>      # local files (PDF, DOCX, EPUB, images w/OCR) → raw/articles/
+kb ingest youtube <url> --topic <slug>    # YouTube transcripts → raw/youtube/
+kb ingest bookmarks <path> --topic <slug> # bookmark clusters → raw/bookmarks/
+kb ingest codebase <path> --topic <slug>  # codebase analysis → raw/codebase/
+```
 
-Principle: capture broadly, filter later. It is better to ingest something irrelevant than to miss something valuable. Never edit files in `raw/` after ingestion — if a source changes, re-scrape as a new version.
+The CLI auto-generates frontmatter and appends a log entry for each ingest. Principle: capture broadly, filter later. It is better to ingest something irrelevant than to miss something valuable. Never edit files in `raw/` after ingestion — if a source changes, re-scrape as a new version.
 
 ### Phase 2: Compile
 
@@ -84,18 +87,21 @@ With 1M+ context, load the full wiki (or a relevant subset) and answer complex c
 - "What are the gaps in our coverage of Y?"
 - "Synthesize arguments for and against Z."
 
-**Every answer gets filed back** to `outputs/queries/<YYYY-MM-DD> <slug>.md`. On the next compile pass, insights from filed-back queries get absorbed into the wiki articles themselves. When an answer is strong enough to stand as a first-class reference (a comparison table, a concept synthesized from multiple articles, a novel trade-off analysis), **promote it to `wiki/concepts/`** following Procedure 3 standards. Karpathy's pattern treats strong query answers as equal citizens of the wiki, not secondary artifacts. This is the compounding mechanism — explorations become reusable knowledge.
+**Every answer gets filed back** to `outputs/queries/<YYYY-MM-DD> <slug>.md`. On the next compile pass, insights from filed-back queries get absorbed into the wiki articles themselves. When an answer is strong enough to stand as a first-class reference (a comparison table, a concept synthesized from multiple articles, a novel trade-off analysis), **promote it to `wiki/concepts/`** following Procedure 1 (Compile) standards. Karpathy's pattern treats strong query answers as equal citizens of the wiki, not secondary artifacts. This is the compounding mechanism — explorations become reusable knowledge.
 
 ### Phase 4: Lint and heal
 
-Scan the wiki for entropy:
+The `kb` CLI handles automated structural checks:
 
-- **Dead wikilinks** — links to articles that do not exist
-- **Orphan articles** — articles with zero incoming links
-- **Stale content** — articles older than their sources
+```bash
+kb lint <slug> --save    # dead links, orphans, missing sources, format violations, stale content
+```
+
+The LLM handles deeper semantic healing that requires reading articles and applying judgment:
+
 - **Missing coverage** — topics referenced in N articles but lacking their own
 - **Inconsistencies** — contradictory claims across articles
-- **Format violations** — articles that drift from the standard structure
+- **Filed-back query absorption** — query insights not yet integrated into cited articles
 
 The lint pass leaves the knowledge base in a better state than it found it. This is the self-healing property.
 

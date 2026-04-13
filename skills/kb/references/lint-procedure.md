@@ -1,20 +1,8 @@
 # Lint and Heal Procedure
 
-The automated `scripts/lint-wiki.py` handles the three most common checks (dead wikilinks, orphans, missing source files). This document covers the deeper LLM-driven checks that require reading articles and applying judgment.
+Run `kb lint <slug> --save` for automated structural checks (dead wikilinks, orphans, missing sources, format violations, stale content). The report is saved to `<topic>/outputs/reports/` and a log entry is auto-appended.
 
-## Automated checks (scripts/lint-wiki.py)
-
-Run: `python3 .claude/skills/karpathy-kb/scripts/lint-wiki.py <topic>/`
-
-Reports:
-
-- **Dead wikilink** — `[[Foo]]` when no file named `Foo.md` exists in the topic (or in linked topics, for cross-topic links).
-- **Orphan article** — `wiki/concepts/Foo.md` with zero incoming `[[Foo]]` references from any other file.
-- **Missing source file** — `sources:` frontmatter entry pointing at a wikilink that has no corresponding file in `raw/`.
-
-## LLM-driven checks
-
-These require reading articles and applying judgment — run them periodically or after a batch of new content.
+This document covers the deeper **LLM-driven checks** that require reading articles and applying judgment. Run them periodically or after a batch of new content.
 
 ### Check 1: Stale content
 
@@ -45,8 +33,8 @@ Scan all articles for wikilinks and identify targets that:
 These are strong candidates for new articles. For each:
 
 1. Check whether relevant raw sources exist in `raw/`.
-2. If yes, write the article (Procedure 3 in SKILL.md).
-3. If no, ingest sources first (Procedure 2) or mark as a research gap in the topic's `CLAUDE.md`.
+2. If yes, write the article (Procedure 1 in SKILL.md).
+3. If no, ingest sources first (`kb ingest url/file`) or mark as a research gap in the topic's `CLAUDE.md`.
 
 ### Check 4: Format violations
 
@@ -56,7 +44,7 @@ Verify each article has:
 - Lead paragraph
 - Sources section at the bottom
 - At least 5 wikilinks (outgoing)
-- Frontmatter with all required fields (see `references/frontmatter-schemas.md`)
+- Frontmatter with all required fields (the `kb` CLI validates these automatically via `kb lint`)
 
 Fix by rewriting or adding the missing elements.
 
@@ -118,7 +106,7 @@ FILED-BACK INSIGHTS (N)
 
 For each issue the lint report surfaces:
 
-1. **Dead link + source available** → create the article (Procedure 3).
+1. **Dead link + source available** → create the article (Procedure 1).
 2. **Dead link + no source** → mark in topic `CLAUDE.md` research gaps, or rewrite the link.
 3. **Orphan** → add incoming wikilinks, or delete if out-of-scope.
 4. **Stale** → re-scrape source, recompile article.

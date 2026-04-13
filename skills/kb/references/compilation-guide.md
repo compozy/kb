@@ -45,7 +45,7 @@ Do not wikilink every occurrence of common words. Do not wikilink authors or org
 
 ## Sourcing rules
 
-- **Every article cites real sources.** Do not write from general knowledge alone. If the corpus does not contain the claim, either ingest a new source (Procedure 2) or omit the claim.
+- **Every article cites real sources.** Do not write from general knowledge alone. If the corpus does not contain the claim, either ingest a new source (`kb ingest url/file`) or omit the claim.
 - **Frontmatter `sources:`** lists every raw file that informed the article, as wikilinks.
 - **Inline attributions** are allowed but not required. A Sources section at the bottom is mandatory.
 - **Direct quotes** require quotation marks and a source reference.

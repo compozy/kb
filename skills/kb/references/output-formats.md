@@ -72,9 +72,9 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
 ]
 ```
 
-## Generate Output
+## Ingest Codebase Output
 
-`generate` always outputs JSON to stdout (no `--format` flag).
+`kb ingest codebase` always outputs JSON to stdout (no `--format` flag).
 
 ```json
 {
@@ -121,7 +121,7 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
 
 ## Index Output
 
-`index` always outputs JSON to stdout (no `--format` flag).
+`kb index` always outputs JSON to stdout (no `--format` flag).
 
 ```json
 {
