@@ -41,8 +41,18 @@ func TestReadVaultSnapshotRoundTripsWriterOutput(t *testing.T) {
 	if len(snapshot.Directories) != 2 {
 		t.Fatalf("expected 2 directory documents, got %d", len(snapshot.Directories))
 	}
-	if len(snapshot.Wikis) != 14 {
-		t.Fatalf("expected 14 wiki/default documents, got %d", len(snapshot.Wikis))
+	if len(snapshot.Wikis) != 17 {
+		t.Fatalf("expected 17 wiki/default documents, got %d", len(snapshot.Wikis))
+	}
+
+	for _, relativePath := range []string{
+		vault.GetTopicIndexPath(vault.TopicDashboardTitle),
+		vault.GetTopicIndexPath(vault.TopicConceptIndexTitle),
+		vault.GetTopicIndexPath(vault.TopicSourceIndexTitle),
+	} {
+		if !hasRelativePath(snapshot.Wikis, relativePath) {
+			t.Fatalf("expected wiki snapshot to include %q", relativePath)
+		}
 	}
 
 	matches := vault.FindSymbolsByName(snapshot, "alpha")
@@ -55,4 +65,14 @@ func TestReadVaultSnapshotRoundTripsWriterOutput(t *testing.T) {
 	if len(matches[0].Backlinks) == 0 {
 		t.Fatal("expected alpha symbol to retain parsed backlinks after round-trip")
 	}
+}
+
+func hasRelativePath(documents []vault.VaultDocument, relativePath string) bool {
+	for _, document := range documents {
+		if document.RelativePath == relativePath {
+			return true
+		}
+	}
+
+	return false
 }

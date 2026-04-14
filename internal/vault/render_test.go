@@ -35,7 +35,7 @@ func TestRenderDocumentsProducesRawWikiAndBaseSurfaces(t *testing.T) {
 		t.Fatal("expected concept article to have wiki kind")
 	}
 
-	if findDocument(t, documents, "wiki/index/Dashboard.md").Kind != models.DocIndex {
+	if findDocument(t, documents, vault.GetWikiIndexPath(vault.CodebaseDashboardTitle)).Kind != models.DocIndex {
 		t.Fatal("expected dashboard to have index kind")
 	}
 }
@@ -188,7 +188,7 @@ func TestRenderDocumentsDashboardLinksToAllConceptArticles(t *testing.T) {
 	t.Parallel()
 
 	documents := renderFixtureDocuments(t)
-	document := findDocument(t, documents, "wiki/index/Dashboard.md")
+	document := findDocument(t, documents, vault.GetWikiIndexPath(vault.CodebaseDashboardTitle))
 
 	for _, title := range []string{
 		"Codebase Overview",

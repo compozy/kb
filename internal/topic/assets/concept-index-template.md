@@ -11,11 +11,10 @@ Alphabetical listing of every wiki article in this topic. One-line summary per e
 
 | Article | Summary |
 |---------|---------|
-| [[Example Article Name]] | One-sentence summary of what the article covers |
+| _None yet._ | Start by compiling the first wiki article. |
 
 ## Cross-topic references
 
-Articles in this topic that frequently wikilink to other topics:
+Articles in this topic that frequently wikilink to other topics.
 
-- [[Article A]] → [[other-topic/wiki/concepts/Related]]
-- [[Article B]] → [[another-topic/wiki/concepts/Related]]
+_No cross-topic references yet._

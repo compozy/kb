@@ -1,11 +1,14 @@
 package models
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestSupportedLanguages(t *testing.T) {
 	t.Parallel()
 
-	expected := []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo}
+	expected := []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust}
 
 	languages := SupportedLanguages()
 	if len(languages) != len(expected) {
@@ -20,6 +23,15 @@ func TestSupportedLanguages(t *testing.T) {
 		if language == "" {
 			t.Fatalf("language %d is empty", index)
 		}
+	}
+}
+
+func TestSupportedLanguageNames(t *testing.T) {
+	t.Parallel()
+
+	expected := []string{"ts", "tsx", "js", "jsx", "go", "rust"}
+	if got := SupportedLanguageNames(); !reflect.DeepEqual(got, expected) {
+		t.Fatalf("SupportedLanguageNames() = %#v, want %#v", got, expected)
 	}
 }
 

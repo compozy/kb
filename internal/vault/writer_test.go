@@ -2,6 +2,7 @@ package vault_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/compozy/kb/internal/metrics"
 	"github.com/compozy/kb/internal/models"
-	"github.com/compozy/kb/internal/topic"
+	topicpkg "github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
 	"gopkg.in/yaml.v3"
 )
@@ -42,6 +43,9 @@ func TestWriteVaultCreatesTopicSkeletonAndManagedFiles(t *testing.T) {
 		filepath.Join(topic.TopicPath, "raw", "github"),
 		filepath.Join(topic.TopicPath, "raw", "codebase"),
 		filepath.Join(topic.TopicPath, "wiki"),
+		filepath.Join(topic.TopicPath, "wiki", "codebase"),
+		filepath.Join(topic.TopicPath, "wiki", "codebase", "concepts"),
+		filepath.Join(topic.TopicPath, "wiki", "codebase", "index"),
 		filepath.Join(topic.TopicPath, "wiki", "concepts"),
 		filepath.Join(topic.TopicPath, "wiki", "index"),
 		filepath.Join(topic.TopicPath, "outputs"),
@@ -91,6 +95,8 @@ func TestWriteVaultCreatesTopicSkeletonAndManagedFiles(t *testing.T) {
 		filepath.Join(topic.TopicPath, "raw", "articles", ".gitkeep"),
 		filepath.Join(topic.TopicPath, "raw", "bookmarks", ".gitkeep"),
 		filepath.Join(topic.TopicPath, "raw", "github", ".gitkeep"),
+		filepath.Join(topic.TopicPath, "raw", "youtube", ".gitkeep"),
+		filepath.Join(topic.TopicPath, "wiki", "concepts", ".gitkeep"),
 		filepath.Join(topic.TopicPath, "outputs", "briefings", ".gitkeep"),
 		filepath.Join(topic.TopicPath, "outputs", "queries", ".gitkeep"),
 		filepath.Join(topic.TopicPath, "outputs", "diagrams", ".gitkeep"),
@@ -123,8 +129,11 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	if !strings.Contains(claudeContent, "**Domain:** `demo-repo`") {
 		t.Fatalf("expected domain metadata in CLAUDE.md, got:\n%s", claudeContent)
 	}
-	if !strings.Contains(claudeContent, "[[demo-repo/wiki/index/Dashboard|Dashboard]]") {
-		t.Fatalf("expected dashboard link in CLAUDE.md, got:\n%s", claudeContent)
+	if !strings.Contains(claudeContent, "<!-- kb:codebase:start -->") || !strings.Contains(claudeContent, "<!-- kb:codebase:end -->") {
+		t.Fatalf("expected managed codebase block in CLAUDE.md, got:\n%s", claudeContent)
+	}
+	if !strings.Contains(claudeContent, vault.ToTopicWikiLink("demo-repo", vault.GetWikiIndexPath(vault.CodebaseDashboardTitle), vault.CodebaseDashboardTitle)) {
+		t.Fatalf("expected codebase dashboard link in CLAUDE.md, got:\n%s", claudeContent)
 	}
 	if !strings.Contains(claudeContent, vault.ToTopicWikiLink("demo-repo", vault.GetWikiConceptPath("Codebase Overview"), "Codebase Overview")) {
 		t.Fatalf("expected concept link in CLAUDE.md, got:\n%s", claudeContent)
@@ -150,7 +159,7 @@ func TestWriteVaultCreatesClaudeManifestAndAppendOnlyLog(t *testing.T) {
 	if got := strings.Count(secondLog, "## [2026-04-09] ingest | codebase (4 files, 4 symbols)"); got != 2 {
 		t.Fatalf("expected two ingest entries after second write, got %d\n%s", got, secondLog)
 	}
-	if got := strings.Count(secondLog, "## [2026-04-09] compile | refreshed starter wiki"); got != 2 {
+	if got := strings.Count(secondLog, "## [2026-04-09] compile | refreshed codebase wiki"); got != 2 {
 		t.Fatalf("expected two compile entries after second write, got %d\n%s", got, secondLog)
 	}
 }
@@ -174,9 +183,23 @@ func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
 		t.Fatalf("WriteVault returned error: %v", err)
 	}
 
-	expectedTotal := len(documents) + len(baseFiles) + 2
+	expectedTotal := len(documents) + len(baseFiles) + 5
 	if len(progress) != expectedTotal {
 		t.Fatalf("progress events = %d, want %d", len(progress), expectedTotal)
+	}
+
+	progressPaths := make([]string, 0, len(progress))
+	for _, update := range progress {
+		progressPaths = append(progressPaths, filepath.ToSlash(update.Path))
+	}
+	for _, relativePath := range []string{
+		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicDashboardTitle)))),
+		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicConceptIndexTitle)))),
+		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicSourceIndexTitle)))),
+	} {
+		if !contains(progressPaths, relativePath) {
+			t.Fatalf("expected progress to report %q, got %#v", relativePath, progressPaths)
+		}
 	}
 
 	last := progress[len(progress)-1]
@@ -185,7 +208,7 @@ func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
 	}
 }
 
-func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
+func TestWriteVaultResetsManagedCodebaseSubtreeOnly(t *testing.T) {
 	t.Parallel()
 
 	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
@@ -214,6 +237,23 @@ func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
 	if err := os.WriteFile(manualConceptPath, []byte(manualConceptBody), 0o644); err != nil {
 		t.Fatalf("write manual concept: %v", err)
 	}
+	manualIndexPath := filepath.Join(topic.TopicPath, filepath.FromSlash("wiki/index/Dashboard.md"))
+	manualIndexBody := strings.Join([]string{
+		"---",
+		`domain: "demo-repo"`,
+		`title: "Dashboard"`,
+		`type: "index"`,
+		`updated: "2026-04-09"`,
+		"---",
+		"",
+		"# Dashboard",
+		"",
+		"Manual index that must survive regeneration.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(manualIndexPath, []byte(manualIndexBody), 0o644); err != nil {
+		t.Fatalf("write manual index: %v", err)
+	}
 
 	filteredDocuments := filterOutDocument(documents, vault.GetWikiConceptPath("Dead Code Report"))
 	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
@@ -231,6 +271,325 @@ func TestWriteVaultRemovesStaleManagedWikiConceptsOnly(t *testing.T) {
 
 	assertFileExists(t, filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetWikiConceptPath("Codebase Overview"))))
 	assertFileExists(t, manualConceptPath)
+	manualIndexContent := readFile(t, manualIndexPath)
+	if !strings.Contains(manualIndexContent, "Manual index that must survive regeneration.") {
+		t.Fatalf("manual index body was not preserved:\n%s", manualIndexContent)
+	}
+	if !strings.Contains(manualIndexContent, "<!-- kb:codebase-index:start -->") || !strings.Contains(manualIndexContent, "<!-- kb:codebase-index:end -->") {
+		t.Fatalf("expected managed codebase index block in dashboard:\n%s", manualIndexContent)
+	}
+	if !strings.Contains(
+		manualIndexContent,
+		vault.ToTopicWikiLink("demo-repo", vault.GetWikiIndexPath(vault.CodebaseDashboardTitle), vault.CodebaseDashboardTitle),
+	) {
+		t.Fatalf("dashboard bridge missing codebase dashboard link:\n%s", manualIndexContent)
+	}
+}
+
+func TestWriteVaultMigratesLegacyGeneratedIndexesAndRemovesLegacyManagedConcepts(t *testing.T) {
+	t.Parallel()
+
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if err := topicpkg.EnsureCurrentSkeleton(topic.TopicPath); err != nil {
+		t.Fatalf("ensure topic skeleton: %v", err)
+	}
+
+	legacyConceptPath := filepath.Join(topic.TopicPath, "wiki", "concepts", "Kodebase - Directory Map.md")
+	legacyConceptBody := strings.Join([]string{
+		"---",
+		`title: "Directory Map"`,
+		`generator: "kodebase"`,
+		"---",
+		"",
+		"# Directory Map",
+		"",
+		"Legacy generated concept that should be removed during upgrade.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(legacyConceptPath, []byte(legacyConceptBody), 0o644); err != nil {
+		t.Fatalf("write legacy concept: %v", err)
+	}
+
+	manualLegacyConceptPath := filepath.Join(topic.TopicPath, "wiki", "concepts", "Kodebase - Manual Notes.md")
+	manualLegacyConceptBody := strings.Join([]string{
+		"---",
+		`title: "Kodebase - Manual Notes"`,
+		`type: "wiki"`,
+		"---",
+		"",
+		"# Kodebase - Manual Notes",
+		"",
+		"Manually curated concept that must survive the upgrade cleanup.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(manualLegacyConceptPath, []byte(manualLegacyConceptBody), 0o644); err != nil {
+		t.Fatalf("write manual legacy concept: %v", err)
+	}
+
+	for _, testCase := range []struct {
+		title     string
+		bodyLines []string
+	}{
+		{
+			title: vault.TopicDashboardTitle,
+			bodyLines: []string{
+				"# Demo Repo - Dashboard",
+				"",
+				"Landing page for the generated Karpathy-compatible codebase topic.",
+				"",
+				"## Generated codebase articles",
+			},
+		},
+		{
+			title: vault.TopicConceptIndexTitle,
+			bodyLines: []string{
+				"# Demo Repo - Concept Index",
+				"",
+				"Alphabetical listing of every generated codebase wiki article in this topic.",
+				"",
+				"| Article | Summary |",
+				"| ------- | ------- |",
+			},
+		},
+		{
+			title: vault.TopicSourceIndexTitle,
+			bodyLines: []string{
+				"# Demo Repo - Source Index",
+				"",
+				"Raw codebase snapshots currently cited by the generated codebase wiki.",
+				"",
+				"| Source | Cited by |",
+				"| ------ | -------- |",
+			},
+		},
+	} {
+		targetPath := filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(testCase.title)))
+		legacyIndexBody := strings.Join(append([]string{
+			"---",
+			fmt.Sprintf(`title: %q`, testCase.title),
+			`type: "index"`,
+			`domain: "demo-repo"`,
+			`updated: "2026-04-09"`,
+			"---",
+			"",
+		}, testCase.bodyLines...), "\n") + "\n"
+		if err := os.WriteFile(targetPath, []byte(legacyIndexBody), 0o644); err != nil {
+			t.Fatalf("write legacy index %q: %v", testCase.title, err)
+		}
+	}
+
+	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     topic,
+		Graph:     graph,
+		Documents: documents,
+		BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	if _, err := os.Stat(legacyConceptPath); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy managed concept to be removed, stat err = %v", err)
+	}
+	assertFileExists(t, manualLegacyConceptPath)
+
+	for _, testCase := range []struct {
+		title            string
+		legacyMarker     string
+		expectedScaffold string
+		expectedCodebase string
+	}{
+		{
+			title:            vault.TopicDashboardTitle,
+			legacyMarker:     "Landing page for the generated Karpathy-compatible codebase topic.",
+			expectedScaffold: "Landing page for the Demo Repo knowledge base.",
+			expectedCodebase: vault.CodebaseDashboardTitle,
+		},
+		{
+			title:            vault.TopicConceptIndexTitle,
+			legacyMarker:     "Alphabetical listing of every generated codebase wiki article in this topic.",
+			expectedScaffold: "# Demo Repo — Concept Index",
+			expectedCodebase: vault.CodebaseConceptIndexTitle,
+		},
+		{
+			title:            vault.TopicSourceIndexTitle,
+			legacyMarker:     "Raw codebase snapshots currently cited by the generated codebase wiki.",
+			expectedScaffold: "# Demo Repo — Source Index",
+			expectedCodebase: vault.CodebaseSourceIndexTitle,
+		},
+	} {
+		content := readFile(t, filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(testCase.title))))
+		if strings.Contains(content, testCase.legacyMarker) {
+			t.Fatalf("legacy marker still present in %q:\n%s", testCase.title, content)
+		}
+		if !strings.Contains(content, testCase.expectedScaffold) {
+			t.Fatalf("expected scaffold content in %q:\n%s", testCase.title, content)
+		}
+		if !strings.Contains(
+			content,
+			vault.ToTopicWikiLink("demo-repo", vault.GetWikiIndexPath(testCase.expectedCodebase), testCase.expectedCodebase),
+		) {
+			t.Fatalf("expected codebase bridge in %q:\n%s", testCase.title, content)
+		}
+	}
+}
+
+func TestWriteVaultMigratesLegacyGeneratedClaudeBeforeManagedBlock(t *testing.T) {
+	t.Parallel()
+
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if err := os.MkdirAll(topic.TopicPath, 0o755); err != nil {
+		t.Fatalf("create topic path: %v", err)
+	}
+
+	legacyClaude := strings.Join([]string{
+		"# Demo Repo",
+		"",
+		"**Topic scope:** Generated codebase knowledge topic for `repo`. This topic stages raw code snapshots in `raw/codebase/` and compiles a starter wiki in `wiki/`.",
+		"",
+		"**Domain:** `demo-repo`",
+		"",
+		"This file is the schema document for the topic. The `kodebase` CLI manages `raw/codebase/`, `wiki/index/`, and wiki concept pages with `generator: kodebase` frontmatter. Everything else may be extended manually without being overwritten.",
+		"",
+		"## Audit log",
+		"",
+		"See [log.md](log.md) for the append-only record of ingest and compile operations.",
+		"",
+		"## Current wiki articles",
+		"",
+		"- " + vault.ToTopicWikiLink("demo-repo", "wiki/concepts/Kodebase - Directory Map.md", "Directory Map"),
+		"- " + vault.ToTopicWikiLink("demo-repo", "wiki/concepts/Kodebase - Module Health.md", "Module Health"),
+		"",
+		"## Codebase corpus",
+		"",
+		"- Parsed files: 2",
+		"- Parsed symbols: 3",
+		"",
+		"## Managed starter wiki",
+		"",
+		"- " + vault.ToTopicWikiLink("demo-repo", "wiki/index/Dashboard.md", "Dashboard"),
+		"- " + vault.ToTopicWikiLink("demo-repo", "wiki/index/Concept Index.md", "Concept Index"),
+		"- " + vault.ToTopicWikiLink("demo-repo", "wiki/index/Source Index.md", "Source Index"),
+		"",
+		"## Research gaps",
+		"",
+		"- Expand the starter wiki into architecture-level articles for the main subsystems.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(topic.TopicPath, "CLAUDE.md"), []byte(legacyClaude), 0o644); err != nil {
+		t.Fatalf("write legacy CLAUDE.md: %v", err)
+	}
+
+	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     topic,
+		Graph:     graph,
+		Documents: documents,
+		BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	claudeContent := readFile(t, filepath.Join(topic.TopicPath, "CLAUDE.md"))
+	if strings.Contains(claudeContent, "Generated codebase knowledge topic for `repo`") {
+		t.Fatalf("legacy generated CLAUDE content was not replaced:\n%s", claudeContent)
+	}
+	if strings.Contains(claudeContent, "wiki/concepts/Kodebase - Directory Map.md") {
+		t.Fatalf("legacy codebase links were not removed from CLAUDE.md:\n%s", claudeContent)
+	}
+	if !strings.Contains(claudeContent, "## Corpus inventory") {
+		t.Fatalf("expected migrated CLAUDE.md to use the current scaffold template:\n%s", claudeContent)
+	}
+	if got := strings.Count(claudeContent, "<!-- kb:codebase:start -->"); got != 1 {
+		t.Fatalf("expected exactly one managed block after migration, got %d\n%s", got, claudeContent)
+	}
+}
+
+func TestWriteVaultPreservesManualClaudeContentAndUpdatesManagedBlock(t *testing.T) {
+	t.Parallel()
+
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if err := os.MkdirAll(topic.TopicPath, 0o755); err != nil {
+		t.Fatalf("create topic path: %v", err)
+	}
+
+	manualClaude := strings.Join([]string{
+		"# Demo Repo",
+		"",
+		"**Domain:** `demo-repo`",
+		"",
+		"Manual curated introduction.",
+		"",
+		"## Existing corpus",
+		"- manual note",
+		"",
+		"<!-- kb:codebase:start -->",
+		"old managed block",
+		"<!-- kb:codebase:end -->",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(topic.TopicPath, "CLAUDE.md"), []byte(manualClaude), 0o644); err != nil {
+		t.Fatalf("write manual CLAUDE.md: %v", err)
+	}
+
+	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     topic,
+		Graph:     graph,
+		Documents: documents,
+		BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	claudeContent := readFile(t, filepath.Join(topic.TopicPath, "CLAUDE.md"))
+	if !strings.Contains(claudeContent, "Manual curated introduction.") {
+		t.Fatalf("manual CLAUDE.md content was lost:\n%s", claudeContent)
+	}
+	if strings.Contains(claudeContent, "old managed block") {
+		t.Fatalf("stale managed block was not replaced:\n%s", claudeContent)
+	}
+	if got := strings.Count(claudeContent, "<!-- kb:codebase:start -->"); got != 1 {
+		t.Fatalf("expected exactly one managed block start marker, got %d\n%s", got, claudeContent)
+	}
+	if !strings.Contains(claudeContent, vault.ToTopicWikiLink("demo-repo", vault.GetWikiIndexPath(vault.CodebaseDashboardTitle), vault.CodebaseDashboardTitle)) {
+		t.Fatalf("managed block missing codebase dashboard link:\n%s", claudeContent)
+	}
+}
+
+func TestWriteVaultAppendsManagedBlockWhenClaudeHasNoMarkers(t *testing.T) {
+	t.Parallel()
+
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if err := os.MkdirAll(topic.TopicPath, 0o755); err != nil {
+		t.Fatalf("create topic path: %v", err)
+	}
+
+	manualClaude := strings.Join([]string{
+		"# Demo Repo",
+		"",
+		"**Domain:** `demo-repo`",
+		"",
+		"Manual curated introduction without managed markers.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(topic.TopicPath, "CLAUDE.md"), []byte(manualClaude), 0o644); err != nil {
+		t.Fatalf("write manual CLAUDE.md: %v", err)
+	}
+
+	if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+		Topic:     topic,
+		Graph:     graph,
+		Documents: documents,
+		BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatalf("WriteVault returned error: %v", err)
+	}
+
+	claudeContent := readFile(t, filepath.Join(topic.TopicPath, "CLAUDE.md"))
+	if !strings.Contains(claudeContent, "Manual curated introduction without managed markers.") {
+		t.Fatalf("manual CLAUDE.md content was lost:\n%s", claudeContent)
+	}
+	if !strings.Contains(claudeContent, "<!-- kb:codebase:start -->") || !strings.Contains(claudeContent, "<!-- kb:codebase:end -->") {
+		t.Fatalf("expected managed block markers to be appended:\n%s", claudeContent)
+	}
 }
 
 func TestWriteVaultRejectsInvalidRenderedDocument(t *testing.T) {
@@ -240,7 +599,7 @@ func TestWriteVaultRejectsInvalidRenderedDocument(t *testing.T) {
 	badDocument := models.RenderedDocument{
 		Kind:         models.DocWiki,
 		ManagedArea:  models.AreaWikiConcept,
-		RelativePath: "wiki/concepts/Broken.md",
+		RelativePath: "wiki/codebase/concepts/Broken.md",
 		Body:         "# missing frontmatter",
 	}
 
@@ -286,7 +645,7 @@ func TestWriteVaultPreservesCodebaseSkeletonWhenNoRawDocumentsAreRendered(t *tes
 		assertDirExists(t, filepath.Join(writableTopic.TopicPath, filepath.FromSlash(relativePath)))
 	}
 
-	if _, err := topic.Info(writableTopic.VaultPath, writableTopic.Slug); err != nil {
+	if _, err := topicpkg.Info(writableTopic.VaultPath, writableTopic.Slug); err != nil {
 		t.Fatalf("topic.Info returned error after empty raw write: %v", err)
 	}
 }
@@ -350,6 +709,16 @@ func filterOutDocument(documents []models.RenderedDocument, relativePath string)
 		filtered = append(filtered, document)
 	}
 	return filtered
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func readFile(t *testing.T, filePath string) string {

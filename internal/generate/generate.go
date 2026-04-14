@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ func newRunner() runner {
 		adapters: []models.LanguageAdapter{
 			adapter.TSAdapter{},
 			adapter.GoAdapter{},
+			adapter.RustAdapter{},
 		},
 		normalizeGraph:  graph.NormalizeGraph,
 		computeMetrics:  metrics.ComputeMetrics,
@@ -119,7 +121,7 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 	stageStartedAt := r.now()
 	scannedWorkspace, err := r.scanWorkspace(
 		target.RootPath,
-		scanner.WithOutputPath(target.VaultPath),
+		scanner.WithOutputPath(topic.TopicPath),
 		scanner.WithIncludePatterns(opts.IncludePatterns...),
 		scanner.WithExcludePatterns(opts.ExcludePatterns...),
 	)
@@ -130,6 +132,7 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 	}
 
 	languages := workspaceLanguages(scannedWorkspace)
+	detectedLanguages := languageNames(languages)
 	r.emitStageCompleted(
 		ctx,
 		"scan",
@@ -137,16 +140,24 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		0,
 		0,
 		"files_scanned", len(scannedWorkspace.Files),
-		"languages", languageNames(languages),
+		"languages", detectedLanguages,
 	)
+	if len(scannedWorkspace.Files) == 0 {
+		return models.GenerationSummary{}, fmt.Errorf(
+			"generate: no supported source files found in %s. Supported languages: %s. Use --include to widen file patterns or --dry-run to inspect adapter selection",
+			target.RootPath,
+			strings.Join(supportedLanguageNames(), ", "),
+		)
+	}
 
 	if err := ctx.Err(); err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
 	}
 
-	r.emitStageStarted(ctx, "select_adapters", 0, "languages", languageNames(languages))
+	r.emitStageStarted(ctx, "select_adapters", 0, "languages", detectedLanguages)
 	stageStartedAt = r.now()
 	selectedAdapters := selectAdapters(languages, r.adapters)
+	selectedAdapterNames := adapterNames(selectedAdapters)
 	timings.SelectAdaptersMillis = elapsedMillis(r.now().Sub(stageStartedAt))
 	r.emitStageCompleted(
 		ctx,
@@ -155,7 +166,7 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		0,
 		0,
 		"adapter_count", len(selectedAdapters),
-		"adapters", adapterNames(selectedAdapters),
+		"adapters", selectedAdapterNames,
 	)
 
 	if err := ctx.Err(); err != nil {
@@ -198,6 +209,13 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 	}
 	timings.ParseMillis = elapsedMillis(r.now().Sub(stageStartedAt))
 	r.emitStageCompleted(ctx, "parse", timings.ParseMillis, parseCompleted, parseTotal, "parsed_files", len(parsedFiles))
+	if len(parsedFiles) == 0 {
+		return models.GenerationSummary{}, fmt.Errorf(
+			"generate: scanned %d supported source files in %s but parsed 0 files. Review diagnostics or run --dry-run to inspect adapter selection",
+			len(scannedWorkspace.Files),
+			target.RootPath,
+		)
+	}
 
 	if err := ctx.Err(); err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
@@ -256,6 +274,29 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		"documents", len(documents),
 		"base_files", len(baseFiles),
 	)
+	if opts.DryRun {
+		timings.TotalMillis = elapsedMillis(r.now().Sub(totalStartedAt))
+		return models.GenerationSummary{
+			Command:               "generate",
+			RootPath:              target.RootPath,
+			VaultPath:             target.VaultPath,
+			TopicPath:             topic.TopicPath,
+			TopicSlug:             target.TopicSlug,
+			DryRun:                true,
+			DetectedLanguages:     detectedLanguages,
+			SelectedAdapters:      selectedAdapterNames,
+			FilesScanned:          len(scannedWorkspace.Files),
+			FilesParsed:           len(graphSnapshot.Files),
+			FilesSkipped:          len(scannedWorkspace.Files) - len(graphSnapshot.Files),
+			SymbolsExtracted:      len(graphSnapshot.Symbols),
+			RelationsEmitted:      len(graphSnapshot.Relations),
+			RawDocumentsWritten:   0,
+			WikiDocumentsWritten:  0,
+			IndexDocumentsWritten: 0,
+			Timings:               timings,
+			Diagnostics:           graphSnapshot.Diagnostics,
+		}, nil
+	}
 
 	if err := ctx.Err(); err != nil {
 		return models.GenerationSummary{}, fmt.Errorf("generate: %w", err)
@@ -297,6 +338,9 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		VaultPath:             target.VaultPath,
 		TopicPath:             topic.TopicPath,
 		TopicSlug:             target.TopicSlug,
+		DryRun:                false,
+		DetectedLanguages:     detectedLanguages,
+		SelectedAdapters:      selectedAdapterNames,
 		FilesScanned:          len(scannedWorkspace.Files),
 		FilesParsed:           len(graphSnapshot.Files),
 		FilesSkipped:          len(scannedWorkspace.Files) - len(graphSnapshot.Files),
@@ -315,7 +359,7 @@ func (r runner) withDefaults() runner {
 		r.scanWorkspace = scanner.ScanWorkspace
 	}
 	if len(r.adapters) == 0 {
-		r.adapters = []models.LanguageAdapter{adapter.TSAdapter{}, adapter.GoAdapter{}}
+		r.adapters = []models.LanguageAdapter{adapter.TSAdapter{}, adapter.GoAdapter{}, adapter.RustAdapter{}}
 	}
 	if r.normalizeGraph == nil {
 		r.normalizeGraph = graph.NormalizeGraph
@@ -459,6 +503,12 @@ func adapterNames(adapters []models.LanguageAdapter) []string {
 		names = append(names, fmt.Sprintf("%T", languageAdapter))
 	}
 
+	return names
+}
+
+func supportedLanguageNames() []string {
+	names := append([]string(nil), models.SupportedLanguageNames()...)
+	sort.Strings(names)
 	return names
 }
 

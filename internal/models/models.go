@@ -15,11 +15,23 @@ const (
 	LangJSX SupportedLanguage = "jsx"
 	// LangGo represents Go source files.
 	LangGo SupportedLanguage = "go"
+	// LangRust represents Rust source files.
+	LangRust SupportedLanguage = "rust"
 )
 
 // SupportedLanguages returns every supported language constant in stable order.
 func SupportedLanguages() []SupportedLanguage {
-	return []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo}
+	return []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust}
+}
+
+// SupportedLanguageNames returns every supported language name in stable order.
+func SupportedLanguageNames() []string {
+	names := make([]string, 0, len(SupportedLanguages()))
+	for _, language := range SupportedLanguages() {
+		names = append(names, string(language))
+	}
+
+	return names
 }
 
 // RelationType identifies a graph edge type between parsed nodes.
@@ -273,6 +285,7 @@ type GenerateOptions struct {
 	Domain          string   `json:"domain,omitempty"`
 	IncludePatterns []string `json:"includePatterns,omitempty"`
 	ExcludePatterns []string `json:"excludePatterns,omitempty"`
+	DryRun          bool     `json:"dryRun,omitempty"`
 	Semantic        bool     `json:"semantic,omitempty"`
 }
 
@@ -295,6 +308,9 @@ type GenerationSummary struct {
 	VaultPath             string                 `json:"vaultPath"`
 	TopicPath             string                 `json:"topicPath"`
 	TopicSlug             string                 `json:"topicSlug"`
+	DryRun                bool                   `json:"dryRun"`
+	DetectedLanguages     []string               `json:"detectedLanguages"`
+	SelectedAdapters      []string               `json:"selectedAdapters"`
 	FilesScanned          int                    `json:"filesScanned"`
 	FilesParsed           int                    `json:"filesParsed"`
 	FilesSkipped          int                    `json:"filesSkipped"`

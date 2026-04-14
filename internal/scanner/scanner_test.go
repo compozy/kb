@@ -21,6 +21,7 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 	writeTestFile(t, rootPath, "src/script.js", "export const script = true;\n")
 	writeTestFile(t, rootPath, "src/view.jsx", "export const View = () => null;\n")
 	writeTestFile(t, rootPath, "go/main.go", "package main\n")
+	writeTestFile(t, rootPath, "rust/lib.rs", "pub fn run() {}\n")
 	writeTestFile(t, rootPath, "src/types.d.ts", "export type Value = string;\n")
 	writeTestFile(t, rootPath, "README.md", "# ignored\n")
 	writeTestFile(t, rootPath, filepath.Join("generated", "vault", "index.ts"), "export const ignored = true;\n")
@@ -29,6 +30,7 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 
 	expectedPaths := []string{
 		"go/main.go",
+		"rust/lib.rs",
 		"src/component.tsx",
 		"src/index.ts",
 		"src/script.js",
@@ -40,11 +42,12 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 	}
 
 	expectedGroups := map[string]int{
-		"go":  1,
-		"js":  1,
-		"jsx": 1,
-		"ts":  1,
-		"tsx": 1,
+		"go":   1,
+		"js":   1,
+		"jsx":  1,
+		"rust": 1,
+		"ts":   1,
+		"tsx":  1,
 	}
 
 	if got := groupedCounts(workspace); !reflect.DeepEqual(got, expectedGroups) {
@@ -201,13 +204,15 @@ func TestScanWorkspaceGroupsFilesByLanguage(t *testing.T) {
 	writeTestFile(t, rootPath, "src/a.ts", "export const a = true;\n")
 	writeTestFile(t, rootPath, "src/b.ts", "export const b = true;\n")
 	writeTestFile(t, rootPath, "src/c.js", "export const c = true;\n")
+	writeTestFile(t, rootPath, "src/lib.rs", "pub fn run() {}\n")
 
 	workspace := scanTestWorkspace(t, rootPath)
 
 	groupedPaths := groupedPaths(workspace)
 	expected := map[string][]string{
-		"js": {"src/c.js"},
-		"ts": {"src/a.ts", "src/b.ts"},
+		"js":   {"src/c.js"},
+		"rust": {"src/lib.rs"},
+		"ts":   {"src/a.ts", "src/b.ts"},
 	}
 
 	if !reflect.DeepEqual(groupedPaths, expected) {

@@ -137,12 +137,16 @@ func TestDocumentPathDerivationHelpers(t *testing.T) {
 		t.Fatalf("unexpected language index path %q", got)
 	}
 
-	if got := vault.GetWikiConceptPath("Codebase Overview"); got != "wiki/concepts/Kodebase - Codebase Overview.md" {
+	if got := vault.GetWikiConceptPath("Codebase Overview"); got != "wiki/codebase/concepts/Codebase Overview.md" {
 		t.Fatalf("unexpected wiki concept path %q", got)
 	}
 
-	if got := vault.GetWikiIndexPath("Dashboard"); got != "wiki/index/Dashboard.md" {
+	if got := vault.GetWikiIndexPath(vault.CodebaseDashboardTitle); got != "wiki/codebase/index/Codebase Dashboard.md" {
 		t.Fatalf("unexpected wiki index path %q", got)
+	}
+
+	if got := vault.GetTopicIndexPath(vault.TopicDashboardTitle); got != "wiki/index/Dashboard.md" {
+		t.Fatalf("unexpected topic index path %q", got)
 	}
 
 	if got := vault.GetBaseFilePath("symbol-explorer"); got != "bases/symbol-explorer.base" {
@@ -181,15 +185,15 @@ func TestTopicHelpers(t *testing.T) {
 func TestTopicWikiLinkHelpers(t *testing.T) {
 	t.Parallel()
 
-	if got := vault.StripMarkdownExtension("wiki/concepts/Kodebase - Codebase Overview.md"); got != "wiki/concepts/Kodebase - Codebase Overview" {
+	if got := vault.StripMarkdownExtension("wiki/codebase/concepts/Codebase Overview.md"); got != "wiki/codebase/concepts/Codebase Overview" {
 		t.Fatalf("unexpected stripped markdown path %q", got)
 	}
 
-	if got := vault.ToTopicWikiLink("topic-slug", "wiki/concepts/Kodebase - Codebase Overview.md", "Overview"); got != "[[topic-slug/wiki/concepts/Kodebase - Codebase Overview|Overview]]" {
+	if got := vault.ToTopicWikiLink("topic-slug", "wiki/codebase/concepts/Codebase Overview.md", "Overview"); got != "[[topic-slug/wiki/codebase/concepts/Codebase Overview|Overview]]" {
 		t.Fatalf("unexpected labeled wiki link %q", got)
 	}
 
-	if got := vault.ToTopicWikiLink("topic-slug", "wiki/index/Dashboard.md", ""); got != "[[topic-slug/wiki/index/Dashboard]]" {
+	if got := vault.ToTopicWikiLink("topic-slug", "wiki/codebase/index/Codebase Dashboard.md", ""); got != "[[topic-slug/wiki/codebase/index/Codebase Dashboard]]" {
 		t.Fatalf("unexpected wiki link %q", got)
 	}
 }

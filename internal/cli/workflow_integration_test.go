@@ -14,6 +14,7 @@ import (
 
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/vault"
 )
 
 func TestCLIIntegrationScaffoldAndIngestFiles(t *testing.T) {
@@ -130,6 +131,28 @@ func TestCLIIntegrationScaffoldIngestCodebaseAndInspect(t *testing.T) {
 		}
 	}
 
+	for _, relativePath := range []string{
+		vault.GetTopicIndexPath(vault.TopicDashboardTitle),
+		vault.GetTopicIndexPath(vault.TopicConceptIndexTitle),
+		vault.GetTopicIndexPath(vault.TopicSourceIndexTitle),
+	} {
+		content, err := os.ReadFile(filepath.Join(topic.RootPath, filepath.FromSlash(relativePath)))
+		if err != nil {
+			t.Fatalf("read top-level topic index %q: %v", relativePath, err)
+		}
+
+		for _, codebaseTitle := range []string{
+			vault.CodebaseDashboardTitle,
+			vault.CodebaseConceptIndexTitle,
+			vault.CodebaseSourceIndexTitle,
+		} {
+			link := vault.ToTopicWikiLink(topic.Slug, vault.GetWikiIndexPath(codebaseTitle), codebaseTitle)
+			if !strings.Contains(string(content), link) {
+				t.Fatalf("expected %q to bridge to %q, got:\n%s", relativePath, codebaseTitle, string(content))
+			}
+		}
+	}
+
 	stdout := runCLI(t,
 		"inspect", "smells",
 		"--format", "json",
@@ -150,23 +173,66 @@ func TestCLIIntegrationScaffoldIngestCodebaseAndInspect(t *testing.T) {
 	}
 }
 
-func TestCLIIntegrationEmptyCodebaseIngestKeepsTopicDiscoverable(t *testing.T) {
+func TestCLIIntegrationScaffoldIngestRustWorkspaceCodebase(t *testing.T) {
 	vaultRoot := t.TempDir()
-	topic := scaffoldTopicForIntegration(t, vaultRoot, "empty-codebase", "Empty Codebase", "docs")
-	codebasePath := filepath.Join("..", "..", "docs")
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "fixture-rust-workspace", "Fixture Rust Workspace", "rust")
+	repoRoot := t.TempDir()
+	writeRustCodebaseFixture(t, repoRoot)
 
 	result := runCLIJSON[codebaseIngestResult](t,
-		"ingest", "codebase", codebasePath,
+		"ingest", "codebase", repoRoot,
 		"--topic", topic.Slug,
 		"--vault", vaultRoot,
 		"--progress", "never",
 	)
 
-	if result.Summary.FilesScanned != 0 {
-		t.Fatalf("FilesScanned = %d, want 0", result.Summary.FilesScanned)
+	if result.Topic != topic.Slug {
+		t.Fatalf("codebase ingest topic = %q, want %q", result.Topic, topic.Slug)
 	}
-	if result.Summary.RawDocumentsWritten != 0 {
-		t.Fatalf("RawDocumentsWritten = %d, want 0", result.Summary.RawDocumentsWritten)
+	if result.Summary.FilesScanned != 3 {
+		t.Fatalf("FilesScanned = %d, want 3", result.Summary.FilesScanned)
+	}
+	if got := strings.Join(result.Summary.DetectedLanguages, ","); !strings.Contains(got, "rust") {
+		t.Fatalf("expected rust in detected languages, got %#v", result.Summary.DetectedLanguages)
+	}
+	if result.Summary.SymbolsExtracted == 0 {
+		t.Fatalf("SymbolsExtracted = %d, want > 0", result.Summary.SymbolsExtracted)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files/crates/core/src/lib.rs.md",
+		"raw/codebase/files/crates/core/src/util.rs.md",
+		"raw/codebase/files/crates/app/src/lib.rs.md",
+	} {
+		targetPath := filepath.Join(topic.RootPath, filepath.FromSlash(relativePath))
+		if _, err := os.Stat(targetPath); err != nil {
+			t.Fatalf("expected generated rust codebase document %q: %v", targetPath, err)
+		}
+	}
+
+	issues := runCLIJSON[[]models.LintIssue](t,
+		"lint", topic.Slug,
+		"--format", "json",
+		"--vault", vaultRoot,
+	)
+	if len(issues) != 0 {
+		t.Fatalf("generated Rust content should pass lint, found %#v", issues)
+	}
+}
+
+func TestCLIIntegrationEmptyCodebaseIngestFailsWithoutWritesAndKeepsTopicDiscoverable(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "empty-codebase", "Empty Codebase", "docs")
+	codebasePath := filepath.Join("..", "..", "docs")
+
+	errOutput := runCLIError(t,
+		"ingest", "codebase", codebasePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+		"--progress", "never",
+	)
+	if !strings.Contains(errOutput, "no supported source files found") {
+		t.Fatalf("unexpected empty ingest error:\n%s", errOutput)
 	}
 
 	for _, relativePath := range []string{
@@ -193,6 +259,37 @@ func TestCLIIntegrationEmptyCodebaseIngestKeepsTopicDiscoverable(t *testing.T) {
 	listOutput := runCLI(t, "topic", "list", "--vault", vaultRoot)
 	if !strings.Contains(listOutput, topic.Slug) {
 		t.Fatalf("topic list output missing %q:\n%s", topic.Slug, listOutput)
+	}
+}
+
+func TestCLIIntegrationCodebaseDryRunDoesNotWriteManagedArtifacts(t *testing.T) {
+	vaultRoot := t.TempDir()
+	topic := scaffoldTopicForIntegration(t, vaultRoot, "fixture-go-repo", "Fixture Go Repo", "golang")
+	codebasePath := filepath.Join("..", "generate", "testdata", "fixture-go-repo")
+
+	result := runCLIJSON[codebaseIngestResult](t,
+		"ingest", "codebase", codebasePath,
+		"--topic", topic.Slug,
+		"--vault", vaultRoot,
+		"--progress", "never",
+		"--dry-run",
+	)
+
+	if !result.Summary.DryRun {
+		t.Fatalf("DryRun = %t, want true", result.Summary.DryRun)
+	}
+	if result.Summary.RawDocumentsWritten != 0 || result.Summary.WikiDocumentsWritten != 0 || result.Summary.IndexDocumentsWritten != 0 {
+		t.Fatalf("expected dry-run write counts to stay zero, got %#v", result.Summary)
+	}
+
+	for _, relativePath := range []string{
+		"raw/codebase/files/main.go.md",
+		filepath.ToSlash(vault.GetWikiConceptPath("Codebase Overview")),
+		filepath.ToSlash(vault.GetWikiIndexPath(vault.CodebaseDashboardTitle)),
+	} {
+		if _, err := os.Stat(filepath.Join(topic.RootPath, filepath.FromSlash(relativePath))); !os.IsNotExist(err) {
+			t.Fatalf("expected dry-run to avoid writing %q, stat err = %v", relativePath, err)
+		}
 	}
 }
 
@@ -306,6 +403,46 @@ func TestCLIIntegrationScaffoldIngestAndLint(t *testing.T) {
 	})
 }
 
+func writeRustCodebaseFixture(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	writeFile(t, filepath.Join(repoRoot, "Cargo.toml"), strings.Join([]string{
+		"[workspace]",
+		`members = ["crates/core", "crates/app"]`,
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "crates", "core", "Cargo.toml"), strings.Join([]string{
+		"[package]",
+		`name = "openfang-core"`,
+		`version = "0.1.0"`,
+		`edition = "2021"`,
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "crates", "core", "src", "lib.rs"), strings.Join([]string{
+		"pub mod util;",
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "crates", "core", "src", "util.rs"), strings.Join([]string{
+		"pub fn helper() {}",
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "crates", "app", "Cargo.toml"), strings.Join([]string{
+		"[package]",
+		`name = "openfang-app"`,
+		`version = "0.1.0"`,
+		`edition = "2021"`,
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "crates", "app", "src", "lib.rs"), strings.Join([]string{
+		"use openfang_core::util::helper;",
+		"",
+		"pub fn run() {",
+		"\thelper();",
+		"}",
+		"",
+	}, "\n"))
+}
+
 func scaffoldTopicForIntegration(t *testing.T, vaultRoot, slug, title, domain string) models.TopicInfo {
 	t.Helper()
 
@@ -330,6 +467,24 @@ func runCLI(t *testing.T, args ...string) string {
 	}
 
 	return stdout.String()
+}
+
+func runCLIError(t *testing.T, args ...string) string {
+	t.Helper()
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	command.SetArgs(args)
+
+	err := command.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatalf("ExecuteContext(%q) unexpectedly succeeded", strings.Join(args, " "))
+	}
+
+	return err.Error() + "\n" + stderr.String()
 }
 
 func runCLIJSON[T any](t *testing.T, args ...string) T {
@@ -380,6 +535,9 @@ func writeMarkdownDocument(t *testing.T, rootPath, relativePath string, values m
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create parent directory for %q: %v", path, err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write file %q: %v", path, err)
 	}

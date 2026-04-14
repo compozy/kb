@@ -21,8 +21,10 @@ func TestTSAdapterSupportsTSLikeLanguages(t *testing.T) {
 		}
 	}
 
-	if adapter.Supports(models.LangGo) {
-		t.Fatal("expected TSAdapter to reject Go")
+	for _, language := range []models.SupportedLanguage{models.LangGo, models.LangRust} {
+		if adapter.Supports(language) {
+			t.Fatalf("expected TSAdapter to reject %q", language)
+		}
 	}
 }
 

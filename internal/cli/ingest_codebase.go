@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,12 @@ func newIngestCodebaseCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "codebase <path>",
 		Short: "Analyze a codebase and ingest the generated KB artifacts into a topic",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.Join([]string{
+			"Analyze a codebase and ingest the generated KB artifacts into a topic.",
+			"",
+			supportedCodebaseLanguagesHelp(),
+		}, "\n"),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target, err := resolveIngestTarget(cmd, "ingest codebase", topic)
 			if err != nil {
@@ -57,6 +63,7 @@ func newIngestCodebaseCommand() *cobra.Command {
 	requireTopicFlag(command, &topic)
 	command.Flags().StringArrayVar(&options.IncludePatterns, "include", nil, "Re-include a path pattern that would otherwise be ignored; repeatable")
 	command.Flags().StringArrayVar(&options.ExcludePatterns, "exclude", nil, "Exclude an additional path pattern from scanning; repeatable")
+	command.Flags().BoolVar(&options.DryRun, "dry-run", false, "Inspect scan and adapter selection without writing any files")
 	command.Flags().BoolVar(&options.Semantic, "semantic", false, "Enable semantic analysis when the underlying adapters support it")
 	command.Flags().StringVar(&progressModeValue, "progress", progressModeValue, "Progress rendering mode: auto, always, or never")
 	command.Flags().StringVar(&logFormatValue, "log-format", logFormatValue, "Stderr event format: text or json")

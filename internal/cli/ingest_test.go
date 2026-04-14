@@ -37,6 +37,24 @@ func TestIngestParentHelpListsSubcommands(t *testing.T) {
 	}
 }
 
+func TestIngestCodebaseHelpIncludesSupportedLanguagesAndDryRun(t *testing.T) {
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"ingest", "codebase", "--help"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "--dry-run"} {
+		if !strings.Contains(stdout.String(), fragment) {
+			t.Fatalf("expected help output to contain %q, got:\n%s", fragment, stdout.String())
+		}
+	}
+}
+
 func TestIngestCommandsRequireTopicFlag(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -384,6 +402,7 @@ func TestIngestCodebaseCommandPassesGenerateFlags(t *testing.T) {
 		"--include", "src/**/*.go",
 		"--include", "web/**/*.ts",
 		"--exclude", "vendor/**",
+		"--dry-run",
 		"--semantic",
 		"--progress", "never",
 	})
@@ -400,6 +419,7 @@ func TestIngestCodebaseCommandPassesGenerateFlags(t *testing.T) {
 		Domain:          "systems",
 		IncludePatterns: []string{"src/**/*.go", "web/**/*.ts"},
 		ExcludePatterns: []string{"vendor/**"},
+		DryRun:          true,
 		Semantic:        true,
 	}
 	if !reflect.DeepEqual(gotGenerate, expected) {

@@ -86,6 +86,15 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 	generator := runner{
 		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
 			calls = append(calls, "scan")
+			scanOptions := scanner.ScanOptions{}
+			for _, opt := range opts {
+				if opt != nil {
+					opt(&scanOptions)
+				}
+			}
+			if scanOptions.OutputPath != "/vault/fixture" {
+				t.Fatalf("scan output path = %q, want /vault/fixture", scanOptions.OutputPath)
+			}
 			return scannedWorkspace, nil
 		},
 		adapters: []models.LanguageAdapter{
@@ -344,6 +353,151 @@ func TestGenerateRequiresRootPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "root path is required") {
 		t.Fatalf("expected descriptive root path error, got %v", err)
+	}
+}
+
+func TestRunnerGenerateReturnsErrorWhenWorkspaceHasNoSupportedFiles(t *testing.T) {
+	t.Parallel()
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files:           nil,
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{},
+			}, nil
+		},
+		now: func() time.Time {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+
+	_, err := generator.Generate(context.Background(), models.GenerateOptions{RootPath: "/repo"})
+	if err == nil {
+		t.Fatal("expected empty workspace error")
+	}
+	if !strings.Contains(err.Error(), "no supported source files found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunnerGenerateReturnsErrorWhenParsingProducesNoFiles(t *testing.T) {
+	t.Parallel()
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files: []models.ScannedSourceFile{
+					{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+				},
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+					models.LangGo: {
+						{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+					},
+				},
+			}, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:        "go",
+				supported:   map[models.SupportedLanguage]bool{models.LangGo: true},
+				parseResult: nil,
+			},
+		},
+		now: func() time.Time {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+
+	_, err := generator.Generate(context.Background(), models.GenerateOptions{RootPath: "/repo"})
+	if err == nil {
+		t.Fatal("expected zero parsed files error")
+	}
+	if !strings.Contains(err.Error(), "parsed 0 files") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunnerGenerateDryRunSkipsWriteAndReportsSelection(t *testing.T) {
+	t.Parallel()
+
+	writeCalled := false
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files: []models.ScannedSourceFile{
+					{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+				},
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+					models.LangGo: {
+						{AbsolutePath: "/repo/main.go", RelativePath: "main.go", Language: models.LangGo},
+					},
+				},
+			}, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:      "go",
+				supported: map[models.SupportedLanguage]bool{models.LangGo: true},
+				parseResult: []models.ParsedFile{
+					{File: models.GraphFile{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo}},
+				},
+			},
+		},
+		normalizeGraph: func(rootPath string, parsedFiles []models.ParsedFile) models.GraphSnapshot {
+			return models.GraphSnapshot{
+				RootPath: rootPath,
+				Files: []models.GraphFile{
+					{ID: "file:main.go", FilePath: "main.go", Language: models.LangGo},
+				},
+			}
+		},
+		computeMetrics: func(graph models.GraphSnapshot) models.MetricsResult {
+			return models.MetricsResult{}
+		},
+		renderDocuments: func(graph models.GraphSnapshot, metrics models.MetricsResult, topic models.TopicMetadata) []models.RenderedDocument {
+			return []models.RenderedDocument{
+				{
+					Kind:         models.DocRaw,
+					ManagedArea:  models.AreaRawCodebase,
+					RelativePath: "raw/codebase/files/main.go.md",
+					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
+				},
+			}
+		},
+		renderBaseFiles: func(metrics models.MetricsResult) []models.BaseFile {
+			return []models.BaseFile{{RelativePath: "bases/module-health.base"}}
+		},
+		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
+			writeCalled = true
+			return vault.WriteVaultResult{}, nil
+		},
+		now: func() time.Time {
+			return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
+		},
+	}
+
+	summary, err := generator.Generate(context.Background(), models.GenerateOptions{
+		RootPath: "/repo",
+		DryRun:   true,
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if writeCalled {
+		t.Fatal("expected dry-run to skip write stage")
+	}
+	if !summary.DryRun {
+		t.Fatalf("DryRun = %t, want true", summary.DryRun)
+	}
+	if !reflect.DeepEqual(summary.DetectedLanguages, []string{"go"}) {
+		t.Fatalf("DetectedLanguages = %#v, want [go]", summary.DetectedLanguages)
+	}
+	if len(summary.SelectedAdapters) != 1 || summary.SelectedAdapters[0] != "generate.fakeAdapter" {
+		t.Fatalf("SelectedAdapters = %#v, want [generate.fakeAdapter]", summary.SelectedAdapters)
+	}
+	if summary.RawDocumentsWritten != 0 || summary.WikiDocumentsWritten != 0 || summary.IndexDocumentsWritten != 0 {
+		t.Fatalf("expected dry-run write counts to stay zero, got %#v", summary)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +186,131 @@ func TestLintReturnsEmptySliceForHealthyVault(t *testing.T) {
 	writeMarkdownFile(t, topicPath, "raw/articles/source-note.md", sourceFrontmatter("Source Note", "article", "2026-04-10"), "# Source Note\n")
 	writeMarkdownFile(t, topicPath, "wiki/concepts/Healthy Concept.md", conceptFrontmatter("Healthy Concept", "2026-04-11", []string{"[[Source Note]]"}), "# Healthy Concept\n\nSee [[Source Note]].\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Healthy Concept|Healthy]]\n")
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintIgnoresLiteralWikilinksInsideCodebaseFileModuleNotes(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/symbols/helper--src-lib-rs-l3.md", sourceFrontmatter("Codebase Symbol: helper", string(models.SourceKindCodebaseSymbol), "2026-04-10"), strings.Join([]string{
+		"# Codebase Symbol: helper",
+		"",
+		"Source file: [[systems-design/raw/codebase/files/src/lib.rs]]",
+		"",
+		"## Documentation",
+		"None",
+		"",
+		"## Outgoing Relations",
+		"None",
+		"",
+		"## Backlinks",
+		"None",
+	}, "\n"))
+	writeMarkdownFile(t, topicPath, "raw/codebase/files/src/lib.rs.md", sourceFrontmatter("Codebase File: src/lib.rs", string(models.SourceKindCodebaseFile), "2026-04-10"), strings.Join([]string{
+		"# Codebase File: src/lib.rs",
+		"",
+		"Generated raw snapshot.",
+		"",
+		"## Module Notes",
+		"Parses literal [[wikilinks]] from markdown syntax and leaves them untouched.",
+		"",
+		"## Symbols",
+		"- [[systems-design/raw/codebase/symbols/helper--src-lib-rs-l3|helper (function)]] · exported=true",
+		"",
+		"## Outgoing Relations",
+		"None",
+		"",
+		"## Backlinks",
+		"None",
+	}, "\n"))
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintIgnoresLiteralWikilinksInsideCodebaseSymbolDocumentation(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/files/src/lib.rs.md", sourceFrontmatter("Codebase File: src/lib.rs", string(models.SourceKindCodebaseFile), "2026-04-10"), strings.Join([]string{
+		"# Codebase File: src/lib.rs",
+		"",
+		"## Module Notes",
+		"None",
+		"",
+		"## Symbols",
+		"- [[systems-design/raw/codebase/symbols/extract-links--src-lib-rs-l12|extract_links (function)]] · exported=false",
+		"",
+		"## Outgoing Relations",
+		"None",
+		"",
+		"## Backlinks",
+		"None",
+	}, "\n"))
+	writeMarkdownFile(t, topicPath, "raw/codebase/symbols/extract-links--src-lib-rs-l12.md", sourceFrontmatter("Codebase Symbol: extract_links", string(models.SourceKindCodebaseSymbol), "2026-04-10"), strings.Join([]string{
+		"# Codebase Symbol: extract_links",
+		"",
+		"Source file: [[systems-design/raw/codebase/files/src/lib.rs]]",
+		"",
+		"## Documentation",
+		"Extracts all literal [[wikilinks]] without interpreting them as KB links.",
+		"",
+		"## Outgoing Relations",
+		"None",
+		"",
+		"## Backlinks",
+		"None",
+	}, "\n"))
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintReadsManagedCodebaseIndexLinksFromFilesAndSymbolsSections(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/files/src/lib.rs.md", sourceFrontmatter("Codebase File: src/lib.rs", string(models.SourceKindCodebaseFile), "2026-04-10"), "# File\n")
+	writeMarkdownFile(t, topicPath, "raw/codebase/symbols/helper--src-lib-rs-l3.md", sourceFrontmatter("Codebase Symbol: helper", string(models.SourceKindCodebaseSymbol), "2026-04-10"), strings.Join([]string{
+		"# Codebase Symbol: helper",
+		"",
+		"Source file: [[systems-design/raw/codebase/files/src/lib.rs]]",
+		"",
+		"## Documentation",
+		"None",
+		"",
+		"## Outgoing Relations",
+		"None",
+		"",
+		"## Backlinks",
+		"None",
+	}, "\n"))
+	writeMarkdownFile(t, topicPath, "raw/codebase/index/rust.md", map[string]any{
+		"title":       "Codebase Language: rust",
+		"type":        "source",
+		"stage":       "raw",
+		"domain":      testDomain,
+		"source_kind": "codebase-language-index",
+		"scraped":     "2026-04-10",
+		"tags":        []string{testDomain, "raw", "codebase", "index"},
+	}, strings.Join([]string{
+		"# Codebase Language: rust",
+		"",
+		"## Files",
+		"- [[systems-design/raw/codebase/files/src/lib.rs|src/lib.rs]]",
+		"",
+		"## Symbols",
+		"- [[systems-design/raw/codebase/symbols/helper--src-lib-rs-l3|helper (function)]]",
+	}, "\n"))
 
 	issues := mustLint(t, topicPath)
 	if len(issues) != 0 {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/vault"
 )
 
 var (
@@ -233,7 +234,7 @@ func loadVault(topicPath string) (vaultState, error) {
 				body:              body,
 				frontmatter:       values,
 				inTopic:           topicRoot == cleanTopicPath,
-				links:             extractWikilinks(body),
+				links:             extractDocumentWikilinks(body, values),
 				parseErr:          parseErr,
 				relativePath:      vaultRelativePath,
 				vaultRelativePath: vaultRelativePath,
@@ -655,7 +656,7 @@ func schemaForPath(relativePath string) (schemaSpec, bool) {
 			listFields: []string{"tags"},
 			required:   []string{"title", "type", "stage", "domain", "tags", "created", "issues_found", "issues_fixed"},
 		}, true
-	case strings.HasPrefix(relativePath, "wiki/index/"):
+	case strings.HasPrefix(relativePath, "wiki/index/"), strings.HasPrefix(relativePath, "wiki/codebase/index/"):
 		return schemaSpec{
 			dateFields: []string{"updated"},
 			expected: map[string]string{
@@ -751,6 +752,56 @@ func extractWikilinks(text string) []string {
 	}
 
 	return links
+}
+
+func extractDocumentWikilinks(body string, values map[string]any) []string {
+	sourceKind := strings.TrimSpace(frontmatter.GetString(values, "source_kind"))
+	switch sourceKind {
+	case string(models.SourceKindCodebaseFile):
+		return extractManagedCodebaseLinks(body, "Symbols", "Outgoing Relations", "Backlinks")
+	case string(models.SourceKindCodebaseSymbol):
+		parts := []string{
+			extractBodyPreamble(body),
+			vault.ExtractSection(body, "Outgoing Relations"),
+			vault.ExtractSection(body, "Backlinks"),
+		}
+		return extractWikilinks(strings.Join(parts, "\n"))
+	case "codebase-directory-index", "codebase-language-index":
+		return extractManagedCodebaseLinks(body, "Files", "Symbols")
+	default:
+		return extractWikilinks(body)
+	}
+}
+
+func extractManagedCodebaseLinks(body string, headings ...string) []string {
+	parts := make([]string, 0, len(headings))
+	for _, heading := range headings {
+		section := vault.ExtractSection(body, heading)
+		if strings.TrimSpace(section) == "" {
+			continue
+		}
+
+		parts = append(parts, section)
+	}
+
+	return extractWikilinks(strings.Join(parts, "\n"))
+}
+
+func extractBodyPreamble(body string) string {
+	normalizedBody := strings.ReplaceAll(body, "\r\n", "\n")
+	lines := strings.Split(normalizedBody, "\n")
+	collected := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "## ") {
+			break
+		}
+
+		collected = append(collected, line)
+	}
+
+	return strings.TrimSpace(strings.Join(collected, "\n"))
 }
 
 func stripCode(text string) string {
@@ -910,7 +961,7 @@ func isAcceptableTarget(file *vaultFile, rawOnly bool) bool {
 }
 
 func isWikiConceptPath(relativePath string) bool {
-	return strings.HasPrefix(relativePath, "wiki/concepts/")
+	return strings.HasPrefix(relativePath, "wiki/concepts/") || strings.HasPrefix(relativePath, "wiki/codebase/concepts/")
 }
 
 func isHTTPURL(value string) bool {

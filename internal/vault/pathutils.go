@@ -12,7 +12,15 @@ import (
 
 var windowsDriveRootPattern = regexp.MustCompile(`^[A-Za-z]:/?$`)
 
-const wikiConceptFilePrefix = "Kodebase - "
+const (
+	CodebaseDashboardTitle    = "Codebase Dashboard"
+	CodebaseConceptIndexTitle = "Codebase Concept Index"
+	CodebaseSourceIndexTitle  = "Codebase Source Index"
+	TopicDashboardTitle       = "Dashboard"
+	TopicConceptIndexTitle    = "Concept Index"
+	TopicSourceIndexTitle     = "Source Index"
+	legacyWikiConceptPrefix   = "Kodebase - "
+)
 
 // ToPosixPath normalizes path separators to forward slashes and trims trailing slashes.
 func ToPosixPath(value string) string {
@@ -210,15 +218,16 @@ func GetRawLanguageIndexPath(language string) string {
 // GetWikiConceptPath derives the vault document path for a generated wiki concept article.
 func GetWikiConceptPath(articleTitle string) string {
 	normalizedTitle := strings.TrimSpace(articleTitle)
-	if !strings.HasPrefix(normalizedTitle, wikiConceptFilePrefix) {
-		normalizedTitle = wikiConceptFilePrefix + normalizedTitle
-	}
-
-	return fmt.Sprintf("wiki/concepts/%s.md", normalizedTitle)
+	return fmt.Sprintf("wiki/codebase/concepts/%s.md", normalizedTitle)
 }
 
 // GetWikiIndexPath derives the vault document path for a generated wiki index page.
 func GetWikiIndexPath(indexTitle string) string {
+	return fmt.Sprintf("wiki/codebase/index/%s.md", indexTitle)
+}
+
+// GetTopicIndexPath derives the vault document path for a top-level topic index page.
+func GetTopicIndexPath(indexTitle string) string {
 	return fmt.Sprintf("wiki/index/%s.md", indexTitle)
 }
 
@@ -244,7 +253,7 @@ func ToTopicWikiLink(topicSlug, documentPath, label string) string {
 
 func stripWikiConceptFilePrefix(articleTitle string) string {
 	normalizedTitle := strings.TrimSpace(articleTitle)
-	return strings.TrimSpace(strings.TrimPrefix(normalizedTitle, wikiConceptFilePrefix))
+	return strings.TrimSpace(strings.TrimPrefix(normalizedTitle, legacyWikiConceptPrefix))
 }
 
 func cleanComparablePath(value string) string {

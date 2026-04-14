@@ -22,28 +22,19 @@ One paragraph describing what this topic covers and what it deliberately exclude
 
 ## Featured articles
 
-List the 3-5 most load-bearing articles in the topic, with a one-sentence description each:
+List the 3-5 most load-bearing articles in the topic, with a one-sentence description each.
 
-- [[Article Name]] — one sentence hook
-- [[Another Article]] — one sentence hook
+_No featured articles yet._
 
 ## Recent additions
 
-- YYYY-MM-DD — [[New Article]]
-- YYYY-MM-DD — [[Another New Article]]
+_No recent additions yet._
 
 ## Coverage map
 
-High-level grouping of articles by sub-theme. Example:
+High-level grouping of articles by sub-theme.
 
-### Sub-theme A
-
-- [[Article 1]]
-- [[Article 2]]
-
-### Sub-theme B
-
-- [[Article 3]]
+_Add sub-themes as the wiki grows._
 
 ## Research gaps
 
@@ -56,7 +47,7 @@ Priority areas not yet covered (pull from outputs/queries/Research Gaps Analysis
 
 Cross-references to other topics in this vault that this one connects to:
 
-- [[other-topic/wiki/index/Dashboard|Other Topic]] — how they relate
+_No related topics linked yet._
 
 ## Navigation
 

@@ -88,7 +88,7 @@ func renderDashboard(
 	rawSourceCount := len(graph.Files) + len(graph.Symbols) + len(directoryPaths) + len(languages)
 
 	lines := []string{
-		fmt.Sprintf("# %s - Dashboard", topic.Title),
+		fmt.Sprintf("# %s - %s", topic.Title, CodebaseDashboardTitle),
 		"",
 		"Landing page for the generated Karpathy-compatible codebase topic.",
 		"",
@@ -99,7 +99,7 @@ func renderDashboard(
 		fmt.Sprintf("- **Parsed symbols:** %d", len(graph.Symbols)),
 		fmt.Sprintf("- **Last updated:** %s", topic.Today),
 		"",
-		"## Starter articles",
+		"## Generated codebase articles",
 	}
 
 	for _, article := range articles {
@@ -113,17 +113,17 @@ func renderDashboard(
 	lines = append(lines,
 		"",
 		"## Navigation",
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath("Concept Index"), "Concept Index"),
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath("Source Index"), "Source Index"),
+		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 	)
 
 	return models.RenderedDocument{
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
-		RelativePath: GetWikiIndexPath("Dashboard"),
+		RelativePath: GetWikiIndexPath(CodebaseDashboardTitle),
 		Frontmatter: map[string]interface{}{
 			"domain":  topic.Domain,
-			"title":   "Dashboard",
+			"title":   CodebaseDashboardTitle,
 			"type":    "index",
 			"updated": topic.Today,
 		},
@@ -156,17 +156,17 @@ func renderConceptIndex(
 	return models.RenderedDocument{
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
-		RelativePath: GetWikiIndexPath("Concept Index"),
+		RelativePath: GetWikiIndexPath(CodebaseConceptIndexTitle),
 		Frontmatter: map[string]interface{}{
 			"domain":  topic.Domain,
-			"title":   "Concept Index",
+			"title":   CodebaseConceptIndexTitle,
 			"type":    "index",
 			"updated": topic.Today,
 		},
 		Body: strings.Join([]string{
-			fmt.Sprintf("# %s - Concept Index", topic.Title),
+			fmt.Sprintf("# %s - %s", topic.Title, CodebaseConceptIndexTitle),
 			"",
-			"Alphabetical listing of every generated wiki article in this topic.",
+			"Alphabetical listing of every generated codebase wiki article in this topic.",
 			"",
 			"| Article | Summary |",
 			"| ------- | ------- |",
@@ -208,17 +208,17 @@ func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle
 	return models.RenderedDocument{
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
-		RelativePath: GetWikiIndexPath("Source Index"),
+		RelativePath: GetWikiIndexPath(CodebaseSourceIndexTitle),
 		Frontmatter: map[string]interface{}{
 			"domain":  topic.Domain,
-			"title":   "Source Index",
+			"title":   CodebaseSourceIndexTitle,
 			"type":    "index",
 			"updated": topic.Today,
 		},
 		Body: strings.Join([]string{
-			fmt.Sprintf("# %s - Source Index", topic.Title),
+			fmt.Sprintf("# %s - %s", topic.Title, CodebaseSourceIndexTitle),
 			"",
-			"Raw codebase snapshots currently cited by the starter wiki.",
+			"Raw codebase snapshots currently cited by the generated codebase wiki.",
 			"",
 			"| Source | Cited by |",
 			"| ------ | -------- |",
@@ -302,7 +302,7 @@ func createCodebaseOverviewArticle(
 		"# Codebase Overview",
 		"",
 		fmt.Sprintf(
-			"%s currently compiles into a Karpathy-style topic where the codebase itself is staged in `raw/codebase/` and this starter wiki provides the first synthesized navigation layer. The corpus contains %d parsed source files, %d symbols, and %d extracted relations.",
+			"%s currently compiles into a Karpathy-style topic where the codebase itself is staged in `raw/codebase/` and the generated codebase wiki provides the first synthesized navigation layer. The corpus contains %d parsed source files, %d symbols, and %d extracted relations.",
 			topic.Title,
 			len(graph.Files),
 			len(graph.Symbols),

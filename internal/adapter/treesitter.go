@@ -1,4 +1,4 @@
-// Package adapter provides tree-sitter parsing adapters that extract symbols, relations, and diagnostics from Go, TypeScript, and JavaScript source files.
+// Package adapter provides tree-sitter parsing adapters that extract symbols, relations, and diagnostics from Go, TypeScript, JavaScript, and Rust source files.
 package adapter
 
 import (
@@ -8,6 +8,7 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
@@ -27,6 +28,10 @@ func tsxLanguage() *tree_sitter.Language {
 
 func javaScriptLanguage() *tree_sitter.Language {
 	return tree_sitter.NewLanguage(tree_sitter_javascript.Language())
+}
+
+func rustLanguage() *tree_sitter.Language {
+	return tree_sitter.NewLanguage(tree_sitter_rust.Language())
 }
 
 func newParser(language *tree_sitter.Language) (*tree_sitter.Parser, error) {

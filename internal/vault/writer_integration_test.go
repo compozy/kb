@@ -40,7 +40,7 @@ func TestWriteVaultIntegrationPersistsFullRenderedVault(t *testing.T) {
 	assertFileExists(t, filepath.Join(topic.TopicPath, "CLAUDE.md"))
 	assertFileExists(t, filepath.Join(topic.TopicPath, "log.md"))
 
-	entries, err := os.ReadDir(filepath.Join(topic.TopicPath, "wiki", "concepts"))
+	entries, err := os.ReadDir(filepath.Join(topic.TopicPath, "wiki", "codebase", "concepts"))
 	if err != nil {
 		t.Fatalf("read concept directory: %v", err)
 	}

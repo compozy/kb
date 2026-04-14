@@ -50,6 +50,8 @@ var (
 		"raw/codebase/symbols",
 		"raw/github",
 		"raw/youtube",
+		"wiki/codebase/concepts",
+		"wiki/codebase/index",
 		"wiki/concepts",
 		"wiki/index",
 		"outputs/queries",
@@ -66,6 +68,8 @@ var (
 		"raw/codebase/symbols",
 		"raw/github",
 		"raw/youtube",
+		"wiki/codebase/concepts",
+		"wiki/codebase/index",
 		"wiki/concepts",
 		"outputs/queries",
 		"outputs/briefings",
@@ -291,6 +295,47 @@ func EnsureCurrentSkeleton(topicPath string) error {
 	}
 
 	return nil
+}
+
+// RenderClaudeTemplate renders the default topic CLAUDE.md content for the
+// provided topic metadata. Callers can append managed sections afterwards.
+func RenderClaudeTemplate(slug, title, domain, today string) (string, error) {
+	return renderTemplate(claudeTemplatePath, templateContext{
+		Domain: strings.TrimSpace(domain),
+		Slug:   strings.TrimSpace(slug),
+		Title:  strings.TrimSpace(title),
+		Today:  strings.TrimSpace(today),
+	})
+}
+
+// RenderDashboardTemplate renders the default top-level Dashboard.md scaffold.
+func RenderDashboardTemplate(slug, title, domain, today string) (string, error) {
+	return renderTemplate(dashboardTemplatePath, templateContext{
+		Domain: strings.TrimSpace(domain),
+		Slug:   strings.TrimSpace(slug),
+		Title:  strings.TrimSpace(title),
+		Today:  strings.TrimSpace(today),
+	})
+}
+
+// RenderConceptIndexTemplate renders the default top-level Concept Index scaffold.
+func RenderConceptIndexTemplate(slug, title, domain, today string) (string, error) {
+	return renderTemplate(conceptIndexTemplatePath, templateContext{
+		Domain: strings.TrimSpace(domain),
+		Slug:   strings.TrimSpace(slug),
+		Title:  strings.TrimSpace(title),
+		Today:  strings.TrimSpace(today),
+	})
+}
+
+// RenderSourceIndexTemplate renders the default top-level Source Index scaffold.
+func RenderSourceIndexTemplate(slug, title, domain, today string) (string, error) {
+	return renderTemplate(sourceIndexTemplatePath, templateContext{
+		Domain: strings.TrimSpace(domain),
+		Slug:   strings.TrimSpace(slug),
+		Title:  strings.TrimSpace(title),
+		Today:  strings.TrimSpace(today),
+	})
 }
 
 func installTemplates(topicPath string, context templateContext) error {

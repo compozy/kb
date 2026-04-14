@@ -205,6 +205,8 @@ func supportedLanguage(filePath string) (models.SupportedLanguage, bool) {
 		return models.LangJS, true
 	case strings.HasSuffix(filePath, ".go"):
 		return models.LangGo, true
+	case strings.HasSuffix(filePath, ".rs"):
+		return models.LangRust, true
 	default:
 		return "", false
 	}

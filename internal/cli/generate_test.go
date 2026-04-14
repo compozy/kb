@@ -190,6 +190,50 @@ func TestGenerateCommandSupportsDeprecatedOutputAlias(t *testing.T) {
 	}
 }
 
+func TestGenerateCommandPassesDryRunFlag(t *testing.T) {
+	original := runGenerate
+	t.Cleanup(func() {
+		runGenerate = original
+	})
+
+	var got models.GenerateOptions
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		got = opts
+		return models.GenerationSummary{Command: "generate", TopicSlug: "fixture", DryRun: true}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"generate", "/tmp/repo", "--dry-run"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if !got.DryRun {
+		t.Fatalf("DryRun = %t, want true", got.DryRun)
+	}
+}
+
+func TestGenerateHelpIncludesSupportedLanguagesAndDryRun(t *testing.T) {
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"generate", "--help"})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "--dry-run"} {
+		if !strings.Contains(stdout.String(), fragment) {
+			t.Fatalf("expected help output to contain %q, got:\n%s", fragment, stdout.String())
+		}
+	}
+}
+
 func TestGenerateTextObserverReportsCompletedCountsAndFailures(t *testing.T) {
 	var stderr bytes.Buffer
 

@@ -13,7 +13,7 @@ All raw sources that inform this topic's wiki, with the articles that cite them.
 
 | Source | Scraped | Cited by |
 |--------|---------|----------|
-| [[example-source-slug]] | YYYY-MM-DD | [[Wiki Article]] |
+| _None yet._ | — | — |
 
 ## GitHub (raw/github/)
 
@@ -32,4 +32,4 @@ Raw files in `raw/` that no wiki article currently cites. These are candidates f
 - Adding to an existing article's Sources section
 - Seeding a new article (Procedure 3 in the karpathy-kb skill)
 
-- [[orphan-source-slug]] — brief description of what it covers
+_No orphan sources yet._

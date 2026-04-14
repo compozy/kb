@@ -11,15 +11,22 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/topic"
 )
 
 const fileWriteBatchSize = 64
 
+const (
+	codebaseManagedBlockStart = "<!-- kb:codebase:start -->"
+	codebaseManagedBlockEnd   = "<!-- kb:codebase:end -->"
+	codebaseIndexBlockStart   = "<!-- kb:codebase-index:start -->"
+	codebaseIndexBlockEnd     = "<!-- kb:codebase-index:end -->"
+)
+
 var (
 	frontmatterBlockPattern = regexp.MustCompile(`(?s)\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)`)
-	managedGeneratorPattern = regexp.MustCompile(`(?m)^generator:\s+"?kodebase"?\s*$`)
 )
 
 // WriteVaultOptions bundles the rendered vault payload written to disk.
@@ -50,6 +57,12 @@ type fileWriteRequest struct {
 	TargetPath string
 }
 
+type topicIndexBridgeSpec struct {
+	LegacyMarkers  []string
+	RenderTemplate func(slug, title, domain, today string) (string, error)
+	Title          string
+}
+
 // WriteVault persists the rendered markdown and base files for a topic.
 func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResult, error) {
 	if ctx == nil {
@@ -71,9 +84,6 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	if err := resetManagedSubtrees(options.Topic.TopicPath); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: reset managed subtrees: %w", err)
 	}
-	if err := removeManagedWikiConcepts(options.Topic.TopicPath); err != nil {
-		return WriteVaultResult{}, fmt.Errorf("write vault: remove managed wiki concepts: %w", err)
-	}
 
 	renderedFiles, err := buildWriteRequests(options)
 	if err != nil {
@@ -82,19 +92,24 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	if err := ensureDirectories(renderedFiles); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure document directories: %w", err)
 	}
-	progressReporter := newWriteProgressReporter(options.Progress, len(renderedFiles)+2)
+	bridgeSpecs := topicIndexBridgeSpecs()
+	progressReporter := newWriteProgressReporter(options.Progress, len(renderedFiles)+len(bridgeSpecs)+2)
 	if err := writeFilesInBatches(ctx, renderedFiles, progressReporter.Report); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: persist rendered files: %w", err)
 	}
 
 	claudePath := filepath.Join(options.Topic.TopicPath, "CLAUDE.md")
-	if err := writeTextFile(
-		claudePath,
-		buildTopicClaude(options.Topic, options.Graph, options.Documents),
-	); err != nil {
+	if err := writeTopicClaude(claudePath, options.Topic, options.Graph, options.Documents); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: write topic manifest: %w", err)
 	}
 	progressReporter.Report(claudePath)
+	indexBridgePaths, err := writeTopicIndexBridges(options.Topic, bridgeSpecs)
+	if err != nil {
+		return WriteVaultResult{}, fmt.Errorf("write vault: write topic index bridges: %w", err)
+	}
+	for _, bridgePath := range indexBridgePaths {
+		progressReporter.Report(bridgePath)
+	}
 	if err := ensureAgentsSymlink(options.Topic.TopicPath); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure topic agents symlink: %w", err)
 	}
@@ -131,7 +146,7 @@ func ensureTopicSkeleton(topicPath string) error {
 func resetManagedSubtrees(topicPath string) error {
 	for _, relativePath := range []string{
 		filepath.Join("raw", "codebase"),
-		filepath.Join("wiki", "index"),
+		filepath.Join("wiki", "codebase"),
 	} {
 		absolutePath := filepath.Join(topicPath, relativePath)
 		if err := os.RemoveAll(absolutePath); err != nil {
@@ -142,7 +157,54 @@ func resetManagedSubtrees(topicPath string) error {
 		}
 	}
 
+	if err := removeLegacyManagedConcepts(topicPath); err != nil {
+		return err
+	}
+
 	return topic.EnsureCurrentSkeleton(topicPath)
+}
+
+func removeLegacyManagedConcepts(topicPath string) error {
+	conceptsPath := filepath.Join(topicPath, "wiki", "concepts")
+	entries, err := os.ReadDir(conceptsPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("read %q: %w", conceptsPath, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), legacyWikiConceptPrefix) {
+			continue
+		}
+
+		targetPath := filepath.Join(conceptsPath, entry.Name())
+		content, err := os.ReadFile(targetPath)
+		if err != nil {
+			return fmt.Errorf("read legacy concept %q: %w", targetPath, err)
+		}
+		if !isKodebaseManagedMarkdown(string(content)) {
+			continue
+		}
+		if err := os.Remove(targetPath); err != nil {
+			return fmt.Errorf("remove legacy managed concept %q: %w", targetPath, err)
+		}
+	}
+
+	return nil
+}
+
+func isKodebaseManagedMarkdown(markdown string) bool {
+	values, _, err := frontmatter.Parse(markdown)
+	if err != nil {
+		return false
+	}
+
+	return strings.EqualFold(strings.TrimSpace(frontmatter.GetString(values, "generator")), "kodebase")
 }
 
 func buildWriteRequests(options WriteVaultOptions) ([]fileWriteRequest, error) {
@@ -241,9 +303,9 @@ func expectedDocumentPlacement(kind models.DocumentKind) (models.ManagedArea, st
 	case models.DocRaw:
 		return models.AreaRawCodebase, "raw/codebase/", nil
 	case models.DocWiki:
-		return models.AreaWikiConcept, "wiki/concepts/", nil
+		return models.AreaWikiConcept, "wiki/codebase/concepts/", nil
 	case models.DocIndex:
-		return models.AreaWikiIndex, "wiki/index/", nil
+		return models.AreaWikiIndex, "wiki/codebase/index/", nil
 	default:
 		return "", "", fmt.Errorf("unsupported document kind %q", kind)
 	}
@@ -338,7 +400,7 @@ func (r *writeProgressReporter) Report(path string) {
 	})
 }
 
-func buildTopicClaude(
+func buildTopicClaudeManagedBlock(
 	topic models.TopicMetadata,
 	graph models.GraphSnapshot,
 	documents []models.RenderedDocument,
@@ -365,36 +427,13 @@ func buildTopicClaude(
 	}
 
 	lines := []string{
-		"# " + topic.Title,
+		codebaseManagedBlockStart,
+		"## Codebase Corpus (managed)",
 		"",
 		fmt.Sprintf(
-			"**Topic scope:** Generated codebase knowledge topic for `%s`. This topic stages raw code snapshots in `raw/codebase/` and compiles a starter wiki in `wiki/`.",
+			"Generated by `kb ingest codebase` from `%s`. Re-running refreshes `raw/codebase/`, `wiki/codebase/`, and the managed bridge sections in `wiki/index/`; manual content outside managed sections is preserved.",
 			rootLabel,
 		),
-		"",
-		fmt.Sprintf("**Domain:** `%s`", topic.Domain),
-		"",
-		"This file is the schema document for the topic. The `kodebase` CLI manages `raw/codebase/`, `wiki/index/`, and wiki concept pages with `generator: kodebase` frontmatter. Everything else may be extended manually without being overwritten.",
-		"",
-		"## Audit log",
-		"",
-		"See [log.md](log.md) for the append-only record of ingest and compile operations.",
-		"",
-		"## Current wiki articles",
-		"",
-	}
-
-	if len(conceptDocuments) == 0 {
-		lines = append(lines, "_None yet._")
-	} else {
-		for _, articleTitle := range conceptDocuments {
-			lines = append(lines, "- "+ToTopicWikiLink(topic.Slug, GetWikiConceptPath(articleTitle), articleTitle))
-		}
-	}
-
-	lines = append(lines,
-		"",
-		"## Codebase corpus",
 		"",
 		fmt.Sprintf("- Parsed files: %d", len(graph.Files)),
 		fmt.Sprintf("- Parsed symbols: %d", len(graph.Symbols)),
@@ -404,21 +443,213 @@ func buildTopicClaude(
 		"- `raw/codebase/indexes/` - generated directory and language inventories",
 		"- `bases/` - generated Obsidian Bases views over the raw codebase notes",
 		"",
-		"## Managed starter wiki",
+		"### Generated codebase navigation",
 		"",
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath("Dashboard"), "Dashboard"),
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath("Concept Index"), "Concept Index"),
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath("Source Index"), "Source Index"),
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 		"",
-		"## Research gaps",
+		"### Generated codebase articles",
 		"",
-		"- Expand the starter wiki into architecture-level articles for the main subsystems.",
-		"- Promote repeated query outputs in `outputs/queries/` into first-class wiki articles when they stabilize.",
-		"- Add manually curated raw material in `raw/articles/`, `raw/github/`, or `raw/bookmarks/` when source code alone is not enough.",
-		"",
-	)
+	}
+	if len(conceptDocuments) == 0 {
+		lines = append(lines, "_None generated._")
+	} else {
+		for _, articleTitle := range conceptDocuments {
+			lines = append(lines, "- "+ToTopicWikiLink(topic.Slug, GetWikiConceptPath(articleTitle), articleTitle))
+		}
+	}
+	lines = append(lines, "", codebaseManagedBlockEnd)
 
 	return strings.Join(lines, "\n")
+}
+
+func buildTopicIndexBridgeManagedBlock(topic models.TopicMetadata) string {
+	lines := []string{
+		codebaseIndexBlockStart,
+		"## Generated codebase analysis (managed)",
+		"",
+		"Latest `kb ingest codebase` output is published under `wiki/codebase/` so the top-level topic indexes can stay manually curated.",
+		"",
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"",
+		codebaseIndexBlockEnd,
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func writeTopicClaude(
+	claudePath string,
+	topicInfo models.TopicMetadata,
+	graph models.GraphSnapshot,
+	documents []models.RenderedDocument,
+) error {
+	content, err := readOrCreateClaude(claudePath, topicInfo)
+	if err != nil {
+		return err
+	}
+
+	managedBlock := buildTopicClaudeManagedBlock(topicInfo, graph, documents)
+	return writeTextFile(
+		claudePath,
+		upsertManagedSection(content, managedBlock, codebaseManagedBlockStart, codebaseManagedBlockEnd),
+	)
+}
+
+func readOrCreateClaude(claudePath string, topicInfo models.TopicMetadata) (string, error) {
+	content, err := os.ReadFile(claudePath)
+	switch {
+	case err == nil:
+		markdown := string(content)
+		if isLegacyGeneratedClaude(markdown) {
+			return renderDefaultClaude(topicInfo)
+		}
+		return markdown, nil
+	case !errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("read %q: %w", claudePath, err)
+	}
+
+	return renderDefaultClaude(topicInfo)
+}
+
+func renderDefaultClaude(topicInfo models.TopicMetadata) (string, error) {
+	rendered, err := topic.RenderClaudeTemplate(topicInfo.Slug, topicInfo.Title, topicInfo.Domain, topicInfo.Today)
+	if err != nil {
+		return "", fmt.Errorf("render default CLAUDE.md: %w", err)
+	}
+
+	return rendered, nil
+}
+
+func isLegacyGeneratedClaude(markdown string) bool {
+	if strings.Contains(markdown, codebaseManagedBlockStart) {
+		return false
+	}
+
+	for _, marker := range []string{
+		"**Topic scope:** Generated codebase knowledge topic for `",
+		"The `kodebase` CLI manages `raw/codebase/`, `wiki/index/`, and wiki concept pages with `generator: kodebase` frontmatter.",
+		"## Managed starter wiki",
+	} {
+		if !strings.Contains(markdown, marker) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func upsertManagedSection(content, managedBlock, startMarker, endMarker string) string {
+	startIndex := strings.Index(content, startMarker)
+	endIndex := strings.Index(content, endMarker)
+	if startIndex >= 0 && endIndex > startIndex {
+		endIndex += len(endMarker)
+		before := strings.TrimRight(content[:startIndex], "\n")
+		after := strings.TrimLeft(content[endIndex:], "\n")
+		sections := make([]string, 0, 3)
+		if before != "" {
+			sections = append(sections, before)
+		}
+		sections = append(sections, managedBlock)
+		if after != "" {
+			sections = append(sections, after)
+		}
+		return strings.Join(sections, "\n\n") + "\n"
+	}
+
+	trimmed := strings.TrimRight(content, "\n")
+	if trimmed == "" {
+		return managedBlock + "\n"
+	}
+
+	return trimmed + "\n\n" + managedBlock + "\n"
+}
+
+func topicIndexBridgeSpecs() []topicIndexBridgeSpec {
+	return []topicIndexBridgeSpec{
+		{
+			Title:          TopicDashboardTitle,
+			RenderTemplate: topic.RenderDashboardTemplate,
+			LegacyMarkers: []string{
+				"Landing page for the generated Karpathy-compatible codebase topic.",
+				"## Generated codebase articles",
+			},
+		},
+		{
+			Title:          TopicConceptIndexTitle,
+			RenderTemplate: topic.RenderConceptIndexTemplate,
+			LegacyMarkers: []string{
+				"Alphabetical listing of every generated codebase wiki article in this topic.",
+				"| Article | Summary |",
+			},
+		},
+		{
+			Title:          TopicSourceIndexTitle,
+			RenderTemplate: topic.RenderSourceIndexTemplate,
+			LegacyMarkers: []string{
+				"Raw codebase snapshots currently cited by the generated codebase wiki.",
+				"| Source | Cited by |",
+			},
+		},
+	}
+}
+
+func writeTopicIndexBridges(topicInfo models.TopicMetadata, specs []topicIndexBridgeSpec) ([]string, error) {
+	managedBlock := buildTopicIndexBridgeManagedBlock(topicInfo)
+	writtenPaths := make([]string, 0, len(specs))
+
+	for _, spec := range specs {
+		targetPath := filepath.Join(topicInfo.TopicPath, filepath.FromSlash(GetTopicIndexPath(spec.Title)))
+		content, err := readOrCreateTopicIndex(targetPath, topicInfo, spec)
+		if err != nil {
+			return nil, err
+		}
+
+		updated := upsertManagedSection(content, managedBlock, codebaseIndexBlockStart, codebaseIndexBlockEnd)
+		if err := writeTextFile(targetPath, updated); err != nil {
+			return nil, fmt.Errorf("write %q: %w", targetPath, err)
+		}
+
+		writtenPaths = append(writtenPaths, targetPath)
+	}
+
+	return writtenPaths, nil
+}
+
+func readOrCreateTopicIndex(targetPath string, topicInfo models.TopicMetadata, spec topicIndexBridgeSpec) (string, error) {
+	content, err := os.ReadFile(targetPath)
+	switch {
+	case err == nil:
+		markdown := string(content)
+		if isLegacyGeneratedTopicIndex(markdown, spec.Title, spec.LegacyMarkers) {
+			return spec.RenderTemplate(topicInfo.Slug, topicInfo.Title, topicInfo.Domain, topicInfo.Today)
+		}
+		return markdown, nil
+	case !errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("read %q: %w", targetPath, err)
+	default:
+		return spec.RenderTemplate(topicInfo.Slug, topicInfo.Title, topicInfo.Domain, topicInfo.Today)
+	}
+}
+
+func isLegacyGeneratedTopicIndex(markdown, expectedTitle string, legacyMarkers []string) bool {
+	values, body, err := frontmatter.Parse(markdown)
+	if err != nil {
+		return false
+	}
+	if frontmatter.GetString(values, "title") != expectedTitle {
+		return false
+	}
+	for _, marker := range legacyMarkers {
+		if !strings.Contains(body, marker) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func renderedConceptTitle(document models.RenderedDocument) string {
@@ -446,6 +677,11 @@ func ensureTopicGitkeeps(topicPath string) error {
 		filepath.Join(topicPath, "raw", "articles"),
 		filepath.Join(topicPath, "raw", "bookmarks"),
 		filepath.Join(topicPath, "raw", "github"),
+		filepath.Join(topicPath, "raw", "youtube"),
+		filepath.Join(topicPath, "wiki", "concepts"),
+		filepath.Join(topicPath, "wiki", "index"),
+		filepath.Join(topicPath, "wiki", "codebase", "concepts"),
+		filepath.Join(topicPath, "wiki", "codebase", "index"),
 		filepath.Join(topicPath, "outputs", "briefings"),
 		filepath.Join(topicPath, "outputs", "queries"),
 		filepath.Join(topicPath, "outputs", "diagrams"),
@@ -474,46 +710,6 @@ func ensureGitkeep(directoryPath string) error {
 	}
 
 	return nil
-}
-
-func removeManagedWikiConcepts(topicPath string) error {
-	conceptsPath := filepath.Join(topicPath, "wiki", "concepts")
-	entries, err := os.ReadDir(conceptsPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read concepts directory %q: %w", conceptsPath, err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-
-		absolutePath := filepath.Join(conceptsPath, entry.Name())
-		content, err := os.ReadFile(absolutePath)
-		if err != nil {
-			return fmt.Errorf("read concept file %q: %w", absolutePath, err)
-		}
-		if !hasManagedGenerator(string(content)) {
-			continue
-		}
-		if err := os.Remove(absolutePath); err != nil {
-			return fmt.Errorf("remove managed concept %q: %w", absolutePath, err)
-		}
-	}
-
-	return nil
-}
-
-func hasManagedGenerator(content string) bool {
-	match := frontmatterBlockPattern.FindStringSubmatch(content)
-	if match == nil {
-		return false
-	}
-
-	return managedGeneratorPattern.MatchString(match[1])
 }
 
 func appendLog(topic models.TopicMetadata, graph models.GraphSnapshot, counts WriteVaultResult) error {
@@ -549,7 +745,7 @@ func appendLog(topic models.TopicMetadata, graph models.GraphSnapshot, counts Wr
 		fmt.Sprintf("Refreshed `%s/raw/codebase/` from `%s`.", topic.Slug, topic.RootPath),
 		"",
 		fmt.Sprintf(
-			"## [%s] compile | refreshed starter wiki (%d concept pages, %d index pages)",
+			"## [%s] compile | refreshed codebase wiki (%d concept pages, %d index pages)",
 			topic.Today,
 			counts.WikiDocumentsWritten,
 			counts.IndexDocumentsWritten,

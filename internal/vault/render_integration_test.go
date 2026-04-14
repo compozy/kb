@@ -34,7 +34,7 @@ func TestRenderDocumentsIntegrationProducesFullDocumentSet(t *testing.T) {
 		"raw/codebase/indexes/languages/ts.md",
 		vault.GetWikiConceptPath("Codebase Overview"),
 		vault.GetWikiConceptPath("Circular Dependencies"),
-		"wiki/index/Dashboard.md",
+		vault.GetWikiIndexPath(vault.CodebaseDashboardTitle),
 	}
 
 	for _, expectedPath := range expectedPaths {
