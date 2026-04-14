@@ -10,6 +10,11 @@
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "8bc7a75020275e4ad1813cb4b616dc9e0c7624a6e71178f98341e69c39bd65f4"
+    },
+    "systematic-qa": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "computedHash": "cbc36a65128986475cb78c7a025b57abcde1383653af2616a40f59d546435295"
     }
   }
 }
