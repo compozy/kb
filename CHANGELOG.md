@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 
+### 🎉 Features
+- Add rust support
+
+## 0.0.4 - 2026-04-13
+
+
 ### 🐛 Bug Fixes
 - Qa round
 
@@ -14,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 - Update readme
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.4 ([#9](https://github.com/compozy/kb/issues/9))
 
 ## 0.0.3 - 2026-04-13
 
@@ -117,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.4]: https://github.com/compozy/kb/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/compozy/kb/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/compozy/kb/compare/v0.0.1...v0.0.2
 ---
