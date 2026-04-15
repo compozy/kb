@@ -7,8 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 
+### 🐛 Bug Fixes
+- Codebase default vault
+
+
+
+### 📚 Documentation
+- New systematic-qa skill
+
+## 0.0.5 - 2026-04-14
+
+
 ### 🎉 Features
 - Add rust support
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.5 ([#10](https://github.com/compozy/kb/issues/10))
 
 ## 0.0.4 - 2026-04-13
 
@@ -128,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.5]: https://github.com/compozy/kb/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/compozy/kb/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/compozy/kb/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/compozy/kb/compare/v0.0.1...v0.0.2
