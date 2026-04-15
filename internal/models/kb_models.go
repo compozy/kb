@@ -84,6 +84,8 @@ const (
 	LintIssueKindStale LintIssueKind = "stale"
 	// LintIssueKindFormat marks frontmatter or structural format violations.
 	LintIssueKindFormat LintIssueKind = "format"
+	// LintIssueKindJavaDiagnosticGovernance marks Java diagnostic governance threshold outcomes.
+	LintIssueKindJavaDiagnosticGovernance LintIssueKind = "java-diagnostic-governance"
 )
 
 // LintIssueKinds returns every lint issue kind in stable order.
@@ -94,6 +96,7 @@ func LintIssueKinds() []LintIssueKind {
 		LintIssueKindMissingSource,
 		LintIssueKindStale,
 		LintIssueKindFormat,
+		LintIssueKindJavaDiagnosticGovernance,
 	}
 }
 

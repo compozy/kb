@@ -17,6 +17,17 @@ type starterWikiArticle struct {
 	Title   string
 }
 
+type javaDiagnosticSummary struct {
+	ParseErrorCount         int
+	ResolutionFallbackCount int
+	TotalCount              int
+}
+
+const (
+	javaParseErrorCode         = "JAVA_PARSE_ERROR"
+	javaResolutionFallbackCode = "JAVA_RESOLUTION_FALLBACK"
+)
+
 func RenderDocuments(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
@@ -32,6 +43,7 @@ func RenderDocuments(
 	filesByLanguage := groupFilesByLanguage(graph.Files)
 	symbolsByLanguage := groupSymbolsByLanguage(graph.Symbols)
 	symbolsByKind := groupSymbolsByKind(graph.Symbols)
+	javaDiagnosticsByLanguage := buildJavaDiagnosticsByLanguage(graph.Diagnostics)
 
 	rawDocuments := make([]models.RenderedDocument, 0, len(graph.Files)+len(graph.Symbols)+len(filesByDirectory)+len(filesByLanguage))
 
@@ -87,6 +99,7 @@ func RenderDocuments(
 			language,
 			filesByLanguage[language],
 			symbolsByLanguage[language],
+			javaDiagnosticsByLanguage[language],
 		))
 	}
 
@@ -605,6 +618,7 @@ func renderRawLanguageIndex(
 	language string,
 	files []models.GraphFile,
 	symbols []models.SymbolNode,
+	javaDiagnostics javaDiagnosticSummary,
 ) models.RenderedDocument {
 	orderedFiles := append([]models.GraphFile(nil), files...)
 	sort.Slice(orderedFiles, func(i, j int) bool {
@@ -648,23 +662,40 @@ func renderRawLanguageIndex(
 	)
 	sections = append(sections, symbolLinks...)
 
+	if language == string(models.LangJava) {
+		sections = append(sections,
+			"",
+			"## Java Diagnostics",
+			fmt.Sprintf("- Total diagnostics: %d", javaDiagnostics.TotalCount),
+			fmt.Sprintf("- %s: %d", javaParseErrorCode, javaDiagnostics.ParseErrorCount),
+			fmt.Sprintf("- %s: %d", javaResolutionFallbackCode, javaDiagnostics.ResolutionFallbackCount),
+		)
+	}
+
+	frontmatter := map[string]interface{}{
+		"domain":       topic.Domain,
+		"file_count":   len(files),
+		"language":     language,
+		"scraped":      topic.Today,
+		"source_kind":  "codebase-language-index",
+		"stage":        "raw",
+		"symbol_count": len(symbols),
+		"tags":         []string{topic.Domain, "raw", "codebase", "language-index", language},
+		"title":        fmt.Sprintf("Language Snapshot: %s", language),
+		"type":         "source",
+	}
+	if language == string(models.LangJava) {
+		frontmatter["java_diagnostic_total_count"] = javaDiagnostics.TotalCount
+		frontmatter["java_parse_error_count"] = javaDiagnostics.ParseErrorCount
+		frontmatter["java_resolution_fallback_count"] = javaDiagnostics.ResolutionFallbackCount
+	}
+
 	return models.RenderedDocument{
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
 		RelativePath: GetRawLanguageIndexPath(language),
-		Frontmatter: map[string]interface{}{
-			"domain":       topic.Domain,
-			"file_count":   len(files),
-			"language":     language,
-			"scraped":      topic.Today,
-			"source_kind":  "codebase-language-index",
-			"stage":        "raw",
-			"symbol_count": len(symbols),
-			"tags":         []string{topic.Domain, "raw", "codebase", "language-index", language},
-			"title":        fmt.Sprintf("Language Snapshot: %s", language),
-			"type":         "source",
-		},
-		Body: strings.Join(sections, "\n"),
+		Frontmatter:  frontmatter,
+		Body:         strings.Join(sections, "\n"),
 	}
 }
 
@@ -806,6 +837,33 @@ func sortedMapKeys[V any](values map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func buildJavaDiagnosticsByLanguage(
+	diagnostics []models.StructuredDiagnostic,
+) map[string]javaDiagnosticSummary {
+	summaries := make(map[string]javaDiagnosticSummary)
+	for _, diagnostic := range diagnostics {
+		language := string(diagnostic.Language)
+		if language == "" && strings.HasPrefix(diagnostic.Code, "JAVA_") {
+			language = string(models.LangJava)
+		}
+		if language != string(models.LangJava) {
+			continue
+		}
+
+		summary := summaries[language]
+		summary.TotalCount++
+		switch diagnostic.Code {
+		case javaParseErrorCode:
+			summary.ParseErrorCount++
+		case javaResolutionFallbackCode:
+			summary.ResolutionFallbackCount++
+		}
+		summaries[language] = summary
+	}
+
+	return summaries
 }
 
 func isFunctionLike(symbolKind string) bool {

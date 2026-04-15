@@ -7,6 +7,7 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
 	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
@@ -32,6 +33,10 @@ func javaScriptLanguage() *tree_sitter.Language {
 
 func rustLanguage() *tree_sitter.Language {
 	return tree_sitter.NewLanguage(tree_sitter_rust.Language())
+}
+
+func javaLanguage() *tree_sitter.Language {
+	return tree_sitter.NewLanguage(tree_sitter_java.Language())
 }
 
 func newParser(language *tree_sitter.Language) (*tree_sitter.Parser, error) {

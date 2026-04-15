@@ -2,12 +2,14 @@
 package lint
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +42,22 @@ var linkStopwords = map[string]struct{}{
 }
 
 var formatterColumns = []string{"severity", "kind", "filePath", "target", "message"}
+
+const (
+	javaParseErrorCode         = "JAVA_PARSE_ERROR"
+	javaResolutionFallbackCode = "JAVA_RESOLUTION_FALLBACK"
+)
+
+// LintOptions configures optional lint checks.
+type LintOptions struct {
+	JavaGovernance JavaDiagnosticsGovernancePolicy
+}
+
+// JavaDiagnosticsGovernancePolicy configures threshold-based Java diagnostics checks.
+type JavaDiagnosticsGovernancePolicy struct {
+	MaxParseErrors      int
+	MaxFallbackWarnings int
+}
 
 type schemaSpec struct {
 	dateFields []string
@@ -75,6 +93,14 @@ type vaultState struct {
 // Lint walks one KB topic, validates structural issues, and returns sorted lint
 // issues that can be formatted by the CLI layer.
 func Lint(topicPath string) ([]models.LintIssue, error) {
+	return LintWithOptions(topicPath, LintOptions{
+		JavaGovernance: defaultJavaDiagnosticsGovernancePolicy(),
+	})
+}
+
+// LintWithOptions walks one KB topic, validates structural issues, and applies
+// optional governance policies.
+func LintWithOptions(topicPath string, options LintOptions) ([]models.LintIssue, error) {
 	state, err := loadVault(topicPath)
 	if err != nil {
 		return nil, err
@@ -89,9 +115,17 @@ func Lint(topicPath string) ([]models.LintIssue, error) {
 	issues = append(issues, graphIssues...)
 	issues = append(issues, findOrphans(state, incoming)...)
 	issues = append(issues, findSourceIssues(state)...)
+	issues = append(issues, evaluateJavaDiagnosticsGovernance(state, options.JavaGovernance)...)
 
 	sortIssues(issues)
 	return issues, nil
+}
+
+func defaultJavaDiagnosticsGovernancePolicy() JavaDiagnosticsGovernancePolicy {
+	return JavaDiagnosticsGovernancePolicy{
+		MaxParseErrors:      0,
+		MaxFallbackWarnings: -1,
+	}
 }
 
 // Columns returns the stable column order for lint issue output.
@@ -539,6 +573,133 @@ func findSourceIssues(state vaultState) []models.LintIssue {
 	return issues
 }
 
+type javaDiagnosticCount struct {
+	Code       string
+	Count      int
+	MaxAllowed int
+}
+
+func evaluateJavaDiagnosticsGovernance(
+	state vaultState,
+	policy JavaDiagnosticsGovernancePolicy,
+) []models.LintIssue {
+	type aggregate struct {
+		filePath      string
+		parseErrors   int
+		fallbackCount int
+	}
+
+	summary := aggregate{}
+	for _, file := range state.files {
+		if file.parseErr != nil {
+			continue
+		}
+		if strings.TrimSpace(frontmatter.GetString(file.frontmatter, "source_kind")) != "codebase-language-index" {
+			continue
+		}
+		if strings.TrimSpace(frontmatter.GetString(file.frontmatter, "language")) != string(models.LangJava) {
+			continue
+		}
+
+		summary.filePath = file.relativePath
+		summary.parseErrors += frontmatterInt(file.frontmatter, "java_parse_error_count")
+		summary.fallbackCount += frontmatterInt(file.frontmatter, "java_resolution_fallback_count")
+	}
+
+	if summary.parseErrors == 0 && summary.fallbackCount == 0 {
+		return nil
+	}
+
+	results := []javaDiagnosticCount{
+		{
+			Code:       javaParseErrorCode,
+			Count:      summary.parseErrors,
+			MaxAllowed: policy.MaxParseErrors,
+		},
+		{
+			Code:       javaResolutionFallbackCode,
+			Count:      summary.fallbackCount,
+			MaxAllowed: policy.MaxFallbackWarnings,
+		},
+	}
+
+	issues := make([]models.LintIssue, 0, len(results))
+	for _, result := range results {
+		if result.Count == 0 {
+			continue
+		}
+		if result.MaxAllowed < 0 {
+			continue
+		}
+
+		severity := models.SeverityWarning
+		if result.MaxAllowed >= 0 && result.Count > result.MaxAllowed {
+			severity = models.SeverityError
+		}
+
+		issues = append(issues, newIssue(
+			models.LintIssueKindJavaDiagnosticGovernance,
+			severity,
+			summary.filePath,
+			renderJavaGovernanceMessage(result, severity == models.SeverityError),
+			result.Code,
+		))
+	}
+
+	return issues
+}
+
+func renderJavaGovernanceMessage(result javaDiagnosticCount, blocking bool) string {
+	status := "pass"
+	if blocking {
+		status = "fail"
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"count":            result.Count,
+		"diagnosticCode":   result.Code,
+		"maxAllowed":       result.MaxAllowed,
+		"status":           status,
+		"thresholdEnabled": result.MaxAllowed >= 0,
+	})
+	if err != nil {
+		return fmt.Sprintf(
+			`{"diagnosticCode":"%s","count":%d,"maxAllowed":%d,"status":"%s","thresholdEnabled":%t}`,
+			result.Code,
+			result.Count,
+			result.MaxAllowed,
+			status,
+			result.MaxAllowed >= 0,
+		)
+	}
+
+	return string(payload)
+}
+
+func frontmatterInt(values map[string]any, key string) int {
+	raw, exists := values[key]
+	if !exists {
+		return 0
+	}
+
+	switch typed := raw.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
+	}
+}
+
 func schemaForPath(relativePath string) (schemaSpec, bool) {
 	switch {
 	case isWikiConceptPath(relativePath):
@@ -716,6 +877,8 @@ func reportSectionTitle(kind models.LintIssueKind) string {
 		return "STALE CONTENT"
 	case models.LintIssueKindFormat:
 		return "FORMAT VIOLATIONS"
+	case models.LintIssueKindJavaDiagnosticGovernance:
+		return "JAVA DIAGNOSTICS GOVERNANCE"
 	default:
 		return strings.ToUpper(string(kind))
 	}
