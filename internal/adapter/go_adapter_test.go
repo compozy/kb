@@ -19,7 +19,14 @@ func TestGoAdapterSupportsOnlyGo(t *testing.T) {
 		t.Fatal("expected GoAdapter to support Go")
 	}
 
-	for _, language := range []models.SupportedLanguage{models.LangTS, models.LangTSX, models.LangJS, models.LangJSX, models.LangRust} {
+	for _, language := range []models.SupportedLanguage{
+		models.LangTS,
+		models.LangTSX,
+		models.LangJS,
+		models.LangJSX,
+		models.LangRust,
+		models.LangJava,
+	} {
 		if adapter.Supports(language) {
 			t.Fatalf("expected GoAdapter to reject %q", language)
 		}

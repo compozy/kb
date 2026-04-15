@@ -18,7 +18,14 @@ func TestRustAdapterSupportsOnlyRust(t *testing.T) {
 		t.Fatal("expected RustAdapter to support Rust")
 	}
 
-	for _, language := range []models.SupportedLanguage{models.LangTS, models.LangTSX, models.LangJS, models.LangJSX, models.LangGo} {
+	for _, language := range []models.SupportedLanguage{
+		models.LangTS,
+		models.LangTSX,
+		models.LangJS,
+		models.LangJSX,
+		models.LangGo,
+		models.LangJava,
+	} {
 		if adapter.Supports(language) {
 			t.Fatalf("expected RustAdapter to reject %q", language)
 		}

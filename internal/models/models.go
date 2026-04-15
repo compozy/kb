@@ -17,11 +17,13 @@ const (
 	LangGo SupportedLanguage = "go"
 	// LangRust represents Rust source files.
 	LangRust SupportedLanguage = "rust"
+	// LangJava represents Java source files.
+	LangJava SupportedLanguage = "java"
 )
 
 // SupportedLanguages returns every supported language constant in stable order.
 func SupportedLanguages() []SupportedLanguage {
-	return []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust}
+	return []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust, LangJava}
 }
 
 // SupportedLanguageNames returns every supported language name in stable order.

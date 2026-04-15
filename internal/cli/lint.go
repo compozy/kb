@@ -14,13 +14,15 @@ import (
 )
 
 type lintCommandOptions struct {
-	Format string
-	Save   bool
-	Topic  string
-	Vault  string
+	Format                  string
+	Save                    bool
+	Topic                   string
+	Vault                   string
+	JavaMaxParseErrors      int
+	JavaMaxFallbackWarnings int
 }
 
-var runLintEngine = klint.Lint
+var runLintEngine = klint.LintWithOptions
 var saveLintEngineReport = klint.SaveReport
 var resolveLintVaultQuery = vault.ResolveVaultQuery
 var lintGetwd = os.Getwd
@@ -44,6 +46,18 @@ func newLintCommand() *cobra.Command {
 	flags.StringVar(&options.Format, "format", string(output.OutputFormatTable), "Output format (table|json|tsv)")
 	flags.BoolVar(&options.Save, "save", false, "Write a markdown report to outputs/reports/<date>-lint.md")
 	flags.StringVar(&options.Topic, "topic", "", "Topic slug inside the vault")
+	flags.IntVar(
+		&options.JavaMaxParseErrors,
+		"java-max-parse-errors",
+		0,
+		"Maximum allowed JAVA_PARSE_ERROR diagnostics before lint fails; use -1 to disable the threshold",
+	)
+	flags.IntVar(
+		&options.JavaMaxFallbackWarnings,
+		"java-max-fallback-warnings",
+		-1,
+		"Maximum allowed JAVA_RESOLUTION_FALLBACK diagnostics before lint fails; use -1 to keep fallback diagnostics non-blocking",
+	)
 
 	return command
 }
@@ -73,7 +87,12 @@ func runLintCommand(cmd *cobra.Command, options *lintCommandOptions, args []stri
 		return fmt.Errorf("lint: %w", err)
 	}
 
-	issues, err := runLintEngine(resolvedVault.TopicPath)
+	issues, err := runLintEngine(resolvedVault.TopicPath, klint.LintOptions{
+		JavaGovernance: klint.JavaDiagnosticsGovernancePolicy{
+			MaxParseErrors:      options.JavaMaxParseErrors,
+			MaxFallbackWarnings: options.JavaMaxFallbackWarnings,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("lint: %w", err)
 	}
