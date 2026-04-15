@@ -16,7 +16,7 @@ func TestMedianDurationFromSamples(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "odd sample count returns middle",
+			name: "Should return middle for odd sample count",
 			samples: []time.Duration{
 				4 * time.Millisecond,
 				1 * time.Millisecond,
@@ -25,7 +25,7 @@ func TestMedianDurationFromSamples(t *testing.T) {
 			want: 3 * time.Millisecond,
 		},
 		{
-			name: "even sample count returns midpoint average",
+			name: "Should return midpoint average for even sample count",
 			samples: []time.Duration{
 				8 * time.Millisecond,
 				2 * time.Millisecond,
@@ -35,7 +35,7 @@ func TestMedianDurationFromSamples(t *testing.T) {
 			want: 6 * time.Millisecond,
 		},
 		{
-			name:    "empty samples fail",
+			name:    "Should fail on empty samples",
 			samples: nil,
 			wantErr: errEmptyBenchmarkSamples,
 		},
@@ -66,49 +66,55 @@ func TestMedianDurationFromSamples(t *testing.T) {
 func TestCanonicalJavaBenchmarkFixtures(t *testing.T) {
 	t.Parallel()
 
-	fixtures := canonicalJavaBenchmarkFixtures()
-	if len(fixtures) != 3 {
-		t.Fatalf("canonicalJavaBenchmarkFixtures() len = %d, want 3", len(fixtures))
-	}
+	t.Run("Should return canonical Java benchmark fixtures", func(t *testing.T) {
+		fixtures := canonicalJavaBenchmarkFixtures()
+		if len(fixtures) != 3 {
+			t.Fatalf("canonicalJavaBenchmarkFixtures() len = %d, want 3", len(fixtures))
+		}
 
-	expectedProfiles := []javaBenchmarkProfile{
-		javaBenchmarkProfileSingleModuleLibrary,
-		javaBenchmarkProfileSpringService,
-		javaBenchmarkProfileMultiModuleEnterprise,
-	}
-	for idx, expectedProfile := range expectedProfiles {
-		if fixtures[idx].Profile != expectedProfile {
-			t.Fatalf("canonicalJavaBenchmarkFixtures()[%d].Profile = %q, want %q", idx, fixtures[idx].Profile, expectedProfile)
+		expectedProfiles := []javaBenchmarkProfile{
+			javaBenchmarkProfileSingleModuleLibrary,
+			javaBenchmarkProfileSpringService,
+			javaBenchmarkProfileMultiModuleEnterprise,
 		}
-		if fixtures[idx].Label == "" {
-			t.Fatalf("canonicalJavaBenchmarkFixtures()[%d].Label is empty", idx)
+		for idx, expectedProfile := range expectedProfiles {
+			if fixtures[idx].Profile != expectedProfile {
+				t.Fatalf("canonicalJavaBenchmarkFixtures()[%d].Profile = %q, want %q", idx, fixtures[idx].Profile, expectedProfile)
+			}
+			if fixtures[idx].Label == "" {
+				t.Fatalf("canonicalJavaBenchmarkFixtures()[%d].Label is empty", idx)
+			}
 		}
-	}
+	})
 }
 
 func TestBenchmarkGenerateOptions(t *testing.T) {
 	t.Parallel()
 
-	options := benchmarkGenerateOptions("/tmp/canonical-repo")
-	if options.RootPath != "/tmp/canonical-repo" {
-		t.Fatalf("RootPath = %q, want /tmp/canonical-repo", options.RootPath)
-	}
-	if !options.DryRun {
-		t.Fatalf("DryRun = %t, want true", options.DryRun)
-	}
-	if options.Semantic {
-		t.Fatalf("Semantic = %t, want false", options.Semantic)
-	}
+	t.Run("Should build benchmark generate options", func(t *testing.T) {
+		options := benchmarkGenerateOptions("/tmp/canonical-repo")
+		if options.RootPath != "/tmp/canonical-repo" {
+			t.Fatalf("RootPath = %q, want /tmp/canonical-repo", options.RootPath)
+		}
+		if !options.DryRun {
+			t.Fatalf("DryRun = %t, want true", options.DryRun)
+		}
+		if options.Semantic {
+			t.Fatalf("Semantic = %t, want false", options.Semantic)
+		}
+	})
 }
 
 func TestCanonicalJavaBenchmarkPolicy(t *testing.T) {
 	t.Parallel()
 
-	policy := canonicalJavaBenchmarkPolicy()
-	if policy.RepeatCount != 3 {
-		t.Fatalf("RepeatCount = %d, want 3", policy.RepeatCount)
-	}
-	if policy.OverheadBudget != 1.20 {
-		t.Fatalf("OverheadBudget = %.2f, want 1.20", policy.OverheadBudget)
-	}
+	t.Run("Should return canonical Java benchmark policy", func(t *testing.T) {
+		policy := canonicalJavaBenchmarkPolicy()
+		if policy.RepeatCount != 3 {
+			t.Fatalf("RepeatCount = %d, want 3", policy.RepeatCount)
+		}
+		if policy.OverheadBudget != 1.20 {
+			t.Fatalf("OverheadBudget = %.2f, want 1.20", policy.OverheadBudget)
+		}
+	})
 }

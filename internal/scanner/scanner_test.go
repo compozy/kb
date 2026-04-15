@@ -245,15 +245,15 @@ func TestSupportedLanguage(t *testing.T) {
 		expected models.SupportedLanguage
 		ok       bool
 	}{
-		{name: "go", path: "main.go", expected: models.LangGo, ok: true},
-		{name: "rust", path: "lib.rs", expected: models.LangRust, ok: true},
-		{name: "ts", path: "index.ts", expected: models.LangTS, ok: true},
-		{name: "tsx", path: "view.tsx", expected: models.LangTSX, ok: true},
-		{name: "js", path: "script.js", expected: models.LangJS, ok: true},
-		{name: "jsx", path: "component.jsx", expected: models.LangJSX, ok: true},
-		{name: "java", path: "App.java", expected: models.LangJava, ok: true},
-		{name: "dts", path: "types.d.ts", expected: "", ok: false},
-		{name: "unsupported", path: "README.md", expected: "", ok: false},
+		{name: "Should detect Go files", path: "main.go", expected: models.LangGo, ok: true},
+		{name: "Should detect Rust files", path: "lib.rs", expected: models.LangRust, ok: true},
+		{name: "Should detect TypeScript files", path: "index.ts", expected: models.LangTS, ok: true},
+		{name: "Should detect TSX files", path: "view.tsx", expected: models.LangTSX, ok: true},
+		{name: "Should detect JavaScript files", path: "script.js", expected: models.LangJS, ok: true},
+		{name: "Should detect JSX files", path: "component.jsx", expected: models.LangJSX, ok: true},
+		{name: "Should detect Java files", path: "App.java", expected: models.LangJava, ok: true},
+		{name: "Should return unsupported for dts", path: "types.d.ts", expected: "", ok: false},
+		{name: "Should return unsupported for README", path: "README.md", expected: "", ok: false},
 	}
 
 	for _, testCase := range tests {

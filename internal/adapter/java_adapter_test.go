@@ -234,6 +234,35 @@ func TestDiscoverJavaModuleHintsParsesGradleAndMavenSignals(t *testing.T) {
 	}
 }
 
+func TestParseMavenModulePomSignalsIgnoresParentArtifactID(t *testing.T) {
+	t.Parallel()
+
+	content := strings.Join([]string{
+		"<project>",
+		"  <parent>",
+		"    <groupId>com.acme</groupId>",
+		"    <artifactId>platform-parent</artifactId>",
+		"    <version>1.0.0</version>",
+		"  </parent>",
+		"  <artifactId>billing-service</artifactId>",
+		"  <dependencies>",
+		"    <dependency><artifactId>shared-kernel</artifactId></dependency>",
+		"  </dependencies>",
+		"</project>",
+	}, "\n")
+
+	artifactID, dependencies, malformed := parseMavenModulePomSignals(content)
+	if artifactID != "billing-service" {
+		t.Fatalf("artifactID = %q, want billing-service", artifactID)
+	}
+	if len(dependencies) != 1 || dependencies[0] != "shared-kernel" {
+		t.Fatalf("dependencies = %#v, want [shared-kernel]", dependencies)
+	}
+	if malformed {
+		t.Fatal("expected valid pom metadata to avoid malformed flag")
+	}
+}
+
 func TestJavaAdapterMissingMetadataKeepsResolutionStable(t *testing.T) {
 	t.Parallel()
 

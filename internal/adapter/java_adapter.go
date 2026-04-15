@@ -42,6 +42,7 @@ var (
 	javaGradleProjectDepPattern  = regexp.MustCompile(`project\(\s*["']:?([^"')]+)["']\s*\)`)
 	javaMavenModulePattern       = regexp.MustCompile(`(?s)<module>\s*([^<]+)\s*</module>`)
 	javaMavenDependencyPattern   = regexp.MustCompile(`(?s)<dependency>.*?<artifactId>\s*([^<]+)\s*</artifactId>.*?</dependency>`)
+	javaMavenParentPattern       = regexp.MustCompile(`(?s)<parent\b[^>]*>.*?</parent>`)
 	javaMavenArtifactPattern     = regexp.MustCompile(`(?s)<artifactId>\s*([^<\s][^<]*)\s*</artifactId>`)
 )
 
@@ -1795,7 +1796,8 @@ func parseMavenPomSignals(content string) ([]string, []string, bool) {
 
 func parseMavenModulePomSignals(content string) (string, []string, bool) {
 	artifactID := ""
-	match := javaMavenArtifactPattern.FindStringSubmatch(content)
+	contentWithoutParent := javaMavenParentPattern.ReplaceAllString(content, "")
+	match := javaMavenArtifactPattern.FindStringSubmatch(contentWithoutParent)
 	if len(match) > 1 {
 		artifactID = strings.TrimSpace(match[1])
 	}

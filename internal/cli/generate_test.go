@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -227,10 +228,13 @@ func TestGenerateHelpIncludesSupportedLanguagesAndDryRun(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "java", "--dry-run"} {
+	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "--dry-run"} {
 		if !strings.Contains(stdout.String(), fragment) {
 			t.Fatalf("expected help output to contain %q, got:\n%s", fragment, stdout.String())
 		}
+	}
+	if !regexp.MustCompile(`\bjava\b`).MatchString(stdout.String()) {
+		t.Fatalf("expected help output to contain java as a standalone token, got:\n%s", stdout.String())
 	}
 }
 
