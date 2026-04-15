@@ -8,7 +8,7 @@ These occur when `inspect`, `search`, or `index` cannot locate a vault or topic.
 
 | Error Message | Cause | Recovery |
 |---------------|-------|----------|
-| `unable to find a vault from <path>. walked up looking for .kb/vault/` | No `.kb/vault/` directory exists above the working directory | Run `kb ingest codebase <path> --topic <slug>` first to create the vault |
+| `unable to find a vault from <path>. walked up looking for .kb/vault/` | No `.kb/vault/` directory exists above the working directory | Run `kb ingest codebase <path> --topic <slug>` first to create the default vault, or pass `--vault <path>` if the vault lives elsewhere |
 | `Vault path was not found or is not a directory: <path>` | The `--vault` flag points to a nonexistent path | Verify the vault path exists and is a directory |
 | `no topics were found in <path>. expected child directories containing CLAUDE.md` | The vault directory exists but contains no generated topics | Run `kb ingest codebase <path>` or `kb topic new` to populate the vault |
 | `multiple topics were found in <path>: <slug1>, <slug2>` | The vault contains more than one topic and no `--topic` flag was provided | Re-run the command with `--topic <slug>` to select one |
@@ -41,6 +41,7 @@ These occur before any command execution when flag combinations are invalid.
 
 | Error Message | Cause | Recovery |
 |---------------|-------|----------|
+| `ingest codebase: --title and --domain are bootstrap-only and cannot be used when topic "<slug>" already exists` | Bootstrap-only metadata flags were used while re-ingesting an existing topic | Remove `--title` / `--domain`, or create a new topic slug if you intend a distinct topic |
 | `choose at most one search mode flag: --lex or --vec` | Both `--lex` and `--vec` were provided to `search` | Use only one mode selector, or omit both for hybrid mode |
 | `--force-embed cannot be used together with --embed=false` | Contradictory embedding flags on `index` | Remove `--force-embed` or set `--embed=true` |
 | `--limit must be >= 1. received <N>` | The `--limit` flag on `search` was set to zero or negative | Provide a positive integer for `--limit` |

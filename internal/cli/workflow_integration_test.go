@@ -220,6 +220,87 @@ func TestCLIIntegrationScaffoldIngestRustWorkspaceCodebase(t *testing.T) {
 	}
 }
 
+func TestCLIIntegrationCodebaseBootstrapCreatesDefaultVaultFromExternalRepo(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeGoCodebaseFixture(t, repoRoot)
+
+	withWorkingDirectory(t, t.TempDir(), func() {
+		result := runCLIJSON[codebaseIngestResult](t,
+			"ingest", "codebase", repoRoot,
+			"--topic", "chat-sdk",
+			"--title", "Chat SDK",
+			"--domain", "messaging",
+			"--progress", "never",
+		)
+
+		expectedVaultRoot := filepath.Join(repoRoot, ".kb", "vault")
+		expectedTopicRoot := filepath.Join(expectedVaultRoot, "chat-sdk")
+
+		if result.Topic != "chat-sdk" {
+			t.Fatalf("codebase ingest topic = %q, want chat-sdk", result.Topic)
+		}
+		if result.Title != "Chat SDK" {
+			t.Fatalf("codebase ingest title = %q, want Chat SDK", result.Title)
+		}
+		if result.Summary.VaultPath != expectedVaultRoot {
+			t.Fatalf("vault path = %q, want %q", result.Summary.VaultPath, expectedVaultRoot)
+		}
+		if result.Summary.TopicPath != expectedTopicRoot {
+			t.Fatalf("topic path = %q, want %q", result.Summary.TopicPath, expectedTopicRoot)
+		}
+
+		for _, relativePath := range []string{
+			"raw/codebase/files/main.go.md",
+			"raw/codebase/files/internal/greeter/greeter.go.md",
+			"CLAUDE.md",
+			"log.md",
+		} {
+			targetPath := filepath.Join(expectedTopicRoot, filepath.FromSlash(relativePath))
+			if _, err := os.Stat(targetPath); err != nil {
+				t.Fatalf("expected bootstrapped topic artifact %q: %v", targetPath, err)
+			}
+		}
+	})
+
+	withWorkingDirectory(t, repoRoot, func() {
+		info := runCLIJSON[models.TopicInfo](t,
+			"topic", "info", "chat-sdk",
+		)
+		if info.Title != "Chat SDK" || info.Domain != "messaging" {
+			t.Fatalf("topic info = %#v", info)
+		}
+
+		rows := runCLIJSON[[]map[string]any](t,
+			"inspect", "complexity",
+			"--topic", "chat-sdk",
+			"--format", "json",
+		)
+		if len(rows) == 0 {
+			t.Fatal("expected inspect complexity rows after bootstrapped ingest")
+		}
+	})
+}
+
+func TestCLIIntegrationCodebaseBootstrapSupportsDeprecatedOutputAlias(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeGoCodebaseFixture(t, repoRoot)
+	vaultRoot := filepath.Join(t.TempDir(), "shared-vault")
+
+	result := runCLIJSON[codebaseIngestResult](t,
+		"ingest", "codebase", repoRoot,
+		"--topic", "legacy-output",
+		"--output", vaultRoot,
+		"--progress", "never",
+	)
+
+	if result.Summary.VaultPath != vaultRoot {
+		t.Fatalf("vault path = %q, want %q", result.Summary.VaultPath, vaultRoot)
+	}
+	if _, err := os.Stat(filepath.Join(vaultRoot, "legacy-output", "CLAUDE.md")); err != nil {
+		t.Fatalf("expected bootstrapped topic under legacy output alias: %v", err)
+	}
+}
+
 func TestCLIIntegrationEmptyCodebaseIngestFailsWithoutWritesAndKeepsTopicDiscoverable(t *testing.T) {
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "empty-codebase", "Empty Codebase", "docs")
@@ -443,6 +524,30 @@ func writeRustCodebaseFixture(t *testing.T, repoRoot string) {
 	}, "\n"))
 }
 
+func writeGoCodebaseFixture(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	writeFile(t, filepath.Join(repoRoot, "go.mod"), "module example.com/chat-sdk\n\ngo 1.22\n")
+	writeFile(t, filepath.Join(repoRoot, "main.go"), strings.Join([]string{
+		"package main",
+		"",
+		"import \"example.com/chat-sdk/internal/greeter\"",
+		"",
+		"func main() {",
+		"\tgreeter.Hello()",
+		"}",
+		"",
+	}, "\n"))
+	writeFile(t, filepath.Join(repoRoot, "internal", "greeter", "greeter.go"), strings.Join([]string{
+		"package greeter",
+		"",
+		"func Hello() string {",
+		"\treturn \"hello\"",
+		"}",
+		"",
+	}, "\n"))
+}
+
 func scaffoldTopicForIntegration(t *testing.T, vaultRoot, slug, title, domain string) models.TopicInfo {
 	t.Helper()
 
@@ -497,6 +602,25 @@ func runCLIJSON[T any](t *testing.T, args ...string) T {
 	}
 
 	return payload
+}
+
+func withWorkingDirectory(t *testing.T, directory string, fn func()) {
+	t.Helper()
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(directory); err != nil {
+		t.Fatalf("chdir to %q: %v", directory, err)
+	}
+	defer func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore working directory to %q: %v", previous, err)
+		}
+	}()
+
+	fn()
 }
 
 func readMarkdownDocument(t *testing.T, documentPath string) (map[string]any, string) {

@@ -97,7 +97,8 @@ $ kb ingest file ./rust-reference.pdf --topic rust-lang
 $ kb ingest youtube https://www.youtube.com/watch?v=... --topic rust-lang
 
 # ingest a codebase snapshot with full analysis
-$ kb ingest codebase ./my-rust-project --topic rust-lang
+# first run bootstraps ./my-rust-project/.kb/vault/rust-lang automatically
+$ kb ingest codebase ./my-rust-project --topic rust-lang --progress never
 
 # lint the topic for structural issues
 $ kb lint rust-lang
@@ -139,7 +140,7 @@ $ kb search "error handling patterns" --limit 3
 
 ## Features
 
-**Topic-based knowledge bases** -- `kb` organizes knowledge into topics, each with its own `raw/`, `wiki/`, `outputs/`, and `bases/` directories. Scaffold a topic with `kb topic new`, then ingest content from any supported source.
+**Topic-based knowledge bases** -- `kb` organizes knowledge into topics, each with its own `raw/`, `wiki/`, `outputs/`, and `bases/` directories. Use `kb topic new` for manual scaffolding, or let `kb ingest codebase` bootstrap a new topic directly on first run.
 
 **Multi-source ingestion** -- Ingest web articles via Firecrawl, local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube transcripts (with optional OpenRouter STT fallback), codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
 
@@ -187,13 +188,13 @@ kb topic info <slug>                    # Show metadata for a topic
 
 ### `kb ingest`
 
-Ingest source material into an existing topic.
+Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` require an existing topic; `codebase` can bootstrap one on first run.
 
 ```bash
 kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
 kb ingest file <path> --topic <slug>              # Convert and ingest a local file
 kb ingest youtube <url> --topic <slug> [--stt]    # Extract a YouTube transcript
-kb ingest codebase <path> --topic <slug>          # Analyze a codebase
+kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
 kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster markdown file
 ```
 
@@ -204,7 +205,7 @@ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster ma
 | `url` | required | -- |
 | `file` | required | -- |
 | `youtube` | required | `--stt` (enable OpenRouter STT fallback) |
-| `codebase` | required | `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
+| `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
 | `bookmarks` | required | -- |
 
 ### `kb lint`

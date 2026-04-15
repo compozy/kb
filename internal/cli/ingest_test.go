@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	kgenerate "github.com/compozy/kb/internal/generate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
+	ktopic "github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/youtube"
 )
 
@@ -435,6 +437,182 @@ func TestIngestCodebaseCommandPassesGenerateFlags(t *testing.T) {
 	}
 	if result.Summary.TopicSlug != "systems-design" || result.Summary.RawDocumentsWritten != 9 {
 		t.Fatalf("unexpected summary payload: %#v", result.Summary)
+	}
+}
+
+func TestIngestCodebaseCommandBootstrapsMissingTopicWithDefaultVault(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	var gotGenerate models.GenerateOptions
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{}, fmt.Errorf(
+			"topic info: topic %q is missing the expected KB skeleton: %w",
+			slug,
+			ktopic.ErrTopicNotFound,
+		)
+	}
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		gotGenerate = opts
+		return models.GenerationSummary{
+			Command:   "generate",
+			TopicSlug: opts.TopicSlug,
+			VaultPath: opts.VaultPath,
+			TopicPath: filepath.Join(opts.VaultPath, opts.TopicSlug),
+		}, nil
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/demo-repo",
+		"--topic", "systems-design",
+		"--progress", "never",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	expected := models.GenerateOptions{
+		RootPath:  "/tmp/demo-repo",
+		VaultPath: "/tmp/demo-repo/.kb/vault",
+		TopicSlug: "systems-design",
+		Title:     "Systems Design",
+		Domain:    "systems-design",
+	}
+	if !reflect.DeepEqual(gotGenerate, expected) {
+		t.Fatalf("generate options = %#v, want %#v", gotGenerate, expected)
+	}
+
+	var result codebaseIngestResult
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
+	}
+	if result.Topic != "systems-design" || result.Title != "Systems Design" {
+		t.Fatalf("unexpected result payload: %#v", result)
+	}
+}
+
+func TestIngestCodebaseCommandBootstrapAcceptsTitleAndDomain(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	var gotGenerate models.GenerateOptions
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{}, fmt.Errorf(
+			"topic info: topic %q is missing the expected KB skeleton: %w",
+			slug,
+			ktopic.ErrTopicNotFound,
+		)
+	}
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		gotGenerate = opts
+		return models.GenerationSummary{
+			Command:   "generate",
+			TopicSlug: opts.TopicSlug,
+			VaultPath: opts.VaultPath,
+			TopicPath: filepath.Join(opts.VaultPath, opts.TopicSlug),
+		}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/chat",
+		"--topic", "chat-sdk",
+		"--title", "Chat SDK",
+		"--domain", "messaging",
+		"--progress", "never",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	expected := models.GenerateOptions{
+		RootPath:  "/tmp/chat",
+		VaultPath: "/tmp/chat/.kb/vault",
+		TopicSlug: "chat-sdk",
+		Title:     "Chat SDK",
+		Domain:    "messaging",
+	}
+	if !reflect.DeepEqual(gotGenerate, expected) {
+		t.Fatalf("generate options = %#v, want %#v", gotGenerate, expected)
+	}
+}
+
+func TestIngestCodebaseCommandRejectsBootstrapMetadataForExistingTopic(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{
+			Slug:     slug,
+			Title:    "Systems Design",
+			Domain:   "systems",
+			RootPath: filepath.Join(vaultPath, slug),
+		}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/repo",
+		"--topic", "systems-design",
+		"--vault", "/tmp/vault",
+		"--title", "Renamed Topic",
+		"--progress", "never",
+	})
+
+	err := command.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected bootstrap metadata rejection")
+	}
+	if !strings.Contains(err.Error(), "bootstrap-only") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestIngestCodebaseCommandSupportsDeprecatedOutputAlias(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	var gotGenerate models.GenerateOptions
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{
+			Slug:     slug,
+			Title:    "Systems Design",
+			Domain:   "systems",
+			RootPath: filepath.Join(vaultPath, slug),
+		}, nil
+	}
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		gotGenerate = opts
+		return models.GenerationSummary{
+			Command:   "generate",
+			TopicSlug: opts.TopicSlug,
+			VaultPath: opts.VaultPath,
+			TopicPath: filepath.Join(opts.VaultPath, opts.TopicSlug),
+		}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/repo",
+		"--topic", "systems-design",
+		"--output", "/tmp/legacy-vault",
+		"--progress", "never",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if gotGenerate.VaultPath != "/tmp/legacy-vault" {
+		t.Fatalf("VaultPath = %q, want /tmp/legacy-vault", gotGenerate.VaultPath)
 	}
 }
 

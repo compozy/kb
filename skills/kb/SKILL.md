@@ -136,7 +136,7 @@ kb ingest codebase <path> --topic <slug> --> kb inspect <subcommand>
 kb ingest codebase <path> --topic <slug> --> kb index --> kb search <query>
 ```
 
-The vault is stored at `<path>/.kb/vault/<topic-slug>/` by default. Later commands auto-discover this vault by walking up from the current working directory.
+On first run, `kb ingest codebase` bootstraps the topic under `<path>/.kb/vault/<topic-slug>/` by default. Later commands auto-discover this vault only when they run from inside that repository tree; otherwise pass `--vault <path>`.
 
 ### Ingest a Codebase
 
@@ -145,6 +145,7 @@ kb ingest codebase <path> --topic <slug> --progress never
 ```
 
 Always use `--progress never` in agent contexts to prevent TTY progress bars from corrupting stdout.
+Use `--title` and `--domain` only when bootstrapping a missing topic.
 
 Parse the JSON output from stdout to extract key values:
 - `topicSlug` -- the topic identifier for later commands
@@ -156,8 +157,11 @@ Parse the JSON output from stdout to extract key values:
 Stderr carries structured stage logs. Do not treat stderr content as failure evidence.
 
 Key flags:
-- `--output <dir>` -- override vault root location
-- `--topic <slug>` -- override the topic slug
+- `--vault <dir>` -- override vault root location
+- `--output <dir>` -- deprecated alias for `--vault`
+- `--topic <slug>` -- target topic slug inside the vault
+- `--title <value>` -- bootstrap-only topic title override
+- `--domain <value>` -- bootstrap-only topic domain override
 - `--include <pattern>` -- re-include paths that would otherwise be ignored (repeatable)
 - `--exclude <pattern>` -- exclude additional paths from scanning (repeatable)
 - `--semantic` -- enable semantic analysis when adapters support it
@@ -421,10 +425,11 @@ Read `references/output-formats.md` for format examples and empty result handlin
 
 | Error | Recovery |
 |-------|----------|
-| `unable to find a vault from <path>` | Run `kb ingest codebase <path> --topic <slug>` first |
+| `unable to find a vault from <path>` | Run `kb ingest codebase <path> --topic <slug>` first, or re-run with `--vault <path>` if the vault lives elsewhere |
 | `QMD is not available` | Run `npm install -g @tobilu/qmd` |
 | `no topics were found` | Run `kb ingest codebase` or `kb topic new` to populate the vault |
 | `multiple topics were found` | Re-run with `--topic <slug>` |
+| `--title and --domain are bootstrap-only` | Remove those flags when re-ingesting an existing topic |
 | `no symbols matched "<query>"` | Use `inspect smells` or `inspect complexity` to discover valid names |
 | `no file matched "<path>"` | Use exact source-relative path from vault frontmatter (e.g. `src/config.ts` not `./src/config.ts`) |
 

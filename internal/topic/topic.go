@@ -25,6 +25,8 @@ const (
 )
 
 var (
+	ErrTopicNotFound = errors.New("topic not found")
+
 	domainPattern    = regexp.MustCompile("(?m)^\\*\\*Domain:\\*\\*\\s+`([^`]+)`")
 	headingPattern   = regexp.MustCompile(`(?m)^#\s+(.+?)\s*$`)
 	topicSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -169,7 +171,11 @@ func Info(vaultPath, slug string) (models.TopicInfo, error) {
 		return models.TopicInfo{}, fmt.Errorf("topic info: inspect %q: %w", topicPath, err)
 	}
 	if !ok {
-		return models.TopicInfo{}, fmt.Errorf("topic info: topic %q is missing the expected KB skeleton", cleanSlug)
+		return models.TopicInfo{}, fmt.Errorf(
+			"topic info: topic %q is missing the expected KB skeleton: %w",
+			cleanSlug,
+			ErrTopicNotFound,
+		)
 	}
 
 	info, err := infoAtPath(topicPath, cleanSlug)
