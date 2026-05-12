@@ -207,6 +207,8 @@ func supportedLanguage(filePath string) (models.SupportedLanguage, bool) {
 		return models.LangGo, true
 	case strings.HasSuffix(filePath, ".rs"):
 		return models.LangRust, true
+	case strings.HasSuffix(filePath, ".java"):
+		return models.LangJava, true
 	default:
 		return "", false
 	}

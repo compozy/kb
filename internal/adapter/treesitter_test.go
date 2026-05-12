@@ -34,6 +34,10 @@ func TestLanguagesInitialize(t *testing.T) {
 			name: "rust",
 			load: func() *tree_sitter.Language { return rustLanguage() },
 		},
+		{
+			name: "Should initialize Java language",
+			load: func() *tree_sitter.Language { return javaLanguage() },
+		},
 	}
 
 	for _, tt := range tests {
@@ -91,6 +95,12 @@ func TestParsersParseTrivialSources(t *testing.T) {
 			language: func() *tree_sitter.Language { return rustLanguage() },
 			source:   []byte("fn main() {}\n"),
 			wantKind: "source_file",
+		},
+		{
+			name:     "Should parse Java constructs",
+			language: func() *tree_sitter.Language { return javaLanguage() },
+			source:   []byte("class Main { public static void main(String[] args) {} }\n"),
+			wantKind: "program",
 		},
 	}
 

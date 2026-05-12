@@ -50,7 +50,7 @@ func TestIngestCodebaseHelpIncludesSupportedLanguagesAndDryRun(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "--dry-run"} {
+	for _, fragment := range []string{supportedCodebaseLanguagesHelp(), "java", "--dry-run"} {
 		if !strings.Contains(stdout.String(), fragment) {
 			t.Fatalf("expected help output to contain %q, got:\n%s", fragment, stdout.String())
 		}
@@ -438,6 +438,133 @@ func TestIngestCodebaseCommandPassesGenerateFlags(t *testing.T) {
 	if result.Summary.TopicSlug != "systems-design" || result.Summary.RawDocumentsWritten != 9 {
 		t.Fatalf("unexpected summary payload: %#v", result.Summary)
 	}
+}
+
+func TestIngestCodebaseCommandJSONContractRequiredKeysFullRun(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{
+			Slug:     slug,
+			Title:    "Systems Design",
+			Domain:   "systems",
+			RootPath: filepath.Join(vaultPath, slug),
+		}, nil
+	}
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		return models.GenerationSummary{
+			Command:               "ingest codebase",
+			RootPath:              opts.RootPath,
+			VaultPath:             opts.VaultPath,
+			TopicPath:             filepath.Join(opts.VaultPath, opts.TopicSlug),
+			TopicSlug:             opts.TopicSlug,
+			DryRun:                false,
+			DetectedLanguages:     []string{"java"},
+			SelectedAdapters:      []string{"adapter.JavaAdapter"},
+			FilesScanned:          6,
+			FilesParsed:           6,
+			FilesSkipped:          0,
+			SymbolsExtracted:      10,
+			RelationsEmitted:      8,
+			RawDocumentsWritten:   12,
+			WikiDocumentsWritten:  10,
+			IndexDocumentsWritten: 3,
+			Timings: models.GenerationTimings{
+				ScanMillis:           1,
+				SelectAdaptersMillis: 1,
+				ParseMillis:          1,
+				NormalizeMillis:      1,
+				MetricsMillis:        1,
+				RenderMillis:         1,
+				WriteMillis:          1,
+				TotalMillis:          8,
+			},
+			Diagnostics: []models.StructuredDiagnostic{},
+		}, nil
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/repo",
+		"--topic", "systems-design",
+		"--vault", "/tmp/vault",
+		"--progress", "never",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.Bytes())
+	assertCodebaseIngestContractShape(t, payload)
+	assertCodebaseIngestContractSemantics(t, payload, false)
+}
+
+func TestIngestCodebaseCommandJSONContractRequiredKeysDryRun(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{
+			Slug:     slug,
+			Title:    "Systems Design",
+			Domain:   "systems",
+			RootPath: filepath.Join(vaultPath, slug),
+		}, nil
+	}
+	runGenerate = func(ctx context.Context, opts models.GenerateOptions, observer kgenerate.Observer) (models.GenerationSummary, error) {
+		return models.GenerationSummary{
+			Command:               "ingest codebase",
+			RootPath:              opts.RootPath,
+			VaultPath:             opts.VaultPath,
+			TopicPath:             filepath.Join(opts.VaultPath, opts.TopicSlug),
+			TopicSlug:             opts.TopicSlug,
+			DryRun:                true,
+			DetectedLanguages:     []string{"java"},
+			SelectedAdapters:      []string{"adapter.JavaAdapter"},
+			FilesScanned:          6,
+			FilesParsed:           6,
+			FilesSkipped:          0,
+			SymbolsExtracted:      10,
+			RelationsEmitted:      8,
+			RawDocumentsWritten:   0,
+			WikiDocumentsWritten:  0,
+			IndexDocumentsWritten: 0,
+			Timings: models.GenerationTimings{
+				ScanMillis:           1,
+				SelectAdaptersMillis: 1,
+				ParseMillis:          1,
+				NormalizeMillis:      1,
+				MetricsMillis:        1,
+				RenderMillis:         1,
+				WriteMillis:          0,
+				TotalMillis:          7,
+			},
+			Diagnostics: []models.StructuredDiagnostic{},
+		}, nil
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "codebase", "/tmp/repo",
+		"--topic", "systems-design",
+		"--vault", "/tmp/vault",
+		"--progress", "never",
+		"--dry-run",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	payload := decodeJSONMap(t, stdout.Bytes())
+	assertCodebaseIngestContractShape(t, payload)
+	assertCodebaseIngestContractSemantics(t, payload, true)
 }
 
 func TestIngestCodebaseCommandBootstrapsMissingTopicWithDefaultVault(t *testing.T) {

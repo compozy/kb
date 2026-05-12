@@ -22,6 +22,7 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 	writeTestFile(t, rootPath, "src/view.jsx", "export const View = () => null;\n")
 	writeTestFile(t, rootPath, "go/main.go", "package main\n")
 	writeTestFile(t, rootPath, "rust/lib.rs", "pub fn run() {}\n")
+	writeTestFile(t, rootPath, "java/App.java", "class App {}\n")
 	writeTestFile(t, rootPath, "src/types.d.ts", "export type Value = string;\n")
 	writeTestFile(t, rootPath, "README.md", "# ignored\n")
 	writeTestFile(t, rootPath, filepath.Join("generated", "vault", "index.ts"), "export const ignored = true;\n")
@@ -30,6 +31,7 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 
 	expectedPaths := []string{
 		"go/main.go",
+		"java/App.java",
 		"rust/lib.rs",
 		"src/component.tsx",
 		"src/index.ts",
@@ -43,6 +45,7 @@ func TestScanWorkspaceRoutesSupportedFilesByLanguage(t *testing.T) {
 
 	expectedGroups := map[string]int{
 		"go":   1,
+		"java": 1,
 		"js":   1,
 		"jsx":  1,
 		"rust": 1,
@@ -205,11 +208,13 @@ func TestScanWorkspaceGroupsFilesByLanguage(t *testing.T) {
 	writeTestFile(t, rootPath, "src/b.ts", "export const b = true;\n")
 	writeTestFile(t, rootPath, "src/c.js", "export const c = true;\n")
 	writeTestFile(t, rootPath, "src/lib.rs", "pub fn run() {}\n")
+	writeTestFile(t, rootPath, "src/App.java", "class App {}\n")
 
 	workspace := scanTestWorkspace(t, rootPath)
 
 	groupedPaths := groupedPaths(workspace)
 	expected := map[string][]string{
+		"java": {"src/App.java"},
 		"js":   {"src/c.js"},
 		"rust": {"src/lib.rs"},
 		"ts":   {"src/a.ts", "src/b.ts"},
@@ -229,6 +234,43 @@ func scanTestWorkspace(t *testing.T, rootPath string, opts ...Option) *models.Sc
 	}
 
 	return workspace
+}
+
+func TestSupportedLanguage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		path     string
+		expected models.SupportedLanguage
+		ok       bool
+	}{
+		{name: "Should detect Go files", path: "main.go", expected: models.LangGo, ok: true},
+		{name: "Should detect Rust files", path: "lib.rs", expected: models.LangRust, ok: true},
+		{name: "Should detect TypeScript files", path: "index.ts", expected: models.LangTS, ok: true},
+		{name: "Should detect TSX files", path: "view.tsx", expected: models.LangTSX, ok: true},
+		{name: "Should detect JavaScript files", path: "script.js", expected: models.LangJS, ok: true},
+		{name: "Should detect JSX files", path: "component.jsx", expected: models.LangJSX, ok: true},
+		{name: "Should detect Java files", path: "App.java", expected: models.LangJava, ok: true},
+		{name: "Should return unsupported for dts", path: "types.d.ts", expected: "", ok: false},
+		{name: "Should return unsupported for README", path: "README.md", expected: "", ok: false},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			language, ok := supportedLanguage(testCase.path)
+			if ok != testCase.ok {
+				t.Fatalf("supportedLanguage(%q) ok = %v, want %v", testCase.path, ok, testCase.ok)
+			}
+
+			if language != testCase.expected {
+				t.Fatalf("supportedLanguage(%q) = %q, want %q", testCase.path, language, testCase.expected)
+			}
+		})
+	}
 }
 
 func groupedCounts(workspace *models.ScannedWorkspace) map[string]int {

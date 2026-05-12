@@ -1,6 +1,7 @@
 package lint_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,6 +191,136 @@ func TestLintReturnsEmptySliceForHealthyVault(t *testing.T) {
 	issues := mustLint(t, topicPath)
 	if len(issues) != 0 {
 		t.Fatalf("issues = %#v, want empty slice", issues)
+	}
+}
+
+func TestLintJavaDiagnosticsGovernanceParseErrorsBlockByDefault(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/index/java.md", map[string]any{
+		"title":                          "Language Snapshot: java",
+		"type":                           "source",
+		"stage":                          "raw",
+		"domain":                         testDomain,
+		"source_kind":                    "codebase-language-index",
+		"scraped":                        "2026-04-12",
+		"tags":                           []string{testDomain, "raw", "codebase", "language-index", "java"},
+		"language":                       "java",
+		"java_diagnostic_total_count":    2,
+		"java_parse_error_count":         1,
+		"java_resolution_fallback_count": 1,
+	}, "# Language Snapshot: java\n")
+
+	issues := mustLint(t, topicPath)
+	assertHasIssue(t, issues, models.LintIssue{
+		Kind:     models.LintIssueKindJavaDiagnosticGovernance,
+		Severity: models.SeverityError,
+		FilePath: "raw/codebase/index/java.md",
+		Target:   "JAVA_PARSE_ERROR",
+	})
+}
+
+func TestLintJavaDiagnosticsGovernanceFallbackDisabledByDefault(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/index/java.md", map[string]any{
+		"title":                          "Language Snapshot: java",
+		"type":                           "source",
+		"stage":                          "raw",
+		"domain":                         testDomain,
+		"source_kind":                    "codebase-language-index",
+		"scraped":                        "2026-04-12",
+		"tags":                           []string{testDomain, "raw", "codebase", "language-index", "java"},
+		"language":                       "java",
+		"java_diagnostic_total_count":    3,
+		"java_parse_error_count":         0,
+		"java_resolution_fallback_count": 3,
+	}, "# Language Snapshot: java\n")
+
+	issues := mustLint(t, topicPath)
+	for _, issue := range issues {
+		if issue.Kind == models.LintIssueKindJavaDiagnosticGovernance {
+			t.Fatalf("expected fallback governance to stay disabled by default, got %#v", issues)
+		}
+	}
+}
+
+func TestLintJavaDiagnosticsGovernanceAppliesCustomFallbackThreshold(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/index/java.md", map[string]any{
+		"title":                          "Language Snapshot: java",
+		"type":                           "source",
+		"stage":                          "raw",
+		"domain":                         testDomain,
+		"source_kind":                    "codebase-language-index",
+		"scraped":                        "2026-04-12",
+		"tags":                           []string{testDomain, "raw", "codebase", "language-index", "java"},
+		"language":                       "java",
+		"java_diagnostic_total_count":    3,
+		"java_parse_error_count":         0,
+		"java_resolution_fallback_count": 3,
+	}, "# Language Snapshot: java\n")
+
+	issues, err := lint.LintWithOptions(topicPath, lint.LintOptions{
+		JavaGovernance: lint.JavaDiagnosticsGovernancePolicy{
+			MaxParseErrors:      0,
+			MaxFallbackWarnings: 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("LintWithOptions returned error: %v", err)
+	}
+	assertHasIssue(t, issues, models.LintIssue{
+		Kind:     models.LintIssueKindJavaDiagnosticGovernance,
+		Severity: models.SeverityError,
+		FilePath: "raw/codebase/index/java.md",
+		Target:   "JAVA_RESOLUTION_FALLBACK",
+	})
+}
+
+func TestLintJavaDiagnosticsGovernanceMessageUsesMachineReadableCounts(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/codebase/index/java.md", map[string]any{
+		"title":                          "Language Snapshot: java",
+		"type":                           "source",
+		"stage":                          "raw",
+		"domain":                         testDomain,
+		"source_kind":                    "codebase-language-index",
+		"scraped":                        "2026-04-12",
+		"tags":                           []string{testDomain, "raw", "codebase", "language-index", "java"},
+		"language":                       "java",
+		"java_diagnostic_total_count":    4,
+		"java_parse_error_count":         1,
+		"java_resolution_fallback_count": 3,
+	}, "# Language Snapshot: java\n")
+
+	issues := mustLint(t, topicPath)
+	var parseIssue *models.LintIssue
+	for index := range issues {
+		if issues[index].Target == "JAVA_PARSE_ERROR" {
+			parseIssue = &issues[index]
+			break
+		}
+	}
+	if parseIssue == nil {
+		t.Fatalf("expected parse governance issue in %#v", issues)
+	}
+
+	payload := make(map[string]any)
+	if err := json.Unmarshal([]byte(parseIssue.Message), &payload); err != nil {
+		t.Fatalf("expected machine-readable JSON message, got error: %v", err)
+	}
+	if payload["diagnosticCode"] != "JAVA_PARSE_ERROR" {
+		t.Fatalf("diagnosticCode = %#v, want %q", payload["diagnosticCode"], "JAVA_PARSE_ERROR")
+	}
+	if payload["count"] != float64(1) {
+		t.Fatalf("count = %#v, want 1", payload["count"])
 	}
 }
 

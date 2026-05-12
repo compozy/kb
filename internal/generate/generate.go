@@ -73,6 +73,7 @@ func newRunner() runner {
 			adapter.TSAdapter{},
 			adapter.GoAdapter{},
 			adapter.RustAdapter{},
+			adapter.JavaAdapter{},
 		},
 		normalizeGraph:  graph.NormalizeGraph,
 		computeMetrics:  metrics.ComputeMetrics,
@@ -208,7 +209,18 @@ func (r runner) GenerateWithObserver(ctx context.Context, opts models.GenerateOp
 		parsedFiles = append(parsedFiles, entries...)
 	}
 	timings.ParseMillis = elapsedMillis(r.now().Sub(stageStartedAt))
-	r.emitStageCompleted(ctx, "parse", timings.ParseMillis, parseCompleted, parseTotal, "parsed_files", len(parsedFiles))
+	parseFields := []any{"parsed_files", len(parsedFiles)}
+	if javaTelemetry, ok := summarizeJavaParseTelemetry(parsedFiles); ok {
+		parseFields = append(
+			parseFields,
+			"java_parse_duration_millis", timings.ParseMillis,
+			"java_files_processed", javaTelemetry.filesProcessed,
+			"java_resolver_mode", javaTelemetry.resolverMode,
+			"java_fallback_count", javaTelemetry.fallbackCount,
+			"java_unresolved_count", javaTelemetry.unresolvedCount,
+		)
+	}
+	r.emitStageCompleted(ctx, "parse", timings.ParseMillis, parseCompleted, parseTotal, parseFields...)
 	if len(parsedFiles) == 0 {
 		return models.GenerationSummary{}, fmt.Errorf(
 			"generate: scanned %d supported source files in %s but parsed 0 files. Review diagnostics or run --dry-run to inspect adapter selection",
@@ -359,7 +371,12 @@ func (r runner) withDefaults() runner {
 		r.scanWorkspace = scanner.ScanWorkspace
 	}
 	if len(r.adapters) == 0 {
-		r.adapters = []models.LanguageAdapter{adapter.TSAdapter{}, adapter.GoAdapter{}, adapter.RustAdapter{}}
+		r.adapters = []models.LanguageAdapter{
+			adapter.TSAdapter{},
+			adapter.GoAdapter{},
+			adapter.RustAdapter{},
+			adapter.JavaAdapter{},
+		}
 	}
 	if r.normalizeGraph == nil {
 		r.normalizeGraph = graph.NormalizeGraph
@@ -518,6 +535,68 @@ func elapsedMillis(duration time.Duration) int64 {
 	}
 
 	return duration.Milliseconds()
+}
+
+type javaParseTelemetry struct {
+	fallbackCount   int
+	filesProcessed  int
+	resolverMode    string
+	unresolvedCount int
+}
+
+func summarizeJavaParseTelemetry(parsedFiles []models.ParsedFile) (javaParseTelemetry, bool) {
+	const javaFallbackDiagnosticCode = "JAVA_RESOLUTION_FALLBACK"
+
+	summary := javaParseTelemetry{
+		resolverMode: "deep",
+	}
+
+	for _, parsedFile := range parsedFiles {
+		if parsedFile.File.Language != models.LangJava {
+			continue
+		}
+
+		summary.filesProcessed++
+		for _, diagnostic := range parsedFile.Diagnostics {
+			if diagnostic.Code != javaFallbackDiagnosticCode {
+				continue
+			}
+
+			summary.fallbackCount++
+			summary.unresolvedCount += countFallbackUnresolvedReferences(diagnostic.Detail)
+		}
+	}
+
+	if summary.filesProcessed == 0 {
+		return javaParseTelemetry{}, false
+	}
+	if summary.fallbackCount > 0 {
+		summary.resolverMode = "fallback"
+	}
+
+	return summary, true
+}
+
+func countFallbackUnresolvedReferences(detail string) int {
+	trimmedDetail := strings.TrimSpace(detail)
+	if trimmedDetail == "" {
+		return 0
+	}
+
+	segments := strings.Split(trimmedDetail, ";")
+	count := 0
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+		if strings.HasPrefix(segment, "meta:truncated ") {
+			continue
+		}
+		count++
+	}
+
+	return count
 }
 
 func (r runner) emitStageStarted(ctx context.Context, stage string, total int, attrs ...any) {

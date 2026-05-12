@@ -210,22 +210,75 @@ func TestSelectAdaptersForGoOnlyWorkspace(t *testing.T) {
 	}
 }
 
+func TestSelectAdaptersIncludesJavaWhenWorkspaceHasJava(t *testing.T) {
+	t.Parallel()
+
+	selected := selectAdapters(
+		[]models.SupportedLanguage{models.LangJava},
+		[]models.LanguageAdapter{
+			fakeAdapter{name: "ts", supported: map[models.SupportedLanguage]bool{models.LangTS: true}},
+			fakeAdapter{name: "go", supported: map[models.SupportedLanguage]bool{models.LangGo: true}},
+			fakeAdapter{name: "java", supported: map[models.SupportedLanguage]bool{models.LangJava: true}},
+		},
+	)
+
+	if len(selected) != 1 {
+		t.Fatalf("selected %d adapters, want 1", len(selected))
+	}
+	if !selected[0].Supports(models.LangJava) {
+		t.Fatalf("selected adapter does not support Java")
+	}
+}
+
 func TestSelectAdaptersForMixedWorkspace(t *testing.T) {
 	t.Parallel()
 
 	selected := selectAdapters(
-		[]models.SupportedLanguage{models.LangTS, models.LangGo},
+		[]models.SupportedLanguage{models.LangTS, models.LangGo, models.LangJava},
 		[]models.LanguageAdapter{
 			fakeAdapter{name: "ts", supported: map[models.SupportedLanguage]bool{models.LangTS: true}},
 			fakeAdapter{name: "go", supported: map[models.SupportedLanguage]bool{models.LangGo: true}},
+			fakeAdapter{name: "java", supported: map[models.SupportedLanguage]bool{models.LangJava: true}},
 		},
 	)
 
-	if len(selected) != 2 {
-		t.Fatalf("selected %d adapters, want 2", len(selected))
+	if len(selected) != 3 {
+		t.Fatalf("selected %d adapters, want 3", len(selected))
 	}
-	if !selected[0].Supports(models.LangTS) || !selected[1].Supports(models.LangGo) {
+	if !selected[0].Supports(models.LangTS) || !selected[1].Supports(models.LangGo) || !selected[2].Supports(models.LangJava) {
 		t.Fatalf("unexpected adapter selection order")
+	}
+}
+
+func TestNewRunnerRegistersJavaAdapterInExpectedOrder(t *testing.T) {
+	t.Parallel()
+
+	got := adapterNames(newRunner().adapters)
+	want := []string{
+		"adapter.TSAdapter",
+		"adapter.GoAdapter",
+		"adapter.RustAdapter",
+		"adapter.JavaAdapter",
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("newRunner adapters = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunnerWithDefaultsIncludesJavaAdapterWhenAdaptersUnset(t *testing.T) {
+	t.Parallel()
+
+	got := adapterNames((runner{}).withDefaults().adapters)
+	want := []string{
+		"adapter.TSAdapter",
+		"adapter.GoAdapter",
+		"adapter.RustAdapter",
+		"adapter.JavaAdapter",
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("withDefaults adapters = %#v, want %#v", got, want)
 	}
 }
 
@@ -647,6 +700,21 @@ func TestRunnerGenerateEmitsParseAndWriteProgressEvents(t *testing.T) {
 	if parseProgress[0].Completed != 1 || parseProgress[1].Completed != 2 {
 		t.Fatalf("unexpected parse progress events: %#v", parseProgress)
 	}
+	parseCompleted := firstEvent(events, EventStageCompleted, "parse")
+	if parseCompleted.Fields["parsed_files"] != 2 {
+		t.Fatalf("parse completed parsed_files = %#v, want 2", parseCompleted.Fields["parsed_files"])
+	}
+	for _, key := range []string{
+		"java_parse_duration_millis",
+		"java_files_processed",
+		"java_resolver_mode",
+		"java_fallback_count",
+		"java_unresolved_count",
+	} {
+		if _, exists := parseCompleted.Fields[key]; exists {
+			t.Fatalf("parse completed should not include %q for non-Java run: %#v", key, parseCompleted.Fields)
+		}
+	}
 
 	writeStarted := firstEvent(events, EventStageStarted, "write")
 	if writeStarted.Total != 4 {
@@ -659,6 +727,200 @@ func TestRunnerGenerateEmitsParseAndWriteProgressEvents(t *testing.T) {
 	}
 	if writeProgress[3].Completed != 4 || writeProgress[3].Total != 4 {
 		t.Fatalf("unexpected write progress events: %#v", writeProgress)
+	}
+}
+
+func TestRunnerGenerateEmitsJavaParseTelemetryFields(t *testing.T) {
+	t.Parallel()
+
+	var events []Event
+	observer := ObserverFunc(func(_ context.Context, event Event) {
+		events = append(events, event)
+	})
+
+	generator := runner{
+		scanWorkspace: func(rootPath string, opts ...scanner.Option) (*models.ScannedWorkspace, error) {
+			return &models.ScannedWorkspace{
+				Files: []models.ScannedSourceFile{
+					{AbsolutePath: "/repo/Runner.java", RelativePath: "Runner.java", Language: models.LangJava},
+				},
+				FilesByLanguage: map[models.SupportedLanguage][]models.ScannedSourceFile{
+					models.LangJava: {
+						{AbsolutePath: "/repo/Runner.java", RelativePath: "Runner.java", Language: models.LangJava},
+					},
+				},
+			}, nil
+		},
+		adapters: []models.LanguageAdapter{
+			fakeAdapter{
+				name:      "java",
+				supported: map[models.SupportedLanguage]bool{models.LangJava: true},
+				parseResult: []models.ParsedFile{
+					{
+						File: models.GraphFile{ID: "file:Runner.java", FilePath: "Runner.java", Language: models.LangJava},
+						Diagnostics: []models.StructuredDiagnostic{
+							{
+								Code:     "JAVA_RESOLUTION_FALLBACK",
+								Detail:   "calls:Helper.assist (ambiguous-import-class); references:com.acme.sharedb.* (missing-wildcard-package)",
+								Stage:    models.StageParse,
+								Language: models.LangJava,
+							},
+						},
+					},
+				},
+			},
+		},
+		normalizeGraph: func(rootPath string, parsedFiles []models.ParsedFile) models.GraphSnapshot {
+			return models.GraphSnapshot{
+				RootPath: rootPath,
+				Files: []models.GraphFile{
+					{ID: "file:Runner.java", FilePath: "Runner.java", Language: models.LangJava},
+				},
+			}
+		},
+		computeMetrics: func(graph models.GraphSnapshot) models.MetricsResult {
+			return models.MetricsResult{}
+		},
+		renderDocuments: func(graph models.GraphSnapshot, metrics models.MetricsResult, topic models.TopicMetadata) []models.RenderedDocument {
+			return nil
+		},
+		renderBaseFiles: func(metrics models.MetricsResult) []models.BaseFile {
+			return nil
+		},
+		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
+			return vault.WriteVaultResult{}, nil
+		},
+		now: testClock(
+			time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 1, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 1, 500000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 1, 500000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 0, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 100000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 100000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 200000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 200000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 300000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 300000000, time.UTC),
+			time.Date(2026, 4, 10, 12, 0, 2, 400000000, time.UTC),
+		),
+	}
+
+	if _, err := generator.GenerateWithObserver(context.Background(), models.GenerateOptions{RootPath: "/repo"}, observer); err != nil {
+		t.Fatalf("GenerateWithObserver returned error: %v", err)
+	}
+
+	parseCompleted := firstEvent(events, EventStageCompleted, "parse")
+	if parseCompleted.Fields["parsed_files"] != 1 {
+		t.Fatalf("parse completed parsed_files = %#v, want 1", parseCompleted.Fields["parsed_files"])
+	}
+	durationMillis, ok := parseCompleted.Fields["java_parse_duration_millis"].(int64)
+	if !ok {
+		t.Fatalf("java_parse_duration_millis type = %T, want int64", parseCompleted.Fields["java_parse_duration_millis"])
+	}
+	if durationMillis < 0 {
+		t.Fatalf("java_parse_duration_millis = %d, want >= 0", durationMillis)
+	}
+	if parseCompleted.Fields["java_files_processed"] != 1 {
+		t.Fatalf("java_files_processed = %#v, want 1", parseCompleted.Fields["java_files_processed"])
+	}
+	if parseCompleted.Fields["java_resolver_mode"] != "fallback" {
+		t.Fatalf("java_resolver_mode = %#v, want fallback", parseCompleted.Fields["java_resolver_mode"])
+	}
+	if parseCompleted.Fields["java_fallback_count"] != 1 {
+		t.Fatalf("java_fallback_count = %#v, want 1", parseCompleted.Fields["java_fallback_count"])
+	}
+	if parseCompleted.Fields["java_unresolved_count"] != 2 {
+		t.Fatalf("java_unresolved_count = %#v, want 2", parseCompleted.Fields["java_unresolved_count"])
+	}
+}
+
+func TestSummarizeJavaParseTelemetry(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		parsed     []models.ParsedFile
+		want       javaParseTelemetry
+		wantExists bool
+	}{
+		{
+			name: "non Java files",
+			parsed: []models.ParsedFile{
+				{
+					File: models.GraphFile{Language: models.LangGo},
+				},
+			},
+			wantExists: false,
+		},
+		{
+			name: "Java without fallback diagnostics",
+			parsed: []models.ParsedFile{
+				{
+					File: models.GraphFile{Language: models.LangJava},
+				},
+			},
+			want: javaParseTelemetry{
+				filesProcessed: 1,
+				resolverMode:   "deep",
+			},
+			wantExists: true,
+		},
+		{
+			name: "Java with fallback diagnostics",
+			parsed: []models.ParsedFile{
+				{
+					File: models.GraphFile{Language: models.LangJava},
+					Diagnostics: []models.StructuredDiagnostic{
+						{
+							Code:   "JAVA_RESOLUTION_FALLBACK",
+							Detail: "calls:Helper.assist (ambiguous-import-class); references:com.acme.sharedb.* (missing-wildcard-package)",
+						},
+					},
+				},
+			},
+			want: javaParseTelemetry{
+				filesProcessed:  1,
+				resolverMode:    "fallback",
+				fallbackCount:   1,
+				unresolvedCount: 2,
+			},
+			wantExists: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, gotExists := summarizeJavaParseTelemetry(testCase.parsed)
+			if gotExists != testCase.wantExists {
+				t.Fatalf("summarizeJavaParseTelemetry() exists = %t, want %t", gotExists, testCase.wantExists)
+			}
+			if !gotExists {
+				return
+			}
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Fatalf("summarizeJavaParseTelemetry() = %#v, want %#v", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestCountFallbackUnresolvedReferencesIgnoresTruncationMeta(t *testing.T) {
+	t.Parallel()
+
+	detail := strings.Join([]string{
+		"calls:Helper.assist (ambiguous-import-class)",
+		"references:com.acme.sharedb.* (missing-wildcard-package)",
+		"meta:truncated (20 entries omitted)",
+	}, "; ")
+	if got := countFallbackUnresolvedReferences(detail); got != 2 {
+		t.Fatalf("countFallbackUnresolvedReferences() = %d, want 2", got)
 	}
 }
 

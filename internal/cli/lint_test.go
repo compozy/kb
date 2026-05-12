@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	klint "github.com/compozy/kb/internal/lint"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/vault"
 )
@@ -34,7 +35,7 @@ func TestLintCommandAcceptsPositionalTopicSlug(t *testing.T) {
 			TopicSlug: "demo-topic",
 		}, nil
 	}
-	runLintEngine = func(topicPath string) ([]models.LintIssue, error) {
+	runLintEngine = func(topicPath string, options klint.LintOptions) ([]models.LintIssue, error) {
 		return nil, nil
 	}
 	saveLintEngineReport = func(topicPath string, issues []models.LintIssue, now time.Time) (string, error) {
@@ -79,7 +80,7 @@ func TestLintCommandSupportsTableJSONAndTSVOutput(t *testing.T) {
 			TopicSlug: "demo-topic",
 		}, nil
 	}
-	runLintEngine = func(topicPath string) ([]models.LintIssue, error) {
+	runLintEngine = func(topicPath string, options klint.LintOptions) ([]models.LintIssue, error) {
 		return []models.LintIssue{{
 			Severity: models.SeverityError,
 			Kind:     models.LintIssueKindDeadLink,
@@ -156,6 +157,56 @@ func TestLintCommandSupportsTableJSONAndTSVOutput(t *testing.T) {
 	}
 }
 
+func TestLintCommandPassesJavaGovernanceThresholdFlags(t *testing.T) {
+	originalRunLint := runLintEngine
+	originalSaveReport := saveLintEngineReport
+	originalResolve := resolveLintVaultQuery
+	originalGetwd := lintGetwd
+	t.Cleanup(func() {
+		runLintEngine = originalRunLint
+		saveLintEngineReport = originalSaveReport
+		resolveLintVaultQuery = originalResolve
+		lintGetwd = originalGetwd
+	})
+
+	lintGetwd = func() (string, error) { return "/workspace/repo", nil }
+	resolveLintVaultQuery = func(options vault.VaultQueryOptions) (vault.ResolvedVault, error) {
+		return vault.ResolvedVault{
+			VaultPath: "/vault",
+			TopicPath: "/vault/demo-topic",
+			TopicSlug: "demo-topic",
+		}, nil
+	}
+	var gotOptions klint.LintOptions
+	runLintEngine = func(topicPath string, options klint.LintOptions) ([]models.LintIssue, error) {
+		gotOptions = options
+		return nil, nil
+	}
+	saveLintEngineReport = func(topicPath string, issues []models.LintIssue, now time.Time) (string, error) {
+		return topicPath, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"lint", "demo-topic",
+		"--java-max-parse-errors", "2",
+		"--java-max-fallback-warnings", "5",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if gotOptions.JavaGovernance.MaxParseErrors != 2 {
+		t.Fatalf("MaxParseErrors = %d, want 2", gotOptions.JavaGovernance.MaxParseErrors)
+	}
+	if gotOptions.JavaGovernance.MaxFallbackWarnings != 5 {
+		t.Fatalf("MaxFallbackWarnings = %d, want 5", gotOptions.JavaGovernance.MaxFallbackWarnings)
+	}
+}
+
 func TestLintCommandSaveFlagWritesReport(t *testing.T) {
 	originalRunLint := runLintEngine
 	originalSaveReport := saveLintEngineReport
@@ -182,7 +233,7 @@ func TestLintCommandSaveFlagWritesReport(t *testing.T) {
 			TopicSlug: "demo-topic",
 		}, nil
 	}
-	runLintEngine = func(topicPath string) ([]models.LintIssue, error) {
+	runLintEngine = func(topicPath string, options klint.LintOptions) ([]models.LintIssue, error) {
 		return []models.LintIssue{{
 			Severity: models.SeverityWarning,
 			Kind:     models.LintIssueKindOrphan,
@@ -246,7 +297,14 @@ func TestLintCommandHelpShowsFlags(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	for _, flag := range []string{"--format", "--save", "--topic", "--vault"} {
+	for _, flag := range []string{
+		"--format",
+		"--save",
+		"--topic",
+		"--vault",
+		"--java-max-parse-errors",
+		"--java-max-fallback-warnings",
+	} {
 		if !strings.Contains(stdout.String(), flag) {
 			t.Fatalf("expected help output to contain %q, got:\n%s", flag, stdout.String())
 		}

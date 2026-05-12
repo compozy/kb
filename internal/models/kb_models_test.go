@@ -27,6 +27,7 @@ func TestLintIssueKinds(t *testing.T) {
 		LintIssueKindMissingSource,
 		LintIssueKindStale,
 		LintIssueKindFormat,
+		LintIssueKindJavaDiagnosticGovernance,
 	}
 
 	assertUniqueNonEmptyKinds(t, LintIssueKinds(), expected)

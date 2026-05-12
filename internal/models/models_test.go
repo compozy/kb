@@ -8,7 +8,7 @@ import (
 func TestSupportedLanguages(t *testing.T) {
 	t.Parallel()
 
-	expected := []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust}
+	expected := []SupportedLanguage{LangTS, LangTSX, LangJS, LangJSX, LangGo, LangRust, LangJava}
 
 	languages := SupportedLanguages()
 	if len(languages) != len(expected) {
@@ -29,7 +29,7 @@ func TestSupportedLanguages(t *testing.T) {
 func TestSupportedLanguageNames(t *testing.T) {
 	t.Parallel()
 
-	expected := []string{"ts", "tsx", "js", "jsx", "go", "rust"}
+	expected := []string{"ts", "tsx", "js", "jsx", "go", "rust", "java"}
 	if got := SupportedLanguageNames(); !reflect.DeepEqual(got, expected) {
 		t.Fatalf("SupportedLanguageNames() = %#v, want %#v", got, expected)
 	}
