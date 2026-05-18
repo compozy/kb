@@ -24,6 +24,7 @@ func clearServiceEnv(t *testing.T) {
 	t.Setenv(EnvFirecrawlAPIURL, "")
 	t.Setenv(EnvOpenRouterAPIKey, "")
 	t.Setenv(EnvOpenRouterAPIURL, "")
+	t.Setenv(EnvYouTubeYTDLPPath, "")
 	t.Setenv(EnvYouTubeProxy, "")
 	t.Setenv(EnvYouTubeCookiesFile, "")
 	t.Setenv(EnvYouTubeUserAgent, "")
@@ -60,6 +61,9 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if cfg.OpenRouter.STTModel != defaultOpenRouterSTTModel {
 		t.Errorf("expected default openrouter.stt_model %q, got %q", defaultOpenRouterSTTModel, cfg.OpenRouter.STTModel)
 	}
+	if cfg.YouTube.YTDLPPath != defaultYouTubeYTDLPPath {
+		t.Errorf("expected default youtube.yt_dlp_path %q, got %q", defaultYouTubeYTDLPPath, cfg.YouTube.YTDLPPath)
+	}
 	if cfg.YouTube.RetryAttempts != defaultYouTubeRetryAttempts {
 		t.Errorf("expected default youtube.retry_attempts %d, got %d", defaultYouTubeRetryAttempts, cfg.YouTube.RetryAttempts)
 	}
@@ -92,10 +96,11 @@ api_key = "openrouter-key"
 api_url = "https://openrouter.internal/api"
 stt_model = "acme/stt"
 
-[youtube]
-proxy = "http://proxy.internal:8080"
-cookies_file = "/tmp/youtube-cookies.txt"
-user_agent = "kb-test"
+	[youtube]
+	yt_dlp_path = "/opt/bin/yt-dlp"
+	proxy = "http://proxy.internal:8080"
+	cookies_file = "/tmp/youtube-cookies.txt"
+	user_agent = "kb-test"
 retry_attempts = 5
 retry_backoff = "250ms"
 `
@@ -134,6 +139,9 @@ retry_backoff = "250ms"
 	}
 	if cfg.OpenRouter.STTModel != "acme/stt" {
 		t.Errorf("expected openrouter.stt_model 'acme/stt', got %q", cfg.OpenRouter.STTModel)
+	}
+	if cfg.YouTube.YTDLPPath != "/opt/bin/yt-dlp" {
+		t.Errorf("expected youtube.yt_dlp_path, got %q", cfg.YouTube.YTDLPPath)
 	}
 	if cfg.YouTube.Proxy != "http://proxy.internal:8080" {
 		t.Errorf("expected youtube.proxy, got %q", cfg.YouTube.Proxy)
@@ -354,6 +362,17 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
 			},
 		},
 		{
+			name:     "youtube yt-dlp path overrides toml",
+			envKey:   EnvYouTubeYTDLPPath,
+			envValue: "/env/bin/yt-dlp",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.YouTube.YTDLPPath != "/env/bin/yt-dlp" {
+					t.Fatalf("expected youtube.yt_dlp_path to be overridden, got %q", cfg.YouTube.YTDLPPath)
+				}
+			},
+		},
+		{
 			name:     "youtube proxy overrides toml",
 			envKey:   EnvYouTubeProxy,
 			envValue: "http://env.proxy:8080",
@@ -406,10 +425,11 @@ api_key = "toml-openrouter-key"
 api_url = "https://toml.openrouter.ai/api"
 stt_model = "toml/stt"
 
-[youtube]
-proxy = "http://toml.proxy:8080"
-cookies_file = "/tmp/toml-cookies.txt"
-user_agent = "toml-agent"
+	[youtube]
+	yt_dlp_path = "/toml/bin/yt-dlp"
+	proxy = "http://toml.proxy:8080"
+	cookies_file = "/tmp/toml-cookies.txt"
+	user_agent = "toml-agent"
 `)
 
 			t.Setenv(tc.envKey, tc.envValue)

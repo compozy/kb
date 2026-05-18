@@ -151,13 +151,14 @@ type retryPolicy struct {
 // Extractor orchestrates transcript extraction and optional STT fallback.
 type Extractor struct {
 	youtube  youtubeClient
+	ytDLP    *ytDLPBackend
 	stt      sttClient
 	retry    retryPolicy
 	setupErr error
 }
 
-// NewExtractor constructs a default extractor backed by kkdai/youtube and the
-// OpenRouter STT client.
+// NewExtractor constructs a default extractor with yt-dlp as the primary
+// caption backend, kkdai/youtube as legacy fallback, and OpenRouter STT fallback.
 func NewExtractor(cfg config.OpenRouterConfig, youtubeConfigs ...config.YouTubeConfig) *Extractor {
 	youtubeConfig := config.Default().YouTube
 	if len(youtubeConfigs) > 0 {
@@ -173,13 +174,16 @@ func NewExtractor(cfg config.OpenRouterConfig, youtubeConfigs ...config.YouTubeC
 		attempts = 1
 	}
 
+	retry := retryPolicy{
+		Attempts: attempts,
+		Backoff:  backoff,
+	}
+
 	return &Extractor{
-		youtube: &ytdl.Client{HTTPClient: httpClient},
-		stt:     NewOpenRouterClient(cfg),
-		retry: retryPolicy{
-			Attempts: attempts,
-			Backoff:  backoff,
-		},
+		youtube:  &ytdl.Client{HTTPClient: httpClient},
+		ytDLP:    newYTDLPBackend(youtubeConfig, retry),
+		stt:      NewOpenRouterClient(cfg),
+		retry:    retry,
 		setupErr: err,
 	}
 }
@@ -322,7 +326,7 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 	if extractor == nil {
 		return nil, errors.New("youtube extract: extractor is nil")
 	}
-	if extractor.youtube == nil {
+	if extractor.youtube == nil && extractor.ytDLP == nil {
 		return nil, errors.New("youtube extract: client is nil")
 	}
 	if extractor.setupErr != nil {
@@ -335,6 +339,45 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 	parsed, err := parseVideoURL(rawURL)
 	if err != nil {
 		return nil, err
+	}
+
+	if extractor.ytDLP != nil {
+		result, err := extractor.ytDLP.Extract(ctx, parsed, options.PreferredLanguages)
+		if err == nil {
+			return result, nil
+		}
+		if isContextError(err) {
+			return result, err
+		}
+		if isTranscriptUnavailable(err) {
+			return extractor.extractSTTAfterTranscriptUnavailable(ctx, parsed, result, err, options)
+		}
+
+		allowLegacySTT := !errors.Is(err, errYTDLPCaptionFetchFailed)
+		legacyResult, legacyErr := extractor.extractWithLegacyBackend(ctx, parsed, options, allowLegacySTT)
+		if legacyErr == nil {
+			return legacyResult, nil
+		}
+		if legacyResult != nil {
+			result = legacyResult
+		}
+		return result, errors.Join(
+			fmt.Errorf("yt-dlp backend: %w", err),
+			fmt.Errorf("legacy kkdai backend: %w", legacyErr),
+		)
+	}
+
+	return extractor.extractWithLegacyBackend(ctx, parsed, options, true)
+}
+
+func (extractor *Extractor) extractWithLegacyBackend(
+	ctx context.Context,
+	parsed parsedVideoURL,
+	options ExtractOptions,
+	allowSTT bool,
+) (*Result, error) {
+	if extractor.youtube == nil {
+		return nil, errors.New("youtube extract: legacy client is nil")
 	}
 
 	video, err := extractor.getVideo(ctx, parsed)
@@ -364,7 +407,7 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 		return result, err
 	}
 
-	if !extractor.shouldAttemptSTT(options) || !isTranscriptUnavailable(err) {
+	if !allowSTT || !extractor.shouldAttemptSTT(options) || !isTranscriptUnavailable(err) {
 		return result, err
 	}
 
@@ -380,6 +423,55 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 
 	result.Markdown = formatSTTMarkdown(transcript)
 	result.Source = TranscriptSourceSTT
+
+	return result, nil
+}
+
+func (extractor *Extractor) extractSTTAfterTranscriptUnavailable(
+	ctx context.Context,
+	parsed parsedVideoURL,
+	result *Result,
+	transcriptErr error,
+	options ExtractOptions,
+) (*Result, error) {
+	if !extractor.shouldAttemptSTT(options) {
+		return result, transcriptErr
+	}
+	if extractor.youtube == nil {
+		return result, errors.Join(transcriptErr, errors.New("youtube stt fallback: legacy client is nil"))
+	}
+
+	video, err := extractor.getVideo(ctx, parsed)
+	if err != nil {
+		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", err))
+	}
+	if result == nil {
+		result = &Result{}
+	}
+	if strings.TrimSpace(result.Metadata.VideoID) == "" {
+		result.Metadata = Metadata{
+			VideoID:     parsed.VideoID,
+			URL:         parsed.CanonicalURL,
+			Title:       strings.TrimSpace(video.Title),
+			Channel:     strings.TrimSpace(video.Author),
+			Duration:    video.Duration,
+			PublishDate: video.PublishDate.UTC(),
+		}
+	}
+
+	audio, format, audioErr := extractor.downloadAudio(ctx, video)
+	if audioErr != nil {
+		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", audioErr))
+	}
+
+	transcript, sttErr := extractor.stt.Transcribe(ctx, audio, format)
+	if sttErr != nil {
+		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", sttErr))
+	}
+
+	result.Markdown = formatSTTMarkdown(transcript)
+	result.Source = TranscriptSourceSTT
+	result.Language = ""
 
 	return result, nil
 }

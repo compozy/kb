@@ -35,6 +35,9 @@ const (
 	// EnvYouTubeProxy stores the YouTube proxy URL override.
 	EnvYouTubeProxy = "YOUTUBE_PROXY"
 
+	// EnvYouTubeYTDLPPath stores the yt-dlp executable path override.
+	EnvYouTubeYTDLPPath = "YOUTUBE_YT_DLP_PATH"
+
 	// EnvYouTubeCookiesFile stores the YouTube cookies file override.
 	EnvYouTubeCookiesFile = "YOUTUBE_COOKIES_FILE"
 
@@ -60,6 +63,9 @@ func ApplyEnvOverrides(cfg *Config) {
 	}
 	if value, ok := os.LookupEnv(EnvOpenRouterAPIURL); ok && value != "" {
 		cfg.OpenRouter.APIURL = value
+	}
+	if value, ok := os.LookupEnv(EnvYouTubeYTDLPPath); ok && value != "" {
+		cfg.YouTube.YTDLPPath = value
 	}
 	if value, ok := os.LookupEnv(EnvYouTubeProxy); ok && value != "" {
 		cfg.YouTube.Proxy = value

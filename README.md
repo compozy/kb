@@ -59,14 +59,14 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube --stt` fallback requires an [OpenRouter](https://openrouter.ai) API key. All other commands work standalone.
+> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) when available and falls back to the built-in legacy extractor; install or update `yt-dlp` for the most reliable YouTube caption extraction. The `ingest youtube --stt` fallback requires an [OpenRouter](https://openrouter.ai) API key.
 
 <details>
 <summary><strong>What it touches</strong></summary>
 
 - **Creates files** in `.kb/vault/` inside the target repository (or a custom `--vault` path)
 - **Reads** source files in the target repository (never modifies them)
-- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube --stt` calls OpenRouter. All other commands are fully local.
+- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube` calls YouTube through `yt-dlp` or the legacy extractor; `ingest youtube --stt` also calls OpenRouter. All other commands are fully local.
 - **No telemetry** -- nothing is sent anywhere
 - **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kb/` directory
 
@@ -414,6 +414,10 @@ The scanner:
 | `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint                     |
 | `OPENROUTER_API_KEY`| env / TOML | OpenRouter API key for `ingest youtube --stt` |
 | `OPENROUTER_API_URL`| env / TOML | OpenRouter API endpoint                    |
+| `YOUTUBE_YT_DLP_PATH` | env / TOML | `yt-dlp` executable path for `ingest youtube` |
+| `YOUTUBE_PROXY` | env / TOML | Proxy URL forwarded to YouTube extractors |
+| `YOUTUBE_COOKIES_FILE` | env / TOML | Netscape cookies file for YouTube auth/rate-limit cases |
+| `YOUTUBE_USER_AGENT` | env / TOML | User-Agent forwarded to YouTube extractors |
 
 See [`config.example.toml`](config.example.toml) for the full TOML schema.
 

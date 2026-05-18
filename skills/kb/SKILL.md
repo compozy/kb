@@ -71,10 +71,11 @@ kb ingest codebase <path> --topic <topic-id>  # analyze a codebase into raw/code
 
 Use path-relative topic identifiers for nested topics, e.g. `--topic harness/goclaw`.
 
-YouTube extraction uses `raw/youtube/` as the canonical transcript directory. If YouTube blocks captions or audio, configure network settings in `kb.toml`:
+YouTube extraction uses `raw/youtube/` as the canonical transcript directory. `kb` prefers `yt-dlp` for captions and metadata because that extractor tracks YouTube protocol changes more closely than the built-in legacy fallback. Install or update `yt-dlp` when public captions fail before treating the issue as only a proxy/cookie problem:
 
 ```toml
 [youtube]
+yt_dlp_path = "yt-dlp"
 proxy = "http://127.0.0.1:8080"
 cookies_file = "/path/to/youtube-cookies.txt"
 user_agent = "Mozilla/5.0 ..."
@@ -82,7 +83,7 @@ retry_attempts = 3
 retry_backoff = "1s"
 ```
 
-`YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; treat that as a network or auth configuration issue, not a missing-transcript issue.
+`YOUTUBE_YT_DLP_PATH`, `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; after confirming `yt-dlp` is installed and current, treat that as a network or auth configuration issue, not a missing-transcript issue.
 
 ### Layout migrations
 
@@ -454,7 +455,7 @@ Read `references/output-formats.md` for format examples and empty result handlin
 | Error | Recovery |
 |-------|----------|
 | `unable to find a vault from <path>` | Run `kb ingest codebase <path> --topic <topic-id>` first, or re-run with `--vault <path>` if the vault lives elsewhere |
-| YouTube `network_blocked` or blocked captions/audio | Configure `[youtube].proxy`, `[youtube].cookies_file`, or run from a trusted network |
+| YouTube caption extraction fails | Install/update `yt-dlp` or set `[youtube].yt_dlp_path`; for confirmed `network_blocked`, then configure proxy/cookies or use a trusted network |
 | `QMD is not available` | Run `npm install -g @tobilu/qmd` |
 | `no topics were found` | Run `kb ingest codebase` or `kb topic new` to populate the vault |
 | `multiple topics were found` | Re-run with `--topic <topic-id>` |

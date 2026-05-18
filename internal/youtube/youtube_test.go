@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -288,10 +290,22 @@ func TestFormatTranscriptMarkdownUsesTimestampHeaders(t *testing.T) {
 	}
 }
 
-func TestNewExtractorConstructsDefaultClients(t *testing.T) {
+func TestNewExtractorConstructsDefaultBackends(t *testing.T) {
 	t.Parallel()
 
-	extractor := NewExtractor(config.OpenRouterConfig{})
+	cookiesPath := filepath.Join(t.TempDir(), "youtube-cookies.txt")
+	if err := os.WriteFile(cookiesPath, []byte(".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tvalue\n"), 0o644); err != nil {
+		t.Fatalf("write cookies: %v", err)
+	}
+	youtubeConfig := config.YouTubeConfig{
+		YTDLPPath:     "/opt/bin/yt-dlp",
+		Proxy:         "http://proxy.internal:8080",
+		CookiesFile:   cookiesPath,
+		UserAgent:     "kb-test-agent",
+		RetryAttempts: 4,
+		RetryBackoff:  "250ms",
+	}
+	extractor := NewExtractor(config.OpenRouterConfig{}, youtubeConfig)
 	if extractor == nil {
 		t.Fatal("expected extractor")
 	}
@@ -300,6 +314,24 @@ func TestNewExtractorConstructsDefaultClients(t *testing.T) {
 	}
 	if extractor.stt == nil {
 		t.Fatal("expected STT client")
+	}
+	if extractor.ytDLP == nil {
+		t.Fatal("expected yt-dlp backend")
+	}
+	if extractor.ytDLP.binaryPath != "/opt/bin/yt-dlp" {
+		t.Fatalf("yt-dlp path = %q, want /opt/bin/yt-dlp", extractor.ytDLP.binaryPath)
+	}
+	if extractor.ytDLP.cfg != youtubeConfig {
+		t.Fatalf("yt-dlp config = %#v, want %#v", extractor.ytDLP.cfg, youtubeConfig)
+	}
+	if extractor.ytDLP.retry.Attempts != 4 {
+		t.Fatalf("yt-dlp retry attempts = %d, want 4", extractor.ytDLP.retry.Attempts)
+	}
+	if extractor.ytDLP.retry.Backoff != 250*time.Millisecond {
+		t.Fatalf("yt-dlp retry backoff = %v, want 250ms", extractor.ytDLP.retry.Backoff)
+	}
+	if extractor.setupErr != nil {
+		t.Fatalf("setupErr = %v, want nil", extractor.setupErr)
 	}
 }
 

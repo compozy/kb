@@ -18,6 +18,7 @@ const (
 	defaultOpenRouterSTTModel   = "google/gemini-2.5-flash"
 	defaultVaultRoot            = "."
 	defaultTopicGlob            = "*"
+	defaultYouTubeYTDLPPath     = "yt-dlp"
 	defaultYouTubeRetryBackoff  = "1s"
 	defaultYouTubeRetryAttempts = 3
 )
@@ -64,6 +65,7 @@ type OpenRouterConfig struct {
 
 // YouTubeConfig controls YouTube network access and retry behavior.
 type YouTubeConfig struct {
+	YTDLPPath     string `toml:"yt_dlp_path"`
 	Proxy         string `toml:"proxy"`
 	CookiesFile   string `toml:"cookies_file"`
 	UserAgent     string `toml:"user_agent"`
@@ -93,6 +95,7 @@ func Default() Config {
 			STTModel: defaultOpenRouterSTTModel,
 		},
 		YouTube: YouTubeConfig{
+			YTDLPPath:     defaultYouTubeYTDLPPath,
 			RetryAttempts: defaultYouTubeRetryAttempts,
 			RetryBackoff:  defaultYouTubeRetryBackoff,
 		},
@@ -122,6 +125,9 @@ func (c *Config) applyDefaults() {
 	}
 	if len(c.Vault.TopicGlobs) == 0 {
 		c.Vault.TopicGlobs = []string{defaultTopicGlob}
+	}
+	if strings.TrimSpace(c.YouTube.YTDLPPath) == "" {
+		c.YouTube.YTDLPPath = defaultYouTubeYTDLPPath
 	}
 	if c.YouTube.RetryAttempts == 0 {
 		c.YouTube.RetryAttempts = defaultYouTubeRetryAttempts
@@ -217,6 +223,9 @@ func (c VaultConfig) Validate() error {
 
 // Validate ensures YouTube runtime settings are usable.
 func (c YouTubeConfig) Validate() error {
+	if strings.TrimSpace(c.YTDLPPath) == "" {
+		return errors.New("youtube.yt_dlp_path is required")
+	}
 	if c.RetryAttempts < 1 {
 		return fmt.Errorf("youtube.retry_attempts must be at least 1: %d", c.RetryAttempts)
 	}

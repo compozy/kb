@@ -288,6 +288,14 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 	var gotExtractURL string
 	var gotExtractOptions youtube.ExtractOptions
 	var gotIngest kingest.Options
+	wantYouTubeConfig := kconfig.YouTubeConfig{
+		YTDLPPath:     "custom-yt-dlp",
+		Proxy:         "http://proxy.internal:8080",
+		CookiesFile:   "/tmp/youtube-cookies.txt",
+		UserAgent:     "kb-test-agent",
+		RetryAttempts: 4,
+		RetryBackoff:  "250ms",
+	}
 
 	loadIngestConfig = func() (kconfig.Config, error) {
 		return kconfig.Config{
@@ -296,11 +304,15 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 				APIURL:   "https://openrouter.test",
 				STTModel: "demo-stt",
 			},
+			YouTube: wantYouTubeConfig,
 		}, nil
 	}
 	newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptExtractor {
 		if cfg.OpenRouter.APIKey != "openrouter-key" {
 			t.Fatalf("openrouter config not passed to extractor: %#v", cfg.OpenRouter)
+		}
+		if !reflect.DeepEqual(cfg.YouTube, wantYouTubeConfig) {
+			t.Fatalf("youtube config = %#v, want %#v", cfg.YouTube, wantYouTubeConfig)
 		}
 		return fakeYouTubeExtractor{
 			extract: func(ctx context.Context, rawURL string, options youtube.ExtractOptions) (*youtube.Result, error) {

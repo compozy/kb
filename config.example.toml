@@ -23,6 +23,7 @@
 # - FIRECRAWL_API_URL
 # - OPENROUTER_API_KEY
 # - OPENROUTER_API_URL
+# - YOUTUBE_YT_DLP_PATH
 # - YOUTUBE_PROXY
 # - YOUTUBE_COOKIES_FILE
 # - YOUTUBE_USER_AGENT
@@ -50,6 +51,7 @@ api_url = "https://openrouter.ai/api"
 stt_model = "google/gemini-2.5-flash"
 
 [youtube]
+yt_dlp_path = "yt-dlp"
 proxy = ""
 cookies_file = ""
 user_agent = ""
