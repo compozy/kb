@@ -58,11 +58,11 @@ Every phase ends with an append to `<topic>/log.md`. Each phase enhances the nex
 Raw source material enters through the `kb` CLI and is staged immutably:
 
 ```bash
-kb ingest url <url> --topic <slug>        # web articles, blog posts, papers → raw/articles/
-kb ingest file <path> --topic <slug>      # local files (PDF, DOCX, EPUB, images w/OCR) → raw/articles/
-kb ingest youtube <url> --topic <slug>    # YouTube transcripts → raw/youtube/
-kb ingest bookmarks <path> --topic <slug> # bookmark clusters → raw/bookmarks/
-kb ingest codebase <path> --topic <slug>  # codebase analysis → raw/codebase/
+kb ingest url <url> --topic <topic-id>        # web articles, blog posts, papers -> raw/articles/
+kb ingest file <path> --topic <topic-id>      # local files (PDF, DOCX, EPUB, images w/OCR) -> raw/articles/
+kb ingest youtube <url> --topic <topic-id>    # YouTube transcripts -> raw/youtube/
+kb ingest bookmarks <path> --topic <topic-id> # bookmark clusters -> raw/bookmarks/
+kb ingest codebase <path> --topic <topic-id>  # codebase analysis -> raw/codebase/
 ```
 
 The CLI auto-generates frontmatter and appends a log entry for each ingest. Principle: capture broadly, filter later. It is better to ingest something irrelevant than to miss something valuable. Never edit files in `raw/` after ingestion — if a source changes, re-scrape as a new version.
@@ -94,7 +94,7 @@ With 1M+ context, load the full wiki (or a relevant subset) and answer complex c
 The `kb` CLI handles automated structural checks:
 
 ```bash
-kb lint <slug> --save    # dead links, orphans, missing sources, format violations, stale content
+kb lint <topic-id> --save    # dead links, orphans, missing sources, format violations, stale content
 ```
 
 The LLM handles deeper semantic healing that requires reading articles and applying judgment:
@@ -140,9 +140,19 @@ The pattern's trajectory: wiki → synthetic QA pairs → QLoRA fine-tune → do
 
 ## Multi-topic vaults
 
-Each top-level folder at the vault root is a **topic** — a self-contained subject with its own `raw/`, `wiki/`, `outputs/`, `bases/` subtrees plus `CLAUDE.md` and `log.md` at the topic root. All topics share one Obsidian vault at the root, so cross-topic wikilinks work naturally (e.g., an `ai-harness` article on embeddings can link to a `rust-systems` article on implementation details). Topics stay self-contained in terms of content but contribute to a unified knowledge graph.
+Each folder matched by the vault's topic globs is a **topic** — a self-contained subject with its own `raw/`, `wiki/`, `outputs/`, `bases/` subtrees plus `CLAUDE.md`, `topic.yaml`, and `log.md` at the topic root. Topics may be direct children of the vault root (`go-best-practices/`) or nested by configured glob (`harness/goclaw/`). Use the path relative to the vault root as the topic id, e.g. `--topic harness/goclaw`.
 
-Each topic has its own `CLAUDE.md` (symlinked to `AGENTS.md` for Codex parity) capturing topic-specific scope, current articles, and research gaps — **this IS the schema document** in Karpathy's terminology. The vault-root `CLAUDE.md` captures the shared Karpathy pattern itself.
+All topics share one Obsidian vault at the root, so cross-topic wikilinks work naturally (e.g., a `harness/goclaw` article can link to a `go-best-practices` article). Topics stay self-contained in terms of content but contribute to a unified knowledge graph.
+
+The vault root may be declared by `kb.toml`:
+
+```toml
+[vault]
+root = "."
+topic_globs = ["*", "harness/*", "social-media/*"]
+```
+
+Each topic has its own `CLAUDE.md` capturing topic-specific scope, current articles, and research gaps — **this IS the schema document** in Karpathy's terminology and the marker that makes a directory a topic. `topic.yaml` is the structured source of truth for `slug`, `title`, and `domain`; `CLAUDE.md` prose is only a fallback for legacy topics. `AGENTS.md` may symlink to `CLAUDE.md` for Codex parity, but it is not the validity rule. The vault-root `CLAUDE.md` captures the shared Karpathy pattern itself.
 
 ## The log.md audit trail
 

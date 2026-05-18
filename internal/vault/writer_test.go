@@ -183,7 +183,7 @@ func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
 		t.Fatalf("WriteVault returned error: %v", err)
 	}
 
-	expectedTotal := len(documents) + len(baseFiles) + 5
+	expectedTotal := len(documents) + len(baseFiles) + 6
 	if len(progress) != expectedTotal {
 		t.Fatalf("progress events = %d, want %d", len(progress), expectedTotal)
 	}
@@ -196,6 +196,7 @@ func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
 		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicDashboardTitle)))),
 		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicConceptIndexTitle)))),
 		filepath.ToSlash(filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicSourceIndexTitle)))),
+		filepath.ToSlash(filepath.Join(topic.TopicPath, "topic.yaml")),
 	} {
 		if !contains(progressPaths, relativePath) {
 			t.Fatalf("expected progress to report %q, got %#v", relativePath, progressPaths)

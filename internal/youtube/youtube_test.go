@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -438,13 +439,171 @@ func TestDownloadAudioReturnsStructuredErrorForEmptyStream(t *testing.T) {
 	}
 }
 
+func TestExtractorRetriesTransientTranscriptFailure(t *testing.T) {
+	t.Parallel()
+
+	video := &ytdl.Video{
+		ID:            "dQw4w9WgXcQ",
+		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
+	}
+	client := &stubYouTubeClient{
+		video: video,
+		transcripts: map[string]ytdl.VideoTranscript{
+			"en": {{StartMs: 0, Text: "Recovered"}},
+		},
+		transcriptErrSequence: []error{ytdl.ErrUnexpectedStatusCode(http.StatusTooManyRequests)},
+	}
+	extractor := &Extractor{
+		youtube: client,
+		retry:   retryPolicy{Attempts: 2},
+	}
+
+	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if client.transcriptCalls != 2 {
+		t.Fatalf("transcript calls = %d, want 2", client.transcriptCalls)
+	}
+	if !strings.Contains(result.Markdown, "Recovered") {
+		t.Fatalf("markdown = %q, want recovered transcript", result.Markdown)
+	}
+}
+
+func TestExtractorDoesNotAttemptSTTForBlockedCaptions(t *testing.T) {
+	t.Parallel()
+
+	video := &ytdl.Video{
+		ID:            "dQw4w9WgXcQ",
+		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
+		Formats: ytdl.FormatList{
+			{MimeType: "audio/mp4; codecs=\"mp4a.40.2\"", AudioChannels: 2},
+		},
+	}
+	stt := &stubSTTClient{configured: true}
+	extractor := &Extractor{
+		youtube: &stubYouTubeClient{
+			video:          video,
+			transcriptErrs: map[string]error{"en": ytdl.ErrUnexpectedStatusCode(http.StatusForbidden)},
+		},
+		stt:   stt,
+		retry: retryPolicy{Attempts: 1},
+	}
+
+	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	if err == nil {
+		t.Fatal("expected Extract to fail")
+	}
+	if stt.called {
+		t.Fatal("did not expect STT for blocked captions")
+	}
+	var youtubeErr *Error
+	if !errors.As(err, &youtubeErr) {
+		t.Fatalf("expected structured error, got %T", err)
+	}
+	if youtubeErr.Kind != ErrorKindNetworkBlocked {
+		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindNetworkBlocked)
+	}
+	if !strings.Contains(youtubeErr.Error(), "[youtube].proxy") {
+		t.Fatalf("error should mention proxy config, got %q", youtubeErr.Error())
+	}
+}
+
+func TestDownloadAudioWrapsBlockedStreamAsAudioUnavailable(t *testing.T) {
+	t.Parallel()
+
+	video := &ytdl.Video{
+		ID: "dQw4w9WgXcQ",
+		Formats: ytdl.FormatList{
+			{MimeType: "audio/mp4; codecs=\"mp4a.40.2\"", AudioChannels: 2},
+		},
+	}
+	extractor := &Extractor{
+		youtube: &stubYouTubeClient{streamErr: ytdl.ErrUnexpectedStatusCode(http.StatusForbidden)},
+		retry:   retryPolicy{Attempts: 1},
+	}
+
+	_, _, err := extractor.downloadAudio(context.Background(), video)
+	if err == nil {
+		t.Fatal("expected downloadAudio to fail")
+	}
+	var youtubeErr *Error
+	if !errors.As(err, &youtubeErr) {
+		t.Fatalf("expected structured error, got %T", err)
+	}
+	if youtubeErr.Kind != ErrorKindAudioUnavailable {
+		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindAudioUnavailable)
+	}
+	if !strings.Contains(youtubeErr.Error(), "[youtube].proxy") {
+		t.Fatalf("error should mention proxy config, got %q", youtubeErr.Error())
+	}
+}
+
+func TestParseCookiesSupportsNetscapeAndHeaderFormats(t *testing.T) {
+	t.Parallel()
+
+	cookies, err := parseCookies(strings.NewReader(strings.Join([]string{
+		".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tnetscape-value",
+		"LOGIN_INFO=header-value; PREF=pref-value",
+	}, "\n")))
+	if err != nil {
+		t.Fatalf("parseCookies returned error: %v", err)
+	}
+	if len(cookies) != 3 {
+		t.Fatalf("cookies length = %d, want 3", len(cookies))
+	}
+	if cookies[0].Name != "SID" || cookies[0].Value != "netscape-value" || !cookies[0].Secure {
+		t.Fatalf("netscape cookie = %#v", cookies[0])
+	}
+	if cookies[1].Name != "LOGIN_INFO" || cookies[1].Value != "header-value" {
+		t.Fatalf("header cookie = %#v", cookies[1])
+	}
+}
+
+func TestRequestDecoratingTransportAddsCookiesAndUserAgent(t *testing.T) {
+	t.Parallel()
+
+	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Get("User-Agent"); got != "kb-test-agent" {
+			t.Fatalf("User-Agent = %q, want kb-test-agent", got)
+		}
+		if got := request.Header.Get("Cookie"); !strings.Contains(got, "SID=value") {
+			t.Fatalf("Cookie header = %q, want SID=value", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})
+	transport := &requestDecoratingTransport{
+		base:      base,
+		cookies:   []*http.Cookie{{Name: "SID", Value: "value"}},
+		userAgent: "kb-test-agent",
+	}
+	request, err := http.NewRequest(http.MethodGet, "https://www.youtube.com", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatalf("RoundTrip returned error: %v", err)
+	}
+	_ = response.Body.Close()
+}
+
 type stubYouTubeClient struct {
-	video          *ytdl.Video
-	videoErr       error
-	videoURL       string
-	transcripts    map[string]ytdl.VideoTranscript
-	transcriptErrs map[string]error
-	audioData      []byte
+	video                 *ytdl.Video
+	videoErr              error
+	videoURL              string
+	transcripts           map[string]ytdl.VideoTranscript
+	transcriptErrs        map[string]error
+	transcriptErrSequence []error
+	transcriptCalls       int
+	audioData             []byte
+	streamErr             error
 }
 
 func (client *stubYouTubeClient) GetVideoContext(_ context.Context, rawURL string) (*ytdl.Video, error) {
@@ -459,6 +618,14 @@ func (client *stubYouTubeClient) GetVideoContext(_ context.Context, rawURL strin
 }
 
 func (client *stubYouTubeClient) GetTranscriptCtx(_ context.Context, _ *ytdl.Video, lang string) (ytdl.VideoTranscript, error) {
+	client.transcriptCalls++
+	if len(client.transcriptErrSequence) > 0 {
+		err := client.transcriptErrSequence[0]
+		client.transcriptErrSequence = client.transcriptErrSequence[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := client.transcriptErrs[lang]; err != nil {
 		return nil, err
 	}
@@ -469,7 +636,16 @@ func (client *stubYouTubeClient) GetTranscriptCtx(_ context.Context, _ *ytdl.Vid
 }
 
 func (client *stubYouTubeClient) GetStreamContext(_ context.Context, _ *ytdl.Video, _ *ytdl.Format) (io.ReadCloser, int64, error) {
+	if client.streamErr != nil {
+		return nil, 0, client.streamErr
+	}
 	return io.NopCloser(strings.NewReader(string(client.audioData))), int64(len(client.audioData)), nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 type stubSTTClient struct {

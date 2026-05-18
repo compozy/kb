@@ -1,6 +1,6 @@
 # Lint and Heal Procedure
 
-Run `kb lint <slug> --save` for automated structural checks (dead wikilinks, orphans, missing sources, format violations, stale content). The report is saved to `<topic>/outputs/reports/` and a log entry is auto-appended.
+Run `kb lint <topic-id> --save` for automated structural checks (dead wikilinks, orphans, missing sources, format violations, stale content). The report is saved to `<topic>/outputs/reports/` and a log entry is auto-appended.
 
 This document covers the deeper **LLM-driven checks** that require reading articles and applying judgment. Run them periodically or after a batch of new content.
 

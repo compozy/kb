@@ -298,7 +298,10 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 			},
 		}, nil
 	}
-	newYouTubeTranscriptExtractor = func(cfg kconfig.OpenRouterConfig) youtubeTranscriptExtractor {
+	newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptExtractor {
+		if cfg.OpenRouter.APIKey != "openrouter-key" {
+			t.Fatalf("openrouter config not passed to extractor: %#v", cfg.OpenRouter)
+		}
 		return fakeYouTubeExtractor{
 			extract: func(ctx context.Context, rawURL string, options youtube.ExtractOptions) (*youtube.Result, error) {
 				gotExtractURL = rawURL

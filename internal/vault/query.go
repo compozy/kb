@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-)
 
-const topicMarkerFile = "CLAUDE.md"
+	"github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/topic"
+)
 
 // ResolvedVault identifies the vault root and topic directory selected for a command.
 type ResolvedVault struct {
@@ -24,11 +24,29 @@ type VaultQueryOptions struct {
 	CWD   string
 }
 
-// DiscoverVaultPath walks up from cwd until it finds a `.kb/vault` directory.
+// DiscoverVaultPath walks up from cwd until it finds kb.toml or a legacy
+// `.kb/vault` directory.
 func DiscoverVaultPath(cwd string) (string, error) {
 	resolvedCWD, err := resolveAbsolutePath(cwd)
 	if err != nil {
 		return "", fmt.Errorf("discover vault path: %w", err)
+	}
+
+	if configPath, found, err := config.DiscoverProjectConfigPath(resolvedCWD); err != nil {
+		return "", fmt.Errorf("discover vault path: %w", err)
+	} else if found {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return "", fmt.Errorf("discover vault path: load project config %q: %w", configPath, err)
+		}
+		vaultRoot, err := config.ResolveVaultRoot(configPath, cfg.Vault)
+		if err != nil {
+			return "", fmt.Errorf("discover vault path: %w", err)
+		}
+		if isDirectoryPath(vaultRoot) {
+			return vaultRoot, nil
+		}
+		return "", fmt.Errorf("configured vault root was not found or is not a directory: %s", vaultRoot)
 	}
 
 	currentPath := resolvedCWD
@@ -47,8 +65,9 @@ func DiscoverVaultPath(cwd string) (string, error) {
 	}
 
 	return "", fmt.Errorf(
-		"unable to find a vault from %s. walked up looking for .kb/vault/",
+		"unable to find a vault from %s. walked up looking for %s or .kb/vault/",
 		resolvedCWD,
+		config.ProjectConfigFileName,
 	)
 }
 
@@ -73,19 +92,19 @@ func ResolveVaultQuery(options VaultQueryOptions) (ResolvedVault, error) {
 			return ResolvedVault{}, fmt.Errorf("topic name is required when topic is specified")
 		}
 
-		topicPath := filepath.Join(vaultPath, topicSlug)
-		if err := ensureDirectory(topicPath, "Topic path"); err != nil {
+		topicInfo, err := topic.Resolve(vaultPath, topicSlug)
+		if err != nil {
 			return ResolvedVault{}, err
 		}
 
 		return ResolvedVault{
 			VaultPath: vaultPath,
-			TopicPath: topicPath,
-			TopicSlug: topicSlug,
+			TopicPath: topicInfo.RootPath,
+			TopicSlug: topicInfo.Slug,
 		}, nil
 	}
 
-	topics, err := listTopicDirectories(vaultPath)
+	topics, err := topic.List(vaultPath)
 	if err != nil {
 		return ResolvedVault{}, fmt.Errorf("resolve vault query: %w", err)
 	}
@@ -95,19 +114,23 @@ func ResolveVaultQuery(options VaultQueryOptions) (ResolvedVault, error) {
 		return ResolvedVault{}, fmt.Errorf(
 			"no topics were found in %s. expected child directories containing %s",
 			vaultPath,
-			topicMarkerFile,
+			"CLAUDE.md",
 		)
 	case 1:
 		return ResolvedVault{
 			VaultPath: vaultPath,
-			TopicPath: filepath.Join(vaultPath, topics[0]),
-			TopicSlug: topics[0],
+			TopicPath: topics[0].RootPath,
+			TopicSlug: topics[0].Slug,
 		}, nil
 	default:
+		topicSlugs := make([]string, 0, len(topics))
+		for _, topicInfo := range topics {
+			topicSlugs = append(topicSlugs, topicInfo.Slug)
+		}
 		return ResolvedVault{}, fmt.Errorf(
 			"multiple topics were found in %s: %s. re-run with --topic <slug>",
 			vaultPath,
-			strings.Join(topics, ", "),
+			strings.Join(topicSlugs, ", "),
 		)
 	}
 }
@@ -127,11 +150,15 @@ func ListAvailableTopics(options VaultQueryOptions) ([]string, error) {
 		return nil, err
 	}
 
-	topics, err := listTopicDirectories(vaultPath)
+	topicInfos, err := topic.List(vaultPath)
 	if err != nil {
 		return nil, fmt.Errorf("list available topics: %w", err)
 	}
 
+	topics := make([]string, 0, len(topicInfos))
+	for _, topicInfo := range topicInfos {
+		topics = append(topics, topicInfo.Slug)
+	}
 	return topics, nil
 }
 
@@ -174,37 +201,6 @@ func ensureDirectory(pathToCheck, label string) error {
 		return fmt.Errorf("%s was not found or is not a directory: %s", label, pathToCheck)
 	}
 	return nil
-}
-
-func listTopicDirectories(vaultPath string) ([]string, error) {
-	entries, err := os.ReadDir(vaultPath)
-	if err != nil {
-		return nil, fmt.Errorf("read vault path %q: %w", vaultPath, err)
-	}
-
-	topics := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		markerPath := filepath.Join(vaultPath, entry.Name(), topicMarkerFile)
-		info, err := os.Stat(markerPath)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("stat topic marker %q: %w", markerPath, err)
-		}
-		if info.IsDir() {
-			continue
-		}
-
-		topics = append(topics, entry.Name())
-	}
-
-	sort.Strings(topics)
-	return topics, nil
 }
 
 func isDirectoryPath(pathToCheck string) bool {

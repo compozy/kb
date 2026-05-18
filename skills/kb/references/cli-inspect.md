@@ -12,11 +12,11 @@ kb inspect <subcommand> [flags]
 |------|------|---------|-------------|
 | `--format` | string | `table` | Output format: `table`, `json`, or `tsv` |
 | `--vault` | string | `""` | Vault root path (auto-discovered from cwd if omitted) |
-| `--topic` | string | `""` | Topic slug inside the vault (auto-detected if only one topic exists) |
+| `--topic` | string | `""` | Topic id inside the vault; nested topics use a relative path such as `harness/goclaw` (auto-detected if only one topic exists) |
 
 ## Vault Auto-Discovery
 
-When `--vault` is omitted, the CLI walks up from the current working directory looking for `.kb/vault/`. If `--topic` is omitted and only one topic exists, it is selected automatically. If multiple topics exist, the command fails with an error listing available slugs.
+When `--vault` is omitted, the CLI walks up from the current working directory looking for `kb.toml` first, then legacy `.kb/vault/`. With `kb.toml`, `[vault].root` resolves the vault root and `[vault].topic_globs` controls which topic folders are listed. If `--topic` is omitted and only one topic exists, it is selected automatically. If multiple topics exist, the command fails with an error listing available topic ids.
 
 ---
 

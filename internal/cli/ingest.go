@@ -100,6 +100,17 @@ func loadCLIConfig() (kconfig.Config, error) {
 	}
 
 	cfgPath := strings.TrimSpace(os.Getenv(kconfig.EnvConfigPath))
+	if cfgPath == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if discoveredPath, found, err := kconfig.DiscoverProjectConfigPath(cwd); err != nil {
+				return kconfig.Config{}, fmt.Errorf("discover project config: %w", err)
+			} else if found {
+				cfgPath = discoveredPath
+			}
+		} else {
+			return kconfig.Config{}, fmt.Errorf("resolve cwd: %w", err)
+		}
+	}
 	cfg, err := kconfig.Load(cfgPath)
 	if err != nil {
 		return kconfig.Config{}, fmt.Errorf("load config: %w", err)

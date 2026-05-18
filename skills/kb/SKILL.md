@@ -7,9 +7,9 @@ description: Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Bas
 
 Build and maintain a self-compiling Obsidian markdown knowledge base using the `kb` CLI. The LLM reads raw sources, writes cross-linked wiki articles, files Q&A results back into the corpus, and runs lint-and-heal passes. The CLI also supports codebase ingestion with deep inspection commands for code quality, architecture health, and symbol relationships.
 
-Each **topic** lives in its own top-level folder (e.g. `ai-harness/`) with `raw/`, `wiki/`, `outputs/`, `bases/` subtrees plus a topic-level `log.md` and `CLAUDE.md`. All topics share a single Obsidian vault at the repo root. Read `references/architecture.md` for the full rationale and the four-phase pipeline (ingest → compile → query → lint).
+Each **topic** lives in its own folder inside the Obsidian vault, either directly at the vault root (e.g. `go-best-practices/`) or nested by configured glob (e.g. `harness/goclaw/`). A topic contains `raw/`, `wiki/`, `outputs/`, and `bases/` subtrees plus topic-level `CLAUDE.md`, `topic.yaml`, and `log.md`. All topics share a single Obsidian vault, commonly the repo root. Read `references/architecture.md` for the full rationale and the four-phase pipeline (ingest → compile → query → lint).
 
-The topic's **`CLAUDE.md`** (symlinked to `AGENTS.md`) is the **schema document** — it tells the LLM the scope, conventions, current articles, and research gaps for that topic. Co-evolve it as the topic matures.
+The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it tells the LLM the scope, conventions, current articles, and research gaps for that topic. `topic.yaml` is the structured source of truth for topic metadata (`slug`, `title`, `domain`). `AGENTS.md` may symlink to `CLAUDE.md` for Codex parity, but the valid-topic marker is `CLAUDE.md`.
 
 ## Prerequisites
 
@@ -23,6 +23,12 @@ The topic's **`CLAUDE.md`** (symlinked to `AGENTS.md`) is the **schema document*
    # If missing: npm install -g @tobilu/qmd
    ```
 3. Supported source languages for codebase analysis: TypeScript (`.ts`), TSX (`.tsx`), JavaScript (`.js`), JSX (`.jsx`), Go (`.go`).
+4. For repo-root vaults, configure `kb.toml` at the vault root:
+   ```toml
+   [vault]
+   root = "."
+   topic_globs = ["*", "harness/*", "social-media/*"]
+   ```
 
 ## Pattern Overview
 
@@ -50,17 +56,38 @@ This skill orchestrates several companion skills for the LLM-driven phases:
 ```bash
 kb topic new <slug> <title> <domain>     # scaffold a new topic
 kb topic list                             # list all topics in the vault
-kb topic info <slug>                      # topic metadata (counts, last log entry)
+kb topic info <topic-id>                  # topic metadata (counts, last log entry)
 ```
 
 ### Ingestion (auto-generates frontmatter, auto-appends to log.md)
 
 ```bash
-kb ingest url <url> --topic <slug>        # scrape a web URL via Firecrawl
-kb ingest file <path> --topic <slug>      # convert local file (PDF, DOCX, EPUB, HTML, images w/OCR, etc.)
-kb ingest youtube <url> --topic <slug>    # extract YouTube transcript
-kb ingest bookmarks <path> --topic <slug> # ingest a bookmark-cluster markdown file
-kb ingest codebase <path> --topic <slug>  # analyze a codebase into raw/codebase/
+kb ingest url <url> --topic <topic-id>        # scrape a web URL via Firecrawl
+kb ingest file <path> --topic <topic-id>      # convert local file (PDF, DOCX, EPUB, HTML, images w/OCR, etc.)
+kb ingest youtube <url> --topic <topic-id>    # extract YouTube transcript
+kb ingest bookmarks <path> --topic <topic-id> # ingest a bookmark-cluster markdown file
+kb ingest codebase <path> --topic <topic-id>  # analyze a codebase into raw/codebase/
+```
+
+Use path-relative topic identifiers for nested topics, e.g. `--topic harness/goclaw`.
+
+YouTube extraction uses `raw/youtube/` as the canonical transcript directory. If YouTube blocks captions or audio, configure network settings in `kb.toml`:
+
+```toml
+[youtube]
+proxy = "http://127.0.0.1:8080"
+cookies_file = "/path/to/youtube-cookies.txt"
+user_agent = "Mozilla/5.0 ..."
+retry_attempts = 3
+retry_backoff = "1s"
+```
+
+`YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; treat that as a network or auth configuration issue, not a missing-transcript issue.
+
+### Layout migrations
+
+```bash
+kb migrate transcripts --topic <topic-id> # move legacy raw/transcripts/*.md into raw/youtube/
 ```
 
 ### Codebase inspection
@@ -81,16 +108,16 @@ kb inspect deps <name-or-path> --format json
 ### Structural linting
 
 ```bash
-kb lint [<slug>] [--save]                 # dead links, orphans, missing sources, format violations, stale content
+kb lint [<topic-id>] [--save]             # dead links, orphans, missing sources, format violations, stale content
 ```
 
 ### Indexing and search (requires QMD)
 
 ```bash
-kb index --topic <slug>                   # create or update QMD collection
-kb search "<query>" --topic <slug>        # hybrid BM25 + vector search
-kb search "<query>" --lex --topic <slug>  # keyword-only search
-kb search "<query>" --vec --topic <slug>  # vector-only search
+kb index --topic <topic-id>               # create or update QMD collection
+kb search "<query>" --topic <topic-id>    # hybrid BM25 + vector search
+kb search "<query>" --lex --topic <topic-id>  # keyword-only search
+kb search "<query>" --vec --topic <topic-id>  # vector-only search
 ```
 
 After running `kb ingest` or `kb lint --save`, the CLI auto-appends entries to `<topic>/log.md`. Manual log entries are still needed for compile, query, promote, and split operations (Procedure 5).
@@ -103,11 +130,12 @@ Map the user's intent to the correct command:
 |--------|---------|
 | Scaffold a new topic | `kb topic new <slug> <title> <domain>` |
 | List all topics | `kb topic list` |
-| Scrape a web URL | `kb ingest url <url> --topic <slug>` |
-| Ingest a local file (PDF, DOCX, etc.) | `kb ingest file <path> --topic <slug>` |
-| Extract a YouTube transcript | `kb ingest youtube <url> --topic <slug>` |
-| Ingest bookmark clusters | `kb ingest bookmarks <path> --topic <slug>` |
-| Analyze a codebase | `kb ingest codebase <path> --topic <slug> --progress never` |
+| Scrape a web URL | `kb ingest url <url> --topic <topic-id>` |
+| Ingest a local file (PDF, DOCX, etc.) | `kb ingest file <path> --topic <topic-id>` |
+| Extract a YouTube transcript | `kb ingest youtube <url> --topic <topic-id>` |
+| Migrate legacy transcripts | `kb migrate transcripts --topic <topic-id>` |
+| Ingest bookmark clusters | `kb ingest bookmarks <path> --topic <topic-id>` |
+| Analyze a codebase | `kb ingest codebase <path> --topic <topic-id> --progress never` |
 | Find code smells | `kb inspect smells --format json` |
 | Find dead exports and orphan files | `kb inspect dead-code --format json` |
 | Rank functions by complexity | `kb inspect complexity --format json` |
@@ -118,9 +146,9 @@ Map the user's intent to the correct command:
 | Look up a specific file | `kb inspect file <path> --format json` |
 | Find what depends on X (incoming refs) | `kb inspect backlinks <name-or-path> --format json` |
 | Find what X depends on (outgoing deps) | `kb inspect deps <name-or-path> --format json` |
-| Run structural lint | `kb lint <slug> --save` |
-| Index vault for search | `kb index --topic <slug>` |
-| Search the knowledge base | `kb search "<query>" --topic <slug> --format json` |
+| Run structural lint | `kb lint <topic-id> --save` |
+| Index vault for search | `kb index --topic <topic-id>` |
+| Search the knowledge base | `kb search "<query>" --topic <topic-id> --format json` |
 
 ## Codebase Analysis Workflow
 
@@ -128,20 +156,20 @@ For codebase-specific analysis, the `kb ingest codebase` command must run before
 
 **Workflow A -- Code Analysis (no QMD required):**
 ```
-kb ingest codebase <path> --topic <slug> --> kb inspect <subcommand>
+kb ingest codebase <path> --topic <topic-id> --> kb inspect <subcommand>
 ```
 
 **Workflow B -- Full Pipeline (requires QMD):**
 ```
-kb ingest codebase <path> --topic <slug> --> kb index --> kb search <query>
+kb ingest codebase <path> --topic <topic-id> --> kb index --> kb search <query>
 ```
 
-On first run, `kb ingest codebase` bootstraps the topic under `<path>/.kb/vault/<topic-slug>/` by default. Later commands auto-discover this vault only when they run from inside that repository tree; otherwise pass `--vault <path>`.
+On first run, `kb ingest codebase` uses the discovered vault from `kb.toml` or legacy `.kb/vault/`. If no vault marker is discoverable from the current working directory, it falls back to bootstrapping under `<path>/.kb/vault/<topic-id>/`. Later commands auto-discover `kb.toml` or `.kb/vault/` from the current directory; otherwise pass `--vault <path>`.
 
 ### Ingest a Codebase
 
 ```bash
-kb ingest codebase <path> --topic <slug> --progress never
+kb ingest codebase <path> --topic <topic-id> --progress never
 ```
 
 Always use `--progress never` in agent contexts to prevent TTY progress bars from corrupting stdout.
@@ -159,7 +187,7 @@ Stderr carries structured stage logs. Do not treat stderr content as failure evi
 Key flags:
 - `--vault <dir>` -- override vault root location
 - `--output <dir>` -- deprecated alias for `--vault`
-- `--topic <slug>` -- target topic slug inside the vault
+- `--topic <topic-id>` -- target topic id inside the vault; nested topics use a relative path such as `harness/goclaw`
 - `--title <value>` -- bootstrap-only topic title override
 - `--domain <value>` -- bootstrap-only topic domain override
 - `--include <pattern>` -- re-include paths that would otherwise be ignored (repeatable)
@@ -175,7 +203,7 @@ Run inspect subcommands to analyze code quality and architecture.
 **Shared flags for all inspect subcommands:**
 - `--format json` -- always use JSON for programmatic parsing
 - `--vault <path>` -- explicit vault root (omit to auto-discover from cwd)
-- `--topic <slug>` -- explicit topic slug (omit if only one topic exists)
+- `--topic <topic-id>` -- explicit topic id, including nested relative paths such as `harness/goclaw` (omit if only one topic exists)
 
 #### Tabular Subcommands
 
@@ -250,7 +278,7 @@ Read `references/cli-inspect.md` for all column schemas and flag details.
 Index the vault content into QMD for search. This step requires QMD on PATH.
 
 ```bash
-kb index --topic <slug>
+kb index --topic <topic-id>
 ```
 
 The command is idempotent: it checks whether the collection already exists and chooses `add` (create) or `update` (refresh) automatically.
@@ -268,7 +296,7 @@ Read `references/cli-search-index.md` for the full output schema.
 Search indexed vault content with QMD. Requires a prior `kb index` run.
 
 ```bash
-kb search "<query>" --topic <slug> --format json
+kb search "<query>" --topic <topic-id> --format json
 ```
 
 **Search modes:**
@@ -291,7 +319,7 @@ Read `references/cli-search-index.md` for full details.
 ### Procedure 1: Compile a wiki article
 
 1. Read `references/compilation-guide.md` to anchor on length, style, wikilink density, and sourcing rules.
-2. Identify candidate sources via `kb search "<topic phrase>" --topic <slug>` or read `<topic>/wiki/index/Source Index.md`.
+2. Identify candidate sources via `kb search "<topic phrase>" --topic <topic-id>` or read `<topic>/wiki/index/Source Index.md`.
 3. Load the candidate raw sources fully into context.
 4. Load `<topic>/wiki/index/Concept Index.md` for orientation on existing articles and wikilink targets (including in other topics).
 5. **Surface takeaways BEFORE drafting.** Present to the user: 3-5 key takeaways from the sources, the entities/concepts this article will introduce or update, and anything that contradicts existing wiki articles. Ask: *"Anything specific to emphasize or de-emphasize?"* Wait for the response. Skip this step only if the user has explicitly asked for autonomous compilation.
@@ -302,7 +330,7 @@ Read `references/cli-search-index.md` for full details.
    ```
 8. Update the topic's indexes (Procedure 2).
 9. Update `<topic>/CLAUDE.md` current-articles list.
-10. Re-index the topic's collection: `kb index --topic <slug>`.
+10. Re-index the topic's collection: `kb index --topic <topic-id>`.
 11. Append an entry to `<topic>/log.md` (Procedure 5) -- e.g., `## [YYYY-MM-DD] compile | <Article Title> (<word_count> words, <N> sources)`.
 
 When **updating an existing article** (rather than writing new), use the `Current / Proposed / Reason / Source` diff format and contradiction-sweep workflow described in `references/compilation-guide.md`.
@@ -325,7 +353,7 @@ A query has two phases: **Phase A** produces the answer by reading the wiki (nev
 #### Phase A -- Answer from the wiki
 
 1. **Read the topic's Concept Index first** (`<topic>/wiki/index/Concept Index.md`). Scan the full index to identify candidate articles. Do NOT answer from general knowledge -- the wiki is the source of truth, even when the answer seems obvious. A contradiction between the wiki and general knowledge is itself valuable signal.
-2. **Locate relevant articles.** At small scale (<30 articles), the index is enough. At larger scale, supplement with `kb search "<phrase>" --topic <slug>`. Also grep the topic for keywords: `grep -rl "<keyword>" <topic>/wiki/concepts/`.
+2. **Locate relevant articles.** At small scale (<30 articles), the index is enough. At larger scale, supplement with `kb search "<phrase>" --topic <topic-id>`. Also grep the topic for keywords: `grep -rl "<keyword>" <topic>/wiki/concepts/`.
 3. **Read the identified articles in full.** Follow one level of `[[wikilinks]]` when targets look relevant to the question. Stop at one hop -- deeper traversal wastes context.
 4. **(Optional) Pull in raw sources** if an article's claim is ambiguous and its `sources:` frontmatter points at a specific raw file worth verifying.
 5. **Synthesize the answer** with these properties:
@@ -360,7 +388,7 @@ A query has two phases: **Phase A** produces the answer by reading the wiki (nev
 Run structural lint via the `kb` CLI:
 
 ```bash
-kb lint <slug> --save
+kb lint <topic-id> --save
 ```
 
 This checks dead wikilinks, orphan articles, missing source references, format violations, and stale content, saving a dated report to `<topic>/outputs/reports/`. For each issue, **propose the fix with a diff before applying** -- do not batch-apply changes:
@@ -425,10 +453,11 @@ Read `references/output-formats.md` for format examples and empty result handlin
 
 | Error | Recovery |
 |-------|----------|
-| `unable to find a vault from <path>` | Run `kb ingest codebase <path> --topic <slug>` first, or re-run with `--vault <path>` if the vault lives elsewhere |
+| `unable to find a vault from <path>` | Run `kb ingest codebase <path> --topic <topic-id>` first, or re-run with `--vault <path>` if the vault lives elsewhere |
+| YouTube `network_blocked` or blocked captions/audio | Configure `[youtube].proxy`, `[youtube].cookies_file`, or run from a trusted network |
 | `QMD is not available` | Run `npm install -g @tobilu/qmd` |
 | `no topics were found` | Run `kb ingest codebase` or `kb topic new` to populate the vault |
-| `multiple topics were found` | Re-run with `--topic <slug>` |
+| `multiple topics were found` | Re-run with `--topic <topic-id>` |
 | `--title and --domain are bootstrap-only` | Remove those flags when re-ingesting an existing topic |
 | `no symbols matched "<query>"` | Use `inspect smells` or `inspect complexity` to discover valid names |
 | `no file matched "<path>"` | Use exact source-relative path from vault frontmatter (e.g. `src/config.ts` not `./src/config.ts`) |
@@ -441,7 +470,7 @@ Read `references/output-formats.md` for format examples and empty result handlin
 | Topic not found | Run `kb topic list` to see available topics, or scaffold with `kb topic new` |
 | Article exceeds 4000 words | Extract a sub-topic into its own article and wikilink to it |
 | Cross-topic wikilink ambiguity | Disambiguate with full path: `[[other-topic/wiki/concepts/Article Name\|Display Name]]` |
-| `log.md` missing in existing topic | Create manually and backfill from git: `git log --format='## [%ad] <op> \| %s' --date=short <topic>/` |
+| `log.md` missing in existing topic | Run any write operation that autocures the topic skeleton, or create manually and backfill from git: `git log --format='## [%ad] <op> \| %s' --date=short <topic>/` |
 
 Read `references/error-handling.md` for the full error catalog with causes and recovery steps.
 
@@ -452,7 +481,7 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Use `--format json` when parsing output programmatically
 - Use `--progress never` when running `kb ingest codebase` in a non-interactive context
 - Parse stdout only for command output; treat stderr as diagnostics
-- Use the `topicSlug` from ingest output for subsequent `--topic` flags
+- Use the `topicSlug` from ingest output for subsequent `--topic` flags; for nested topics this is the relative path
 - Read `references/compilation-guide.md` before writing wiki articles
 - Run backlink audits after every article compile (Procedure 1, step 7)
 - File query answers to `outputs/queries/` (Procedure 3)
@@ -462,7 +491,7 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Pass both `--lex` and `--vec` to `search`
 - Pass `--force-embed` with `--embed=false` to `index`
 - Treat stderr content as failure evidence for `kb ingest codebase`
-- Assume vault location without running ingest or checking for `.kb/vault/`
+- Assume vault location without running ingest or checking for `kb.toml` / `.kb/vault/`
 - Use relative paths like `./src/config.ts` for `inspect file` -- use `src/config.ts` instead
 - Answer wiki queries from general knowledge -- the wiki is the source of truth
 - Skip the backlink audit when compiling articles

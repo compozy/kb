@@ -8,12 +8,12 @@ These occur when `inspect`, `search`, or `index` cannot locate a vault or topic.
 
 | Error Message | Cause | Recovery |
 |---------------|-------|----------|
-| `unable to find a vault from <path>. walked up looking for .kb/vault/` | No `.kb/vault/` directory exists above the working directory | Run `kb ingest codebase <path> --topic <slug>` first to create the default vault, or pass `--vault <path>` if the vault lives elsewhere |
+| `unable to find a vault from <path>. walked up looking for kb.toml or .kb/vault/` | No `kb.toml` or legacy `.kb/vault/` exists above the working directory | Add `kb.toml` at the vault root, run `kb ingest codebase <path> --topic <topic-id>` to bootstrap a legacy vault, or pass `--vault <path>` |
 | `Vault path was not found or is not a directory: <path>` | The `--vault` flag points to a nonexistent path | Verify the vault path exists and is a directory |
-| `no topics were found in <path>. expected child directories containing CLAUDE.md` | The vault directory exists but contains no generated topics | Run `kb ingest codebase <path>` or `kb topic new` to populate the vault |
-| `multiple topics were found in <path>: <slug1>, <slug2>` | The vault contains more than one topic and no `--topic` flag was provided | Re-run the command with `--topic <slug>` to select one |
-| `topic name is required when topic is specified` | The `--topic` flag was provided but with an empty or whitespace-only value | Provide a non-empty topic slug |
-| `Topic path was not found or is not a directory: <path>` | The `--topic` slug does not match any directory in the vault | Check available topic slugs inside the vault directory |
+| `no topics were found in <path>. expected child directories containing CLAUDE.md` | The vault exists but no configured topic glob matches a directory with `CLAUDE.md` | Run `kb topic new`, ingest a codebase, or update `[vault].topic_globs` in `kb.toml` |
+| `multiple topics were found in <path>: <slug1>, <slug2>` | The vault contains more than one topic and no `--topic` flag was provided | Re-run the command with `--topic <topic-id>`; nested topic ids are relative paths like `harness/goclaw` |
+| `topic name is required when topic is specified` | The `--topic` flag was provided but with an empty or whitespace-only value | Provide a non-empty topic id |
+| `topic "<topic>" is missing CLAUDE.md` | The topic directory is missing the marker/schema file | Create or restore `CLAUDE.md`, or choose a topic listed by `kb topic list` |
 
 ## Inspect Lookup Errors
 
@@ -41,7 +41,7 @@ These occur before any command execution when flag combinations are invalid.
 
 | Error Message | Cause | Recovery |
 |---------------|-------|----------|
-| `ingest codebase: --title and --domain are bootstrap-only and cannot be used when topic "<slug>" already exists` | Bootstrap-only metadata flags were used while re-ingesting an existing topic | Remove `--title` / `--domain`, or create a new topic slug if you intend a distinct topic |
+| `ingest codebase: --title and --domain are bootstrap-only and cannot be used when topic "<topic-id>" already exists` | Bootstrap-only metadata flags were used while re-ingesting an existing topic | Remove `--title` / `--domain`, or create a new topic id if you intend a distinct topic |
 | `choose at most one search mode flag: --lex or --vec` | Both `--lex` and `--vec` were provided to `search` | Use only one mode selector, or omit both for hybrid mode |
 | `--force-embed cannot be used together with --embed=false` | Contradictory embedding flags on `index` | Remove `--force-embed` or set `--embed=true` |
 | `--limit must be >= 1. received <N>` | The `--limit` flag on `search` was set to zero or negative | Provide a positive integer for `--limit` |
@@ -57,10 +57,11 @@ These occur during knowledge base maintenance operations.
 | Error | Cause | Recovery |
 |-------|-------|----------|
 | `kb` not found on PATH | The `kb` binary is not installed or not on PATH | Install the `kb` binary and verify with `kb version` |
-| Topic not found | The specified topic slug does not exist in the vault | Run `kb topic list` to see available topics, or scaffold with `kb topic new <slug> <title> <domain>` |
+| Topic not found | The specified topic id does not exist in the vault or is not matched by `topic_globs` | Run `kb topic list` to see available topics, update `kb.toml`, scaffold a direct topic with `kb topic new <slug> <title> <domain>`, or bootstrap a nested topic that matches `topic_globs` |
+| YouTube `network_blocked` / blocked captions or audio | YouTube returned 400/403/429/5xx, often due to bot detection or datacenter IP blocking | Configure `[youtube].proxy`, `[youtube].cookies_file`, or run from a trusted/residential network |
 | Article exceeds 4000 words | A wiki article has grown beyond the recommended length | Extract a sub-topic into its own article and wikilink to it, rather than padding |
 | Cross-topic wikilink ambiguity | Two topics contain articles with the same title | Disambiguate with the full path: `[[other-topic/wiki/concepts/Article Name\|Display Name]]` |
-| `log.md` missing in existing topic | The topic was created before `log.md` was standard, or it was accidentally deleted | Create manually and backfill from git: `git log --format='## [%ad] <op> \| %s' --date=short <topic>/` |
+| `log.md` missing in existing topic | The topic was created before `log.md` was standard, or it was accidentally deleted | Let the next write operation autocure the skeleton, or create manually and backfill from git: `git log --format='## [%ad] <op> \| %s' --date=short <topic>/` |
 | Log entry conflicts with git | Apparent duplication between `log.md` and git history | The log is a human/LLM-readable audit trail, not a replacement for git. Let them coexist: git records *what changed*, `log.md` records *what the knowledge base did* |
 
 ## General Errors

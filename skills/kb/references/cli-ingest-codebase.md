@@ -12,8 +12,8 @@ The `<path>` argument is the root directory of the source repository to analyze 
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--topic` | string | `""` | Topic slug for the ingested codebase (required) |
-| `--vault` | string | `""` | Vault root where the generated topic will be written. Defaults to `<path>/.kb/vault` |
+| `--topic` | string | `""` | Topic id for the ingested codebase (required). Nested topics use a vault-relative path such as `harness/goclaw` |
+| `--vault` | string | `""` | Vault root where the generated topic will be written. Defaults to the discovered `kb.toml` vault root or legacy `.kb/vault/`; falls back to `<path>/.kb/vault` when no vault is discoverable |
 | `--output` | string | `""` | Deprecated alias for `--vault` |
 | `--title` | string | `""` | Bootstrap-only topic title override for a missing topic |
 | `--domain` | string | `""` | Bootstrap-only topic domain override for a missing topic |
@@ -109,12 +109,14 @@ After ingestion, the topic directory contains:
   wiki/index/       # Topic landing pages with bridges into wiki/codebase/
   bases/            # Obsidian Base view definitions
   CLAUDE.md         # Topic marker and schema document
-  AGENTS.md         # Symlink to CLAUDE.md
+  topic.yaml        # Structured topic metadata: slug, title, domain
+  AGENTS.md         # Optional symlink to CLAUDE.md
   log.md            # Append-only audit log
 ```
 
 ## Default Path Derivation
 
-- If `--vault` is omitted: vault path defaults to `<rootPath>/.kb/vault`
+- If `--vault` is omitted: the CLI discovers `kb.toml` from the current working directory and resolves `[vault].root`; otherwise it falls back to legacy `.kb/vault/`
+- If no vault is discoverable: codebase ingest bootstraps under `<rootPath>/.kb/vault`
 - If `--output` is provided: it behaves like `--vault` but is deprecated
-- Full topic path: `<vaultPath>/<topicSlug>/`
+- Full topic path: `<vaultPath>/<topicSlug>/`; for nested topics, `topicSlug` includes slashes, e.g. `<vaultPath>/harness/goclaw/`

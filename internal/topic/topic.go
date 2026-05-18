@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compozy/kb/internal/config"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 	dashboardTemplatePath    = "assets/dashboard-template.md"
 	logTemplatePath          = "assets/log-template.md"
 	sourceIndexTemplatePath  = "assets/source-index-template.md"
+	topicMarkerFile          = "CLAUDE.md"
+	topicMetadataFileName    = "topic.yaml"
 )
 
 var (
@@ -30,19 +34,6 @@ var (
 	domainPattern    = regexp.MustCompile("(?m)^\\*\\*Domain:\\*\\*\\s+`([^`]+)`")
 	headingPattern   = regexp.MustCompile(`(?m)^#\s+(.+?)\s*$`)
 	topicSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
-	compatibleTopicDirectories = []string{
-		"raw/articles",
-		"raw/bookmarks",
-		"raw/codebase",
-		"wiki/concepts",
-		"wiki/index",
-		"outputs/queries",
-		"outputs/briefings",
-		"outputs/diagrams",
-		"outputs/reports",
-		"bases",
-	}
 
 	currentTopicDirectories = []string{
 		"raw/articles",
@@ -103,6 +94,12 @@ type templateFile struct {
 	outputPath string
 }
 
+type topicMetadataFile struct {
+	Slug   string `yaml:"slug"`
+	Title  string `yaml:"title"`
+	Domain string `yaml:"domain"`
+}
+
 // New scaffolds a new topic underneath the provided vault root.
 func New(vaultPath, slug, title, domain string) (models.TopicInfo, error) {
 	return newWithDate(vaultPath, slug, title, domain, time.Now())
@@ -115,34 +112,17 @@ func List(vaultPath string) ([]models.TopicInfo, error) {
 		return nil, fmt.Errorf("list topics: %w", err)
 	}
 
-	entries, err := os.ReadDir(cleanVaultPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return []models.TopicInfo{}, nil
-	}
+	topicSlugs, err := listTopicSlugs(cleanVaultPath)
 	if err != nil {
-		return nil, fmt.Errorf("list topics: read vault path %q: %w", cleanVaultPath, err)
+		return nil, fmt.Errorf("list topics: %w", err)
 	}
 
-	topics := make([]models.TopicInfo, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-
-		topicPath := filepath.Join(cleanVaultPath, entry.Name())
-		ok, err := hasTopicSkeleton(topicPath)
+	topics := make([]models.TopicInfo, 0, len(topicSlugs))
+	for _, topicSlug := range topicSlugs {
+		info, err := infoAtPath(filepath.Join(cleanVaultPath, filepath.FromSlash(topicSlug)), topicSlug)
 		if err != nil {
-			return nil, fmt.Errorf("list topics: inspect %q: %w", topicPath, err)
+			return nil, fmt.Errorf("list topics: read topic %q: %w", topicSlug, err)
 		}
-		if !ok {
-			continue
-		}
-
-		info, err := infoAtPath(topicPath, entry.Name())
-		if err != nil {
-			return nil, fmt.Errorf("list topics: read topic %q: %w", entry.Name(), err)
-		}
-
 		topics = append(topics, info)
 	}
 
@@ -153,32 +133,39 @@ func List(vaultPath string) ([]models.TopicInfo, error) {
 	return topics, nil
 }
 
-// Info returns topic metadata for one scaffolded topic.
-func Info(vaultPath, slug string) (models.TopicInfo, error) {
+// Resolve returns metadata for one marker-backed topic identified by path
+// relative to the vault root.
+func Resolve(vaultPath, topicRef string) (models.TopicInfo, error) {
 	cleanVaultPath, err := normalizeVaultPath(vaultPath)
 	if err != nil {
-		return models.TopicInfo{}, fmt.Errorf("topic info: %w", err)
+		return models.TopicInfo{}, fmt.Errorf("resolve topic: %w", err)
 	}
 
-	cleanSlug := strings.TrimSpace(slug)
-	if cleanSlug == "" {
-		return models.TopicInfo{}, fmt.Errorf("topic info: topic slug is required")
+	cleanTopicRef, err := cleanTopicRef(topicRef)
+	if err != nil {
+		return models.TopicInfo{}, fmt.Errorf("resolve topic: %w", err)
 	}
 
-	topicPath := filepath.Join(cleanVaultPath, cleanSlug)
+	topicPath := filepath.Join(cleanVaultPath, filepath.FromSlash(cleanTopicRef))
 	ok, err := hasTopicSkeleton(topicPath)
 	if err != nil {
-		return models.TopicInfo{}, fmt.Errorf("topic info: inspect %q: %w", topicPath, err)
+		return models.TopicInfo{}, fmt.Errorf("resolve topic: inspect %q: %w", topicPath, err)
 	}
 	if !ok {
-		return models.TopicInfo{}, fmt.Errorf(
-			"topic info: topic %q is missing the expected KB skeleton: %w",
-			cleanSlug,
-			ErrTopicNotFound,
-		)
+		return models.TopicInfo{}, fmt.Errorf("resolve topic: topic %q is missing %s: %w", cleanTopicRef, topicMarkerFile, ErrTopicNotFound)
 	}
 
-	info, err := infoAtPath(topicPath, cleanSlug)
+	info, err := infoAtPath(topicPath, cleanTopicRef)
+	if err != nil {
+		return models.TopicInfo{}, fmt.Errorf("resolve topic: %w", err)
+	}
+
+	return info, nil
+}
+
+// Info returns topic metadata for one scaffolded topic.
+func Info(vaultPath, slug string) (models.TopicInfo, error) {
+	info, err := Resolve(vaultPath, slug)
 	if err != nil {
 		return models.TopicInfo{}, fmt.Errorf("topic info: %w", err)
 	}
@@ -235,6 +222,9 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 	if err := installTemplates(topicPath, context); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: install templates: %w", err)
 	}
+	if err := WriteMetadataFile(topicPath, cleanSlug, cleanTitle, cleanDomain); err != nil {
+		return models.TopicInfo{}, fmt.Errorf("new topic: write topic metadata: %w", err)
+	}
 	if err := ensureAgentsSymlink(topicPath); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: ensure AGENTS.md symlink: %w", err)
 	}
@@ -260,6 +250,115 @@ func normalizeVaultPath(vaultPath string) (string, error) {
 	}
 
 	return filepath.Clean(trimmed), nil
+}
+
+func cleanTopicRef(topicRef string) (string, error) {
+	trimmed := strings.TrimSpace(topicRef)
+	if trimmed == "" {
+		return "", fmt.Errorf("topic slug is required")
+	}
+	if filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("topic slug must be relative: %q", topicRef)
+	}
+
+	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(trimmed)))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("topic slug cannot escape the vault root: %q", topicRef)
+	}
+	if strings.HasPrefix(cleaned, ".") || strings.Contains(cleaned, "/.") {
+		return "", fmt.Errorf("topic slug cannot reference hidden paths: %q", topicRef)
+	}
+
+	return cleaned, nil
+}
+
+func listTopicSlugs(vaultPath string) ([]string, error) {
+	if _, err := os.Stat(vaultPath); errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("stat vault path %q: %w", vaultPath, err)
+	}
+
+	globs, err := topicGlobsForVault(vaultPath)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	for _, topicGlob := range globs {
+		matches, err := filepath.Glob(filepath.Join(vaultPath, filepath.FromSlash(topicGlob)))
+		if err != nil {
+			return nil, fmt.Errorf("expand topic glob %q: %w", topicGlob, err)
+		}
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil {
+				return nil, fmt.Errorf("stat topic candidate %q: %w", match, err)
+			}
+			if !info.IsDir() {
+				continue
+			}
+
+			relativePath, err := filepath.Rel(vaultPath, match)
+			if err != nil {
+				return nil, fmt.Errorf("rel topic candidate %q: %w", match, err)
+			}
+			slug := filepath.ToSlash(relativePath)
+			if strings.HasPrefix(slug, ".") || strings.Contains(slug, "/.") {
+				continue
+			}
+
+			ok, err := hasTopicSkeleton(match)
+			if err != nil {
+				return nil, fmt.Errorf("inspect %q: %w", match, err)
+			}
+			if ok {
+				seen[slug] = struct{}{}
+			}
+		}
+	}
+
+	topics := make([]string, 0, len(seen))
+	for slug := range seen {
+		topics = append(topics, slug)
+	}
+	sort.Strings(topics)
+	return topics, nil
+}
+
+func topicGlobsForVault(vaultPath string) ([]string, error) {
+	configPath, found, err := config.DiscoverProjectConfigPath(vaultPath)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return []string{"*"}, nil
+	}
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("load project config %q: %w", configPath, err)
+	}
+	configVaultRoot, err := config.ResolveVaultRoot(configPath, cfg.Vault)
+	if err != nil {
+		return nil, err
+	}
+	cleanVaultPath, err := filepath.Abs(vaultPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve vault path %q: %w", vaultPath, err)
+	}
+	if filepath.Clean(configVaultRoot) != filepath.Clean(cleanVaultPath) {
+		return []string{"*"}, nil
+	}
+
+	globs := make([]string, 0, len(cfg.Vault.TopicGlobs))
+	for _, topicGlob := range cfg.Vault.TopicGlobs {
+		globs = append(globs, filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(topicGlob)))))
+	}
+	if len(globs) == 0 {
+		return []string{"*"}, nil
+	}
+	return globs, nil
 }
 
 func ensureDirectory(path string) error {
@@ -297,6 +396,12 @@ func EnsureCurrentSkeleton(topicPath string) error {
 	}
 
 	if err := createTopicSkeleton(topicPath); err != nil {
+		return err
+	}
+	if err := ensureTopicLog(topicPath); err != nil {
+		return err
+	}
+	if err := ensureAgentsFile(topicPath); err != nil {
 		return err
 	}
 
@@ -355,6 +460,26 @@ func installTemplates(topicPath string, context templateContext) error {
 		if err := os.WriteFile(targetPath, []byte(rendered), 0o644); err != nil {
 			return fmt.Errorf("write %q: %w", targetPath, err)
 		}
+	}
+
+	return nil
+}
+
+// WriteMetadataFile writes the structured topic.yaml metadata file.
+func WriteMetadataFile(topicPath, slug, title, domain string) error {
+	metadata := topicMetadataFile{
+		Slug:   strings.TrimSpace(slug),
+		Title:  strings.TrimSpace(title),
+		Domain: strings.TrimSpace(domain),
+	}
+	encoded, err := yaml.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal topic metadata: %w", err)
+	}
+
+	metadataPath := filepath.Join(topicPath, topicMetadataFileName)
+	if err := os.WriteFile(metadataPath, encoded, 0o644); err != nil {
+		return fmt.Errorf("write %q: %w", metadataPath, err)
 	}
 
 	return nil
@@ -439,6 +564,37 @@ func ensureAgentsSymlink(topicPath string) error {
 	return nil
 }
 
+func ensureAgentsFile(topicPath string) error {
+	agentsPath := filepath.Join(topicPath, "AGENTS.md")
+	if _, err := os.Lstat(agentsPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("lstat %q: %w", agentsPath, err)
+	}
+
+	if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
+		return fmt.Errorf("create AGENTS.md symlink: %w", err)
+	}
+	return nil
+}
+
+func ensureTopicLog(topicPath string) error {
+	logPath := filepath.Join(topicPath, "log.md")
+	if info, err := os.Stat(logPath); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("%q is a directory", logPath)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %q: %w", logPath, err)
+	}
+
+	if err := os.WriteFile(logPath, []byte("# Topic Log\n"), 0o644); err != nil {
+		return fmt.Errorf("write %q: %w", logPath, err)
+	}
+	return nil
+}
+
 func ensureGitkeeps(topicPath string) error {
 	for _, relativePath := range gitkeepDirectories {
 		directoryPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
@@ -498,59 +654,20 @@ func hasTopicSkeleton(topicPath string) (bool, error) {
 		return false, nil
 	}
 
-	for _, relativePath := range compatibleTopicDirectories {
-		requiredPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
-		requiredInfo, err := os.Stat(requiredPath)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil {
-			return false, fmt.Errorf("stat %q: %w", requiredPath, err)
-		}
-		if !requiredInfo.IsDir() {
-			return false, nil
-		}
-	}
-
-	for _, relativePath := range []string{"CLAUDE.md", "log.md"} {
-		requiredPath := filepath.Join(topicPath, relativePath)
-		requiredInfo, err := os.Stat(requiredPath)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil {
-			return false, fmt.Errorf("stat %q: %w", requiredPath, err)
-		}
-		if requiredInfo.IsDir() {
-			return false, nil
-		}
-	}
-
-	agentsPath := filepath.Join(topicPath, "AGENTS.md")
-	linkInfo, err := os.Lstat(agentsPath)
+	markerPath := filepath.Join(topicPath, topicMarkerFile)
+	markerInfo, err := os.Stat(markerPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("lstat %q: %w", agentsPath, err)
-	}
-	if linkInfo.Mode()&os.ModeSymlink == 0 {
-		return false, nil
+		return false, fmt.Errorf("stat %q: %w", markerPath, err)
 	}
 
-	target, err := os.Readlink(agentsPath)
-	if err != nil {
-		return false, fmt.Errorf("readlink %q: %w", agentsPath, err)
-	}
-	if target != "CLAUDE.md" {
-		return false, nil
-	}
-
-	return true, nil
+	return !markerInfo.IsDir(), nil
 }
 
 func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
-	title, domain, err := readTopicMetadata(filepath.Join(topicPath, "CLAUDE.md"), slug)
+	title, domain, err := readTopicMetadata(topicPath, slug)
 	if err != nil {
 		return models.TopicInfo{}, fmt.Errorf("read topic metadata: %w", err)
 	}
@@ -582,6 +699,43 @@ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
 }
 
 func readTopicMetadata(claudePath, slug string) (string, string, error) {
+	yamlMetadata, err := readTopicYAMLMetadata(filepath.Join(claudePath, topicMetadataFileName))
+	if err != nil {
+		return "", "", err
+	}
+
+	claudeTitle, claudeDomain, err := readClaudeMetadata(filepath.Join(claudePath, topicMarkerFile), slug)
+	if err != nil {
+		return "", "", err
+	}
+
+	title := firstNonEmpty(yamlMetadata.Title, claudeTitle, humanizeSlug(slug))
+	domain := firstNonEmpty(yamlMetadata.Domain, claudeDomain, slug)
+
+	return title, domain, nil
+}
+
+func readTopicYAMLMetadata(metadataPath string) (topicMetadataFile, error) {
+	content, err := os.ReadFile(metadataPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return topicMetadataFile{}, nil
+	}
+	if err != nil {
+		return topicMetadataFile{}, fmt.Errorf("read %q: %w", metadataPath, err)
+	}
+
+	var metadata topicMetadataFile
+	if err := yaml.Unmarshal(content, &metadata); err != nil {
+		return topicMetadataFile{}, fmt.Errorf("parse %q: %w", metadataPath, err)
+	}
+
+	metadata.Slug = strings.TrimSpace(metadata.Slug)
+	metadata.Title = strings.TrimSpace(metadata.Title)
+	metadata.Domain = strings.TrimSpace(metadata.Domain)
+	return metadata, nil
+}
+
+func readClaudeMetadata(claudePath, slug string) (string, string, error) {
 	content, err := os.ReadFile(claudePath)
 	if err != nil {
 		return "", "", fmt.Errorf("read %q: %w", claudePath, err)
@@ -600,8 +754,20 @@ func readTopicMetadata(claudePath, slug string) (string, string, error) {
 	return title, domain, nil
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func readLastLogEntry(logPath string) (string, error) {
 	content, err := os.ReadFile(logPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("read %q: %w", logPath, err)
 	}
@@ -633,6 +799,9 @@ func countVisibleFiles(root string) (int, error) {
 func countFiles(root string, include func(fs.DirEntry) bool) (int, error) {
 	count := 0
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

@@ -142,6 +142,10 @@ func resolveCodebaseVaultPath(cmd *cobra.Command, action string, rootPath string
 		return absoluteVaultPath, nil
 	}
 
+	if discoveredVaultPath, err := resolveCommandVaultPath(cmd, ingestGetwd, action); err == nil {
+		return discoveredVaultPath, nil
+	}
+
 	absoluteRootPath, err := filepath.Abs(strings.TrimSpace(rootPath))
 	if err != nil {
 		return "", fmt.Errorf("%s: resolve root path %q: %w", action, rootPath, err)

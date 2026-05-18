@@ -154,6 +154,17 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 		t.Fatalf("CLAUDE.md missing slug substitution:\n%s", claudeContent)
 	}
 
+	metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+	for _, fragment := range []string{
+		"slug: distributed-systems",
+		"title: Distributed Systems",
+		"domain: distributed",
+	} {
+		if !strings.Contains(metadataContent, fragment) {
+			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+		}
+	}
+
 	target, err := os.Readlink(filepath.Join(topicPath, "AGENTS.md"))
 	if err != nil {
 		t.Fatalf("expected AGENTS.md symlink: %v", err)
@@ -497,7 +508,7 @@ func TestInfoRequiresSlug(t *testing.T) {
 	}
 }
 
-func TestInfoReturnsErrorForIncompleteTopicSkeleton(t *testing.T) {
+func TestInfoReturnsErrorForTopicWithoutMarker(t *testing.T) {
 	t.Parallel()
 
 	vaultPath := t.TempDir()
@@ -506,8 +517,8 @@ func TestInfoReturnsErrorForIncompleteTopicSkeleton(t *testing.T) {
 	}
 
 	_, err := Info(vaultPath, "broken-topic")
-	if err == nil || !strings.Contains(err.Error(), "missing the expected KB skeleton") {
-		t.Fatalf("Info error = %v, want skeleton validation error", err)
+	if err == nil || !strings.Contains(err.Error(), "missing CLAUDE.md") {
+		t.Fatalf("Info error = %v, want missing marker validation error", err)
 	}
 }
 
@@ -526,6 +537,9 @@ func TestInfoFallsBackWhenClaudeMetadataIsMissing(t *testing.T) {
 	}
 
 	topicPath := filepath.Join(vaultPath, "plain-topic")
+	if err := os.Remove(filepath.Join(topicPath, "topic.yaml")); err != nil {
+		t.Fatalf("remove topic.yaml: %v", err)
+	}
 	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "schema document without explicit metadata\n")
 	writeFile(t, filepath.Join(topicPath, "log.md"), "# Plain Topic - Log\n")
 
@@ -543,6 +557,75 @@ func TestInfoFallsBackWhenClaudeMetadataIsMissing(t *testing.T) {
 	if info.LastLogEntry != "" {
 		t.Fatalf("last log entry = %q, want empty string", info.LastLogEntry)
 	}
+}
+
+func TestInfoPrefersTopicYAMLMetadata(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+	if _, err := newWithDate(
+		vaultPath,
+		"metadata-topic",
+		"Original Title",
+		"original",
+		time.Date(2026, 4, 11, 12, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("create topic: %v", err)
+	}
+
+	topicPath := filepath.Join(vaultPath, "metadata-topic")
+	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Prose Title\n\n**Domain:** \x60prose\x60\n")
+	writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: metadata-topic\ntitle: Structured Title\ndomain: structured\n")
+
+	info, err := Info(vaultPath, "metadata-topic")
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if info.Title != "Structured Title" {
+		t.Fatalf("title = %q, want Structured Title", info.Title)
+	}
+	if info.Domain != "structured" {
+		t.Fatalf("domain = %q, want structured", info.Domain)
+	}
+}
+
+func TestInfoAcceptsPartialTopicWithMarker(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+	topicPath := filepath.Join(vaultPath, "partial-topic")
+	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Partial Topic\n\n**Domain:** \x60partial\x60\n")
+
+	info, err := Info(vaultPath, "partial-topic")
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if info.Title != "Partial Topic" || info.Domain != "partial" {
+		t.Fatalf("metadata = (%q, %q), want Partial Topic/partial", info.Title, info.Domain)
+	}
+	if info.ArticleCount != 0 || info.SourceCount != 0 {
+		t.Fatalf("counts = (%d, %d), want zero", info.ArticleCount, info.SourceCount)
+	}
+}
+
+func TestEnsureCurrentSkeletonAutocuresSupportFiles(t *testing.T) {
+	t.Parallel()
+
+	topicPath := filepath.Join(t.TempDir(), "partial-topic")
+	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Partial Topic\n")
+
+	if err := EnsureCurrentSkeleton(topicPath); err != nil {
+		t.Fatalf("EnsureCurrentSkeleton returned error: %v", err)
+	}
+	for _, relativePath := range []string{
+		"raw/youtube",
+		"raw/codebase/files",
+		"wiki/index",
+	} {
+		assertDirExists(t, filepath.Join(topicPath, filepath.FromSlash(relativePath)))
+	}
+	assertFileExists(t, filepath.Join(topicPath, "log.md"))
+	assertFileExists(t, filepath.Join(topicPath, "AGENTS.md"))
 }
 
 func TestSubstituteValueReplacesNestedValues(t *testing.T) {
@@ -593,7 +676,7 @@ func TestSubstituteValueReplacesNestedValues(t *testing.T) {
 	}
 }
 
-func TestHasTopicSkeletonRejectsPlainAgentsFile(t *testing.T) {
+func TestHasTopicSkeletonAcceptsPlainAgentsFile(t *testing.T) {
 	t.Parallel()
 
 	vaultPath := t.TempDir()
@@ -618,8 +701,8 @@ func TestHasTopicSkeletonRejectsPlainAgentsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hasTopicSkeleton returned error: %v", err)
 	}
-	if ok {
-		t.Fatalf("hasTopicSkeleton = true, want false")
+	if !ok {
+		t.Fatalf("hasTopicSkeleton = false, want true")
 	}
 }
 

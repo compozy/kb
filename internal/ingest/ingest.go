@@ -47,7 +47,7 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 		ctx = context.Background()
 	}
 
-	topicInfo, err := topic.Info(options.VaultPath, options.Topic)
+	topicInfo, err := topic.Resolve(options.VaultPath, options.Topic)
 	if err != nil {
 		return models.IngestResult{}, fmt.Errorf("ingest: validate topic: %w", err)
 	}

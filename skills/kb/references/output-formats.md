@@ -80,9 +80,9 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
 {
   "command": "generate",
   "rootPath": "/path/to/repo",
-  "vaultPath": "/path/to/repo/.kb/vault",
-  "topicPath": "/path/to/repo/.kb/vault/my-project",
-  "topicSlug": "my-project",
+  "vaultPath": "/path/to/repo",
+  "topicPath": "/path/to/repo/harness/goclaw",
+  "topicSlug": "harness/goclaw",
   "filesScanned": 120,
   "filesParsed": 95,
   "filesSkipped": 25,
@@ -125,7 +125,7 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
 
 ```json
 {
-  "collectionName": "my-project",
+  "collectionName": "harness/goclaw",
   "embedRequested": true,
   "embedResult": {
     "docsProcessed": 95,
@@ -136,8 +136,8 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
   "forceEmbed": false,
   "status": {
     "collection": {
-      "name": "my-project",
-      "path": "qmd://collections/my-project",
+      "name": "harness/goclaw",
+      "path": "qmd://collections/harness/goclaw",
       "pattern": "",
       "documents": 95,
       "lastUpdated": "2026-04-10T12:00:00Z"
@@ -146,8 +146,8 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
     "needsEmbedding": 0,
     "totalDocuments": 95
   },
-  "topicPath": "/path/to/vault/my-project",
-  "topicSlug": "my-project",
+  "topicPath": "/path/to/repo/harness/goclaw",
+  "topicSlug": "harness/goclaw",
   "updateResult": {
     "collections": 1,
     "indexed": 95,
@@ -156,7 +156,7 @@ Detail commands (`symbol`, `file`) return field-value pairs when a single entity
     "removed": 0,
     "needsEmbedding": 95
   },
-  "vaultPath": "/path/to/vault"
+  "vaultPath": "/path/to/repo"
 }
 ```
 

@@ -2,12 +2,16 @@
 package youtube
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"net"
+	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -51,6 +55,8 @@ const (
 	ErrorKindTranscriptUnavailable ErrorKind = "transcript_unavailable"
 	// ErrorKindAudioUnavailable reports that no supported audio stream could be downloaded.
 	ErrorKindAudioUnavailable ErrorKind = "audio_unavailable"
+	// ErrorKindNetworkBlocked reports a YouTube network block or bot-detection response.
+	ErrorKindNetworkBlocked ErrorKind = "network_blocked"
 )
 
 // Error carries structured failure details for callers that need to branch on
@@ -137,19 +143,178 @@ type sttClient interface {
 	Transcribe(ctx context.Context, audio []byte, format string) (string, error)
 }
 
+type retryPolicy struct {
+	Attempts int
+	Backoff  time.Duration
+}
+
 // Extractor orchestrates transcript extraction and optional STT fallback.
 type Extractor struct {
-	youtube youtubeClient
-	stt     sttClient
+	youtube  youtubeClient
+	stt      sttClient
+	retry    retryPolicy
+	setupErr error
 }
 
 // NewExtractor constructs a default extractor backed by kkdai/youtube and the
 // OpenRouter STT client.
-func NewExtractor(cfg config.OpenRouterConfig) *Extractor {
-	return &Extractor{
-		youtube: &ytdl.Client{},
-		stt:     NewOpenRouterClient(cfg),
+func NewExtractor(cfg config.OpenRouterConfig, youtubeConfigs ...config.YouTubeConfig) *Extractor {
+	youtubeConfig := config.Default().YouTube
+	if len(youtubeConfigs) > 0 {
+		youtubeConfig = youtubeConfigs[0]
 	}
+	httpClient, err := newHTTPClient(youtubeConfig)
+	backoff, backoffErr := youtubeConfig.RetryBackoffDuration()
+	if err == nil {
+		err = backoffErr
+	}
+	attempts := youtubeConfig.RetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	return &Extractor{
+		youtube: &ytdl.Client{HTTPClient: httpClient},
+		stt:     NewOpenRouterClient(cfg),
+		retry: retryPolicy{
+			Attempts: attempts,
+			Backoff:  backoff,
+		},
+		setupErr: err,
+	}
+}
+
+func newHTTPClient(cfg config.YouTubeConfig) (*http.Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	proxyValue := strings.TrimSpace(cfg.Proxy)
+	if proxyValue != "" {
+		proxyURL, err := url.Parse(proxyValue)
+		if err != nil {
+			return nil, fmt.Errorf("parse youtube proxy: %w", err)
+		}
+		switch strings.ToLower(proxyURL.Scheme) {
+		case "http", "https", "socks5":
+		default:
+			return nil, fmt.Errorf("youtube proxy scheme must be http, https, or socks5: %q", proxyURL.Scheme)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	} else {
+		transport.Proxy = http.ProxyFromEnvironment
+	}
+
+	cookies, err := loadCookiesFile(cfg.CookiesFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Client{
+		Transport: &requestDecoratingTransport{
+			base:      transport,
+			cookies:   cookies,
+			userAgent: strings.TrimSpace(cfg.UserAgent),
+		},
+	}, nil
+}
+
+type requestDecoratingTransport struct {
+	base      http.RoundTripper
+	cookies   []*http.Cookie
+	userAgent string
+}
+
+func (transport *requestDecoratingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if transport == nil {
+		return http.DefaultTransport.RoundTrip(request)
+	}
+	clonedRequest := request.Clone(request.Context())
+	for _, cookie := range transport.cookies {
+		clonedRequest.AddCookie(cookie)
+	}
+	if transport.userAgent != "" {
+		clonedRequest.Header.Set("User-Agent", transport.userAgent)
+	}
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(clonedRequest)
+}
+
+func loadCookiesFile(path string) ([]*http.Cookie, error) {
+	cleanPath := strings.TrimSpace(path)
+	if cleanPath == "" {
+		return nil, nil
+	}
+
+	file, err := os.Open(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("open youtube cookies file %q: %w", cleanPath, err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	cookies, err := parseCookies(file)
+	if err != nil {
+		return nil, fmt.Errorf("parse youtube cookies file %q: %w", cleanPath, err)
+	}
+	return cookies, nil
+}
+
+func parseCookies(reader io.Reader) ([]*http.Cookie, error) {
+	scanner := bufio.NewScanner(reader)
+	cookies := []*http.Cookie{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#HttpOnly_") {
+			line = strings.TrimPrefix(line, "#HttpOnly_")
+		} else if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if strings.Count(line, "	") >= 6 {
+			cookie, err := parseNetscapeCookie(line)
+			if err != nil {
+				return nil, err
+			}
+			cookies = append(cookies, cookie)
+			continue
+		}
+
+		for _, part := range strings.Split(line, ";") {
+			name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+			if !ok || strings.TrimSpace(name) == "" {
+				continue
+			}
+			cookies = append(cookies, &http.Cookie{Name: strings.TrimSpace(name), Value: strings.TrimSpace(value)})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return cookies, nil
+}
+
+func parseNetscapeCookie(line string) (*http.Cookie, error) {
+	fields := strings.Split(line, "	")
+	if len(fields) < 7 {
+		return nil, fmt.Errorf("invalid Netscape cookie line")
+	}
+	name := strings.TrimSpace(fields[5])
+	if name == "" {
+		return nil, fmt.Errorf("invalid Netscape cookie line: missing name")
+	}
+
+	return &http.Cookie{
+		Domain: strings.TrimSpace(fields[0]),
+		Path:   strings.TrimSpace(fields[2]),
+		Secure: strings.EqualFold(strings.TrimSpace(fields[3]), "TRUE"),
+		Name:   name,
+		Value:  strings.TrimSpace(fields[6]),
+	}, nil
 }
 
 // Extract fetches video metadata and transcript markdown from a YouTube URL.
@@ -160,6 +325,9 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 	if extractor.youtube == nil {
 		return nil, errors.New("youtube extract: client is nil")
 	}
+	if extractor.setupErr != nil {
+		return nil, fmt.Errorf("youtube extract: configure network client: %w", extractor.setupErr)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -169,9 +337,9 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 		return nil, err
 	}
 
-	video, err := extractor.youtube.GetVideoContext(ctx, parsed.CanonicalURL)
+	video, err := extractor.getVideo(ctx, parsed)
 	if err != nil {
-		return nil, wrapVideoError(parsed, err)
+		return nil, err
 	}
 
 	result := &Result{
@@ -196,7 +364,7 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 		return result, err
 	}
 
-	if !extractor.shouldAttemptSTT(options) {
+	if !extractor.shouldAttemptSTT(options) || !isTranscriptUnavailable(err) {
 		return result, err
 	}
 
@@ -223,6 +391,91 @@ func (extractor *Extractor) shouldAttemptSTT(options ExtractOptions) bool {
 	return options.EnableSTTFallback || extractor.stt.Configured()
 }
 
+func (extractor *Extractor) getVideo(ctx context.Context, parsed parsedVideoURL) (*ytdl.Video, error) {
+	var video *ytdl.Video
+	err := extractor.retryOperation(ctx, func() error {
+		loadedVideo, err := extractor.youtube.GetVideoContext(ctx, parsed.CanonicalURL)
+		if err != nil {
+			return wrapVideoError(parsed, err)
+		}
+		video = loadedVideo
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return video, nil
+}
+
+func (extractor *Extractor) getTranscript(ctx context.Context, video *ytdl.Video, language string) (ytdl.VideoTranscript, error) {
+	var transcript ytdl.VideoTranscript
+	err := extractor.retryOperation(ctx, func() error {
+		loadedTranscript, err := extractor.youtube.GetTranscriptCtx(ctx, video, language)
+		if err != nil {
+			return err
+		}
+		transcript = loadedTranscript
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return transcript, nil
+}
+
+func (extractor *Extractor) getStream(ctx context.Context, video *ytdl.Video, format *ytdl.Format) (io.ReadCloser, int64, error) {
+	var stream io.ReadCloser
+	var size int64
+	err := extractor.retryOperation(ctx, func() error {
+		loadedStream, loadedSize, err := extractor.youtube.GetStreamContext(ctx, video, format)
+		if err != nil {
+			return err
+		}
+		stream = loadedStream
+		size = loadedSize
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return stream, size, nil
+}
+
+func (extractor *Extractor) retryOperation(ctx context.Context, operation func() error) error {
+	attempts := extractor.retry.Attempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	backoff := extractor.retry.Backoff
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+		if isContextError(err) {
+			return err
+		}
+		lastErr = err
+		if attempt == attempts || !isRetryableYouTubeError(err) {
+			return err
+		}
+		if backoff <= 0 {
+			continue
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		backoff *= 2
+	}
+	return lastErr
+}
+
 func (extractor *Extractor) extractTranscript(ctx context.Context, video *ytdl.Video, preferredLanguages []string) (string, string, error) {
 	tracks := orderedCaptionTracks(video.CaptionTracks, preferredLanguages)
 	if len(tracks) == 0 {
@@ -237,10 +490,13 @@ func (extractor *Extractor) extractTranscript(ctx context.Context, video *ytdl.V
 	var transcriptErrors []error
 
 	for _, track := range tracks {
-		transcript, err := extractor.youtube.GetTranscriptCtx(ctx, video, track.LanguageCode)
+		transcript, err := extractor.getTranscript(ctx, video, track.LanguageCode)
 		if err != nil {
 			if isContextError(err) {
 				return "", "", err
+			}
+			if isYouTubeNetworkBlocked(err) {
+				return "", "", newNetworkBlockedError(video.ID, "captions request was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network", err)
 			}
 			transcriptErrors = append(transcriptErrors, fmt.Errorf("%s: %w", track.LanguageCode, err))
 			continue
@@ -269,8 +525,16 @@ func (extractor *Extractor) downloadAudio(ctx context.Context, video *ytdl.Video
 		return nil, "", err
 	}
 
-	stream, _, err := extractor.youtube.GetStreamContext(ctx, video, format)
+	stream, _, err := extractor.getStream(ctx, video, format)
 	if err != nil {
+		if isYouTubeNetworkBlocked(err) {
+			return nil, "", &Error{
+				Kind:    ErrorKindAudioUnavailable,
+				VideoID: video.ID,
+				Message: "audio download was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
+				Err:     err,
+			}
+		}
 		return nil, "", fmt.Errorf("download audio stream: %w", err)
 	}
 	defer func() {
@@ -368,6 +632,16 @@ func wrapVideoError(parsed parsedVideoURL, err error) error {
 			Err:     err,
 		}
 	default:
+		if isYouTubeNetworkBlocked(err) {
+			return &Error{
+				Kind:    ErrorKindNetworkBlocked,
+				URL:     parsed.CanonicalURL,
+				VideoID: parsed.VideoID,
+				Message: "video request was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
+				Err:     err,
+			}
+		}
+
 		var statusErr *ytdl.ErrPlayabiltyStatus
 		if errors.As(err, &statusErr) {
 			return &Error{
@@ -381,6 +655,68 @@ func wrapVideoError(parsed parsedVideoURL, err error) error {
 
 		return fmt.Errorf("load YouTube video %q: %w", parsed.CanonicalURL, err)
 	}
+}
+
+func newNetworkBlockedError(videoID string, message string, err error) error {
+	return &Error{
+		Kind:    ErrorKindNetworkBlocked,
+		VideoID: videoID,
+		Message: message,
+		Err:     err,
+	}
+}
+
+func isTranscriptUnavailable(err error) bool {
+	var youtubeErr *Error
+	return errors.As(err, &youtubeErr) && youtubeErr.Kind == ErrorKindTranscriptUnavailable
+}
+
+func isRetryableYouTubeError(err error) bool {
+	if isContextError(err) {
+		return false
+	}
+	if isYouTubeNetworkBlocked(err) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func isYouTubeNetworkBlocked(err error) bool {
+	status, ok := unexpectedStatusCode(err)
+	if !ok {
+		return false
+	}
+	return status == http.StatusBadRequest ||
+		status == http.StatusForbidden ||
+		status == http.StatusTooManyRequests ||
+		status >= http.StatusInternalServerError
+}
+
+func unexpectedStatusCode(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var statusErr ytdl.ErrUnexpectedStatusCode
+	if errors.As(err, &statusErr) {
+		return int(statusErr), true
+	}
+
+	message := err.Error()
+	for _, status := range []int{
+		http.StatusBadRequest,
+		http.StatusForbidden,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	} {
+		if strings.Contains(message, fmt.Sprintf("unexpected status code: %d", status)) {
+			return status, true
+		}
+	}
+	return 0, false
 }
 
 func orderedCaptionTracks(tracks []ytdl.CaptionTrack, preferredLanguages []string) []ytdl.CaptionTrack {

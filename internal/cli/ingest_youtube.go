@@ -17,8 +17,8 @@ type youtubeTranscriptExtractor interface {
 	Extract(ctx context.Context, rawURL string, options youtube.ExtractOptions) (*youtube.Result, error)
 }
 
-var newYouTubeTranscriptExtractor = func(cfg kconfig.OpenRouterConfig) youtubeTranscriptExtractor {
-	return youtube.NewExtractor(cfg)
+var newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptExtractor {
+	return youtube.NewExtractor(cfg.OpenRouter, cfg.YouTube)
 }
 
 func newIngestYouTubeCommand() *cobra.Command {
@@ -40,7 +40,7 @@ func newIngestYouTubeCommand() *cobra.Command {
 				return fmt.Errorf("ingest youtube: %w", err)
 			}
 
-			extractResult, err := newYouTubeTranscriptExtractor(cfg.OpenRouter).Extract(
+			extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
 				commandContext(cmd),
 				args[0],
 				youtube.ExtractOptions{

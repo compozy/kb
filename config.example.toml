@@ -3,10 +3,11 @@
 # Set APP_CONFIG to point at this file if you want to load a TOML config.
 # TOML sections currently accepted by internal/config:
 # - `[app]`
-# - `[server]`
 # - `[log]`
+# - `[vault]`
 # - `[firecrawl]`
 # - `[openrouter]`
+# - `[youtube]`
 #
 # Primary CLI surface is configured through commands and flags:
 # - `kb topic {new,list,info}`
@@ -22,6 +23,9 @@
 # - FIRECRAWL_API_URL
 # - OPENROUTER_API_KEY
 # - OPENROUTER_API_URL
+# - YOUTUBE_PROXY
+# - YOUTUBE_COOKIES_FILE
+# - YOUTUBE_USER_AGENT
 #
 # `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
 
@@ -32,6 +36,10 @@ env = "development"
 [log]
 level = "info"
 
+[vault]
+root = "."
+topic_globs = ["*"]
+
 [firecrawl]
 api_key = ""
 api_url = "https://api.firecrawl.dev"
@@ -40,3 +48,10 @@ api_url = "https://api.firecrawl.dev"
 api_key = ""
 api_url = "https://openrouter.ai/api"
 stt_model = "google/gemini-2.5-flash"
+
+[youtube]
+proxy = ""
+cookies_file = ""
+user_agent = ""
+retry_attempts = 3
+retry_backoff = "1s"

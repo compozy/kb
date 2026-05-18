@@ -27,7 +27,7 @@ The `<query>` argument is the search text (required, non-empty).
 | `--collection` | string | `""` | Use an explicit QMD collection name instead of deriving from the topic |
 | `--format` | string | `table` | Output format: `table`, `json`, or `tsv` |
 | `--vault` | string | `""` | Vault root path (used when deriving the collection name) |
-| `--topic` | string | `""` | Topic slug (used when deriving the collection name) |
+| `--topic` | string | `""` | Topic id, including nested relative paths such as `harness/goclaw` (used when deriving the collection name) |
 
 ### Search Modes
 
@@ -49,9 +49,9 @@ The `--lex` and `--vec` flags are mutually exclusive. Omit both for hybrid mode.
 
 ### Collection Name Derivation
 
-When `--collection` is omitted, the collection name is derived from the topic slug:
+When `--collection` is omitted, the collection name is derived from the resolved topic id:
 1. Resolve the vault and topic (same logic as inspect commands)
-2. Use the `topicSlug` as the collection name
+2. Use the resolved `topicSlug` field as the collection name. For nested topics, this field is the vault-relative topic id, e.g. `harness/goclaw`.
 
 ### Example Invocations
 
@@ -87,7 +87,7 @@ kb index [flags]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--vault` | string | `""` | Vault root path |
-| `--topic` | string | `""` | Topic slug inside the vault |
+| `--topic` | string | `""` | Topic id inside the vault, including nested relative paths such as `harness/goclaw` |
 | `--name` | string | `""` | Override the derived QMD collection name |
 | `--embed` | bool | `true` | Run embedding after syncing files |
 | `--force-embed` | bool | `false` | Force re-embedding all documents |
@@ -105,7 +105,7 @@ Run `kb index` repeatedly without side effects.
 
 ```
 {
-  "collectionName": string,       // QMD collection name (= topic slug or --name override)
+  "collectionName": string,       // QMD collection name (= resolved topic id or --name override)
   "embedRequested": bool,         // whether --embed was true
   "embedResult": {                // present only if embedding was performed
     "docsProcessed": int,
@@ -155,8 +155,8 @@ kb index --force-embed
 # Index without embedding (sync files only)
 kb index --embed=false
 
-# Index with explicit vault and topic
-kb index --vault /path/to/vault --topic my-project
+# Index with explicit vault and nested topic
+kb index --vault /path/to/vault --topic harness/goclaw
 
 # Index with custom collection name
 kb index --name custom-collection

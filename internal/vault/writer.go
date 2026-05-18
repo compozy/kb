@@ -93,7 +93,7 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure document directories: %w", err)
 	}
 	bridgeSpecs := topicIndexBridgeSpecs()
-	progressReporter := newWriteProgressReporter(options.Progress, len(renderedFiles)+len(bridgeSpecs)+2)
+	progressReporter := newWriteProgressReporter(options.Progress, len(renderedFiles)+len(bridgeSpecs)+3)
 	if err := writeFilesInBatches(ctx, renderedFiles, progressReporter.Report); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: persist rendered files: %w", err)
 	}
@@ -103,6 +103,10 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 		return WriteVaultResult{}, fmt.Errorf("write vault: write topic manifest: %w", err)
 	}
 	progressReporter.Report(claudePath)
+	if err := topic.WriteMetadataFile(options.Topic.TopicPath, options.Topic.Slug, options.Topic.Title, options.Topic.Domain); err != nil {
+		return WriteVaultResult{}, fmt.Errorf("write vault: write topic metadata: %w", err)
+	}
+	progressReporter.Report(filepath.Join(options.Topic.TopicPath, "topic.yaml"))
 	indexBridgePaths, err := writeTopicIndexBridges(options.Topic, bridgeSpecs)
 	if err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: write topic index bridges: %w", err)
@@ -715,7 +719,17 @@ func ensureGitkeep(directoryPath string) error {
 func appendLog(topic models.TopicMetadata, graph models.GraphSnapshot, counts WriteVaultResult) error {
 	logPath := filepath.Join(topic.TopicPath, "log.md")
 
-	if _, err := os.Stat(logPath); errors.Is(err, os.ErrNotExist) {
+	shouldBootstrap := false
+	if content, err := os.ReadFile(logPath); errors.Is(err, os.ErrNotExist) {
+		shouldBootstrap = true
+	} else if err != nil {
+		return fmt.Errorf("read log file %q: %w", logPath, err)
+	} else {
+		trimmed := strings.TrimSpace(string(content))
+		shouldBootstrap = trimmed == "" || trimmed == "# Topic Log"
+	}
+
+	if shouldBootstrap {
 		bootstrap := strings.Join([]string{
 			fmt.Sprintf("# %s - Log", topic.Title),
 			"",
@@ -730,8 +744,6 @@ func appendLog(topic models.TopicMetadata, graph models.GraphSnapshot, counts Wr
 		if err := writeTextFile(logPath, bootstrap); err != nil {
 			return fmt.Errorf("write bootstrap log: %w", err)
 		}
-	} else if err != nil {
-		return fmt.Errorf("stat log file %q: %w", logPath, err)
 	}
 
 	entry := strings.Join([]string{

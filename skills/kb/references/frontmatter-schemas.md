@@ -1,6 +1,6 @@
 # Frontmatter Schemas
 
-All notes in the vault use YAML frontmatter for metadata. The subfolder path identifies the topic; the `domain` field is a shortcut for Bases and qmd queries.
+All notes in the vault use YAML frontmatter for note metadata. Topic identity itself lives in `topic.yaml` at the topic root; the `domain` field on notes is a shortcut for Bases and qmd queries.
 
 Conventions:
 
@@ -8,6 +8,18 @@ Conventions:
 - `created` and `updated` use ISO date format `YYYY-MM-DD`.
 - `tags` always include the domain plus the note type plus topic-specific tags.
 - `sources` entries are wikilinks pointing at files in `raw/`.
+
+---
+
+## Topic metadata — `<topic>/topic.yaml`
+
+```yaml
+slug: harness/goclaw
+title: Goclaw
+domain: goclaw
+```
+
+`topic.yaml` is the primary source of truth for topic title/domain. `CLAUDE.md` remains the topic marker and schema document, but prose formatting in `CLAUDE.md` should not be treated as canonical metadata when `topic.yaml` exists.
 
 ---
 
@@ -50,7 +62,7 @@ tags:
 ---
 ```
 
-`source_kind` values: `article`, `github-readme`, `documentation`, `paper`, `blog-post`, `whitepaper`.
+`source_kind` values for current CLI ingests: `article`, `document`, `github-readme`, `youtube-transcript`, `bookmark-cluster`, `codebase-file`, `codebase-symbol`.
 
 ## GitHub README — `<topic>/raw/github/<slug>.md`
 
@@ -70,6 +82,26 @@ tags:
   - topic-specific-tag
 ---
 ```
+
+## YouTube transcript — `<topic>/raw/youtube/<slug>.md`
+
+```yaml
+---
+title: Video Title
+type: source
+stage: raw
+domain: <topic-domain>
+source_kind: youtube-transcript
+source_url: https://www.youtube.com/watch?v=<video-id>
+scraped: YYYY-MM-DD
+tags:
+  - <topic-domain>
+  - raw
+  - youtube-transcript
+---
+```
+
+`raw/youtube/` is the canonical transcript directory. Legacy `raw/transcripts/` content should be moved with `kb migrate transcripts --topic <topic-id>`, not treated as a second valid layout.
 
 ## Bookmark cluster — `<topic>/raw/bookmarks/<Topic> Bookmarks <Subtopic>.md`
 
@@ -157,6 +189,7 @@ updated: YYYY-MM-DD
 | Wiki article | `wiki/concepts/` | `wiki` | `compiled` |
 | Raw article | `raw/articles/` | `source` | `raw` |
 | Raw GitHub | `raw/github/` | `source` | `raw` |
+| Raw YouTube | `raw/youtube/` | `source` | `raw` |
 | Raw bookmarks | `raw/bookmarks/` | `source` | `raw` |
 | Briefing | `outputs/briefings/` | `output` | `briefing` |
 | Query result | `outputs/queries/` | `output` | `query` |

@@ -24,6 +24,9 @@ func clearServiceEnv(t *testing.T) {
 	t.Setenv(EnvFirecrawlAPIURL, "")
 	t.Setenv(EnvOpenRouterAPIKey, "")
 	t.Setenv(EnvOpenRouterAPIURL, "")
+	t.Setenv(EnvYouTubeProxy, "")
+	t.Setenv(EnvYouTubeCookiesFile, "")
+	t.Setenv(EnvYouTubeUserAgent, "")
 }
 
 func TestDefaultConfigHasValidDefaults(t *testing.T) {
@@ -42,6 +45,12 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if cfg.Log.Level != "info" {
 		t.Errorf("expected default log.level 'info', got %q", cfg.Log.Level)
 	}
+	if cfg.Vault.Root != "." {
+		t.Errorf("expected default vault.root '.', got %q", cfg.Vault.Root)
+	}
+	if len(cfg.Vault.TopicGlobs) != 1 || cfg.Vault.TopicGlobs[0] != "*" {
+		t.Errorf("expected default vault.topic_globs [*], got %#v", cfg.Vault.TopicGlobs)
+	}
 	if cfg.Firecrawl.APIURL != defaultFirecrawlAPIURL {
 		t.Errorf("expected default firecrawl.api_url %q, got %q", defaultFirecrawlAPIURL, cfg.Firecrawl.APIURL)
 	}
@@ -50,6 +59,12 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	}
 	if cfg.OpenRouter.STTModel != defaultOpenRouterSTTModel {
 		t.Errorf("expected default openrouter.stt_model %q, got %q", defaultOpenRouterSTTModel, cfg.OpenRouter.STTModel)
+	}
+	if cfg.YouTube.RetryAttempts != defaultYouTubeRetryAttempts {
+		t.Errorf("expected default youtube.retry_attempts %d, got %d", defaultYouTubeRetryAttempts, cfg.YouTube.RetryAttempts)
+	}
+	if cfg.YouTube.RetryBackoff != defaultYouTubeRetryBackoff {
+		t.Errorf("expected default youtube.retry_backoff %q, got %q", defaultYouTubeRetryBackoff, cfg.YouTube.RetryBackoff)
 	}
 }
 
@@ -64,6 +79,10 @@ env = "production"
 [log]
 level = "debug"
 
+[vault]
+root = "."
+topic_globs = ["*", "harness/*"]
+
 [firecrawl]
 api_key = "firecrawl-key"
 api_url = "https://firecrawl.internal"
@@ -72,6 +91,13 @@ api_url = "https://firecrawl.internal"
 api_key = "openrouter-key"
 api_url = "https://openrouter.internal/api"
 stt_model = "acme/stt"
+
+[youtube]
+proxy = "http://proxy.internal:8080"
+cookies_file = "/tmp/youtube-cookies.txt"
+user_agent = "kb-test"
+retry_attempts = 5
+retry_backoff = "250ms"
 `
 	path := writeConfigFile(t, content)
 
@@ -88,6 +114,12 @@ stt_model = "acme/stt"
 	if cfg.Log.Level != "debug" {
 		t.Errorf("expected log.level 'debug', got %q", cfg.Log.Level)
 	}
+	if cfg.Vault.Root != "." {
+		t.Errorf("expected vault.root '.', got %q", cfg.Vault.Root)
+	}
+	if len(cfg.Vault.TopicGlobs) != 2 || cfg.Vault.TopicGlobs[1] != "harness/*" {
+		t.Errorf("expected vault.topic_globs to include harness/*, got %#v", cfg.Vault.TopicGlobs)
+	}
 	if cfg.Firecrawl.APIKey != "firecrawl-key" {
 		t.Errorf("expected firecrawl.api_key 'firecrawl-key', got %q", cfg.Firecrawl.APIKey)
 	}
@@ -102,6 +134,18 @@ stt_model = "acme/stt"
 	}
 	if cfg.OpenRouter.STTModel != "acme/stt" {
 		t.Errorf("expected openrouter.stt_model 'acme/stt', got %q", cfg.OpenRouter.STTModel)
+	}
+	if cfg.YouTube.Proxy != "http://proxy.internal:8080" {
+		t.Errorf("expected youtube.proxy, got %q", cfg.YouTube.Proxy)
+	}
+	if cfg.YouTube.CookiesFile != "/tmp/youtube-cookies.txt" {
+		t.Errorf("expected youtube.cookies_file, got %q", cfg.YouTube.CookiesFile)
+	}
+	if cfg.YouTube.UserAgent != "kb-test" {
+		t.Errorf("expected youtube.user_agent, got %q", cfg.YouTube.UserAgent)
+	}
+	if cfg.YouTube.RetryAttempts != 5 {
+		t.Errorf("expected youtube.retry_attempts 5, got %d", cfg.YouTube.RetryAttempts)
 	}
 }
 
@@ -165,6 +209,18 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name:   "invalid log level",
 			mutate: func(c *Config) { c.Log.Level = "trace" },
+		},
+		{
+			name:   "empty topic glob",
+			mutate: func(c *Config) { c.Vault.TopicGlobs = []string{""} },
+		},
+		{
+			name:   "invalid youtube retry attempts",
+			mutate: func(c *Config) { c.YouTube.RetryAttempts = -1 },
+		},
+		{
+			name:   "invalid youtube retry backoff",
+			mutate: func(c *Config) { c.YouTube.RetryBackoff = "soon" },
 		},
 	}
 
@@ -297,6 +353,39 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:     "youtube proxy overrides toml",
+			envKey:   EnvYouTubeProxy,
+			envValue: "http://env.proxy:8080",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.YouTube.Proxy != "http://env.proxy:8080" {
+					t.Fatalf("expected youtube.proxy to be overridden, got %q", cfg.YouTube.Proxy)
+				}
+			},
+		},
+		{
+			name:     "youtube cookies file overrides toml",
+			envKey:   EnvYouTubeCookiesFile,
+			envValue: "/tmp/env-cookies.txt",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.YouTube.CookiesFile != "/tmp/env-cookies.txt" {
+					t.Fatalf("expected youtube.cookies_file to be overridden, got %q", cfg.YouTube.CookiesFile)
+				}
+			},
+		},
+		{
+			name:     "youtube user agent overrides toml",
+			envKey:   EnvYouTubeUserAgent,
+			envValue: "env-agent",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.YouTube.UserAgent != "env-agent" {
+					t.Fatalf("expected youtube.user_agent to be overridden, got %q", cfg.YouTube.UserAgent)
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -316,6 +405,11 @@ api_url = "https://toml.firecrawl.dev"
 api_key = "toml-openrouter-key"
 api_url = "https://toml.openrouter.ai/api"
 stt_model = "toml/stt"
+
+[youtube]
+proxy = "http://toml.proxy:8080"
+cookies_file = "/tmp/toml-cookies.txt"
+user_agent = "toml-agent"
 `)
 
 			t.Setenv(tc.envKey, tc.envValue)
@@ -327,5 +421,30 @@ stt_model = "toml/stt"
 
 			tc.assert(t, cfg)
 		})
+	}
+}
+
+func TestDiscoverProjectConfigPathWalksUp(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ProjectConfigFileName)
+	if err := os.WriteFile(configPath, []byte("[vault]\nroot = \".\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	nested := filepath.Join(root, "harness", "goclaw")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	got, found, err := DiscoverProjectConfigPath(nested)
+	if err != nil {
+		t.Fatalf("DiscoverProjectConfigPath returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected config to be found")
+	}
+	if got != configPath {
+		t.Fatalf("config path = %q, want %q", got, configPath)
 	}
 }

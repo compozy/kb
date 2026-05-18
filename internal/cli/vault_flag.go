@@ -16,7 +16,7 @@ func bindRootPersistentFlags(command *cobra.Command) {
 	command.PersistentFlags().String(
 		rootVaultFlagName,
 		"",
-		"Vault root path. Commands that read existing topics auto-discover .kb/vault/ from the current working directory when omitted.",
+		"Vault root path. Commands that read existing topics auto-discover kb.toml or .kb/vault/ from the current working directory when omitted.",
 	)
 }
 

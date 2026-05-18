@@ -38,6 +38,38 @@ func TestResolveVaultQueryFindsVaultByWalkingUp(t *testing.T) {
 	}
 }
 
+func TestResolveVaultQueryFindsConfiguredRootVaultAndNestedTopic(t *testing.T) {
+	t.Parallel()
+
+	repositoryRoot := t.TempDir()
+	configPath := filepath.Join(repositoryRoot, "kb.toml")
+	if err := os.WriteFile(configPath, []byte("[vault]\nroot = \".\"\ntopic_globs = [\"*\", \"harness/*\"]\n"), 0o644); err != nil {
+		t.Fatalf("write kb.toml: %v", err)
+	}
+	topicPath := filepath.Join(repositoryRoot, "harness", "goclaw")
+	nestedCWD := filepath.Join(topicPath, "wiki", "index")
+	mkdirAll(t, nestedCWD)
+	writeTopicMarker(t, topicPath)
+
+	resolvedVault, err := vault.ResolveVaultQuery(vault.VaultQueryOptions{
+		CWD:   nestedCWD,
+		Topic: "harness/goclaw",
+	})
+	if err != nil {
+		t.Fatalf("ResolveVaultQuery returned error: %v", err)
+	}
+
+	if resolvedVault.VaultPath != repositoryRoot {
+		t.Fatalf("vault path = %q, want %q", resolvedVault.VaultPath, repositoryRoot)
+	}
+	if resolvedVault.TopicPath != topicPath {
+		t.Fatalf("topic path = %q, want %q", resolvedVault.TopicPath, topicPath)
+	}
+	if resolvedVault.TopicSlug != "harness/goclaw" {
+		t.Fatalf("topic slug = %q, want harness/goclaw", resolvedVault.TopicSlug)
+	}
+}
+
 func TestResolveVaultQueryPrefersExplicitVault(t *testing.T) {
 	t.Parallel()
 
@@ -124,6 +156,7 @@ func TestResolveVaultQueryUsesExplicitTopic(t *testing.T) {
 	topicPath := filepath.Join(vaultPath, "explicit-topic")
 
 	mkdirAll(t, topicPath)
+	writeTopicMarker(t, topicPath)
 
 	resolvedVault, err := vault.ResolveVaultQuery(vault.VaultQueryOptions{
 		Vault: vaultPath,
@@ -156,7 +189,7 @@ func TestResolveVaultQueryErrorsWhenExplicitTopicIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected ResolveVaultQuery to fail for a missing explicit topic")
 	}
-	if !strings.Contains(err.Error(), "Topic path was not found or is not a directory") {
+	if !strings.Contains(err.Error(), "missing CLAUDE.md") {
 		t.Fatalf("unexpected error message %q", err)
 	}
 }
@@ -195,6 +228,38 @@ func TestListAvailableTopicsReturnsSortedTopics(t *testing.T) {
 	want := []string{"alpha", "zeta"}
 	if len(topics) != len(want) {
 		t.Fatalf("expected %d topics, got %d", len(want), len(topics))
+	}
+	for index := range want {
+		if topics[index] != want[index] {
+			t.Fatalf("topic %d = %q, want %q", index, topics[index], want[index])
+		}
+	}
+}
+
+func TestListAvailableTopicsUsesConfiguredTopicGlobs(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vaultPath, "kb.toml"), []byte("[vault]\nroot = \".\"\ntopic_globs = [\"*\", \"harness/*\"]\n"), 0o644); err != nil {
+		t.Fatalf("write kb.toml: %v", err)
+	}
+	for _, topicSlug := range []string{"alpha", "harness/goclaw"} {
+		topicPath := filepath.Join(vaultPath, filepath.FromSlash(topicSlug))
+		mkdirAll(t, topicPath)
+		writeTopicMarker(t, topicPath)
+	}
+	ignoredPath := filepath.Join(vaultPath, "social-media", "threads")
+	mkdirAll(t, ignoredPath)
+	writeTopicMarker(t, ignoredPath)
+
+	topics, err := vault.ListAvailableTopics(vault.VaultQueryOptions{Vault: vaultPath})
+	if err != nil {
+		t.Fatalf("ListAvailableTopics returned error: %v", err)
+	}
+
+	want := []string{"alpha", "harness/goclaw"}
+	if len(topics) != len(want) {
+		t.Fatalf("topics = %#v, want %#v", topics, want)
 	}
 	for index := range want {
 		if topics[index] != want[index] {
