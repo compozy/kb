@@ -68,7 +68,6 @@ archives:
     files:
       - README.md
       - LICENSE*
-    wrap_in_directory: true
 
 checksum:
   name_template: "checksums.txt"
@@ -188,8 +187,10 @@ release:
 
     **Full Changelog**: https://github.com/compozy/kb/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-homebrew_casks:
+brews:
   - name: kb
+    ids:
+      - kb-archive
     repository:
       owner: compozy
       name: homebrew-kb
@@ -198,14 +199,17 @@ homebrew_casks:
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
-    directory: Casks
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    directory: Formula
     caveats: |
       To get started with kb:
         kb topic new my-topic
       See https://github.com/compozy/kb for more information.
     homepage: "https://github.com/compozy/kb"
     description: "CLI for building topic-based knowledge bases in the Karpathy KB pattern"
+    license: "BSL-1.1"
+    test: |
+      system "#{bin}/kb", "version"
     skip_upload: auto
 
 nfpms:
