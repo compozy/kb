@@ -14,11 +14,21 @@ import (
 
 const (
 	defaultFirecrawlAPIURL      = "https://api.firecrawl.dev"
+	defaultOpenAIAPIURL         = "https://api.openai.com"
 	defaultOpenRouterAPIURL     = "https://openrouter.ai/api"
 	defaultOpenRouterSTTModel   = "google/gemini-2.5-flash"
+	defaultSTTProvider          = "openai"
+	defaultSTTModel             = "gpt-4o-transcribe"
+	defaultSTTLanguage          = "auto"
+	defaultSTTAudioFormat       = "mp3"
+	defaultSTTChunkDuration     = "10m"
+	defaultSTTMaxChunkBytes     = 24_000_000
+	defaultSTTConcurrency       = 2
+	defaultSTTFFmpegPath        = "ffmpeg"
 	defaultVaultRoot            = "."
 	defaultTopicGlob            = "*"
 	defaultYouTubeYTDLPPath     = "yt-dlp"
+	defaultYouTubeTranscription = "captions"
 	defaultYouTubeRetryBackoff  = "1s"
 	defaultYouTubeRetryAttempts = 3
 )
@@ -30,6 +40,7 @@ type Config struct {
 	Vault      VaultConfig      `toml:"vault"`
 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
 	OpenRouter OpenRouterConfig `toml:"openrouter"`
+	STT        STTConfig        `toml:"stt"`
 	YouTube    YouTubeConfig    `toml:"youtube"`
 }
 
@@ -56,11 +67,26 @@ type FirecrawlConfig struct {
 	APIURL string `toml:"api_url"`
 }
 
-// OpenRouterConfig controls the STT fallback provider.
+// OpenRouterConfig controls the optional OpenRouter STT provider.
 type OpenRouterConfig struct {
 	APIKey   string `toml:"api_key"`
 	APIURL   string `toml:"api_url"`
 	STTModel string `toml:"stt_model"`
+}
+
+// STTConfig controls speech-to-text provider selection and audio chunking.
+type STTConfig struct {
+	Provider      string `toml:"provider"`
+	APIKey        string `toml:"api_key"`
+	APIURL        string `toml:"api_url"`
+	Model         string `toml:"model"`
+	Language      string `toml:"language"`
+	Prompt        string `toml:"prompt"`
+	AudioFormat   string `toml:"audio_format"`
+	ChunkDuration string `toml:"chunk_duration"`
+	MaxChunkBytes int64  `toml:"max_chunk_bytes"`
+	Concurrency   int    `toml:"concurrency"`
+	FFmpegPath    string `toml:"ffmpeg_path"`
 }
 
 // YouTubeConfig controls YouTube network access and retry behavior.
@@ -69,6 +95,7 @@ type YouTubeConfig struct {
 	Proxy         string `toml:"proxy"`
 	CookiesFile   string `toml:"cookies_file"`
 	UserAgent     string `toml:"user_agent"`
+	Transcription string `toml:"transcription"`
 	RetryAttempts int    `toml:"retry_attempts"`
 	RetryBackoff  string `toml:"retry_backoff"`
 }
@@ -94,8 +121,20 @@ func Default() Config {
 			APIURL:   defaultOpenRouterAPIURL,
 			STTModel: defaultOpenRouterSTTModel,
 		},
+		STT: STTConfig{
+			Provider:      defaultSTTProvider,
+			APIURL:        defaultOpenAIAPIURL,
+			Model:         defaultSTTModel,
+			Language:      defaultSTTLanguage,
+			AudioFormat:   defaultSTTAudioFormat,
+			ChunkDuration: defaultSTTChunkDuration,
+			MaxChunkBytes: defaultSTTMaxChunkBytes,
+			Concurrency:   defaultSTTConcurrency,
+			FFmpegPath:    defaultSTTFFmpegPath,
+		},
 		YouTube: YouTubeConfig{
 			YTDLPPath:     defaultYouTubeYTDLPPath,
+			Transcription: defaultYouTubeTranscription,
 			RetryAttempts: defaultYouTubeRetryAttempts,
 			RetryBackoff:  defaultYouTubeRetryBackoff,
 		},
@@ -128,6 +167,36 @@ func (c *Config) applyDefaults() {
 	}
 	if strings.TrimSpace(c.YouTube.YTDLPPath) == "" {
 		c.YouTube.YTDLPPath = defaultYouTubeYTDLPPath
+	}
+	if strings.TrimSpace(c.YouTube.Transcription) == "" {
+		c.YouTube.Transcription = defaultYouTubeTranscription
+	}
+	if strings.TrimSpace(c.STT.Provider) == "" {
+		c.STT.Provider = defaultSTTProvider
+	}
+	if strings.TrimSpace(c.STT.APIURL) == "" {
+		c.STT.APIURL = defaultOpenAIAPIURL
+	}
+	if strings.TrimSpace(c.STT.Model) == "" {
+		c.STT.Model = defaultSTTModel
+	}
+	if strings.TrimSpace(c.STT.Language) == "" {
+		c.STT.Language = defaultSTTLanguage
+	}
+	if strings.TrimSpace(c.STT.AudioFormat) == "" {
+		c.STT.AudioFormat = defaultSTTAudioFormat
+	}
+	if strings.TrimSpace(c.STT.ChunkDuration) == "" {
+		c.STT.ChunkDuration = defaultSTTChunkDuration
+	}
+	if c.STT.MaxChunkBytes == 0 {
+		c.STT.MaxChunkBytes = defaultSTTMaxChunkBytes
+	}
+	if c.STT.Concurrency == 0 {
+		c.STT.Concurrency = defaultSTTConcurrency
+	}
+	if strings.TrimSpace(c.STT.FFmpegPath) == "" {
+		c.STT.FFmpegPath = defaultSTTFFmpegPath
 	}
 	if c.YouTube.RetryAttempts == 0 {
 		c.YouTube.RetryAttempts = defaultYouTubeRetryAttempts
@@ -168,6 +237,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.Vault.Validate(); err != nil {
+		return err
+	}
+	if err := c.STT.Validate(); err != nil {
 		return err
 	}
 	if err := c.YouTube.Validate(); err != nil {
@@ -221,10 +293,67 @@ func (c VaultConfig) Validate() error {
 	return nil
 }
 
+// Validate ensures STT provider and chunking settings are usable.
+func (c STTConfig) Validate() error {
+	switch strings.ToLower(strings.TrimSpace(c.Provider)) {
+	case "openai", "openrouter":
+	default:
+		return fmt.Errorf("stt.provider must be openai or openrouter: %q", c.Provider)
+	}
+	if strings.TrimSpace(c.APIURL) == "" {
+		return errors.New("stt.api_url is required")
+	}
+	if strings.TrimSpace(c.Model) == "" {
+		return errors.New("stt.model is required")
+	}
+	if strings.TrimSpace(c.Language) == "" {
+		return errors.New("stt.language is required")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.AudioFormat)) {
+	case "mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm":
+	default:
+		return fmt.Errorf("stt.audio_format is unsupported: %q", c.AudioFormat)
+	}
+	if _, err := c.ChunkDurationValue(); err != nil {
+		return err
+	}
+	if c.MaxChunkBytes < 1 {
+		return fmt.Errorf("stt.max_chunk_bytes must be at least 1: %d", c.MaxChunkBytes)
+	}
+	if c.Concurrency < 1 {
+		return fmt.Errorf("stt.concurrency must be at least 1: %d", c.Concurrency)
+	}
+	if strings.TrimSpace(c.FFmpegPath) == "" {
+		return errors.New("stt.ffmpeg_path is required")
+	}
+	return nil
+}
+
+// ChunkDurationValue parses the configured STT chunk duration.
+func (c STTConfig) ChunkDurationValue() (time.Duration, error) {
+	value := strings.TrimSpace(c.ChunkDuration)
+	if value == "" {
+		value = defaultSTTChunkDuration
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("stt.chunk_duration must be a Go duration: %q", c.ChunkDuration)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("stt.chunk_duration must be positive: %q", c.ChunkDuration)
+	}
+	return duration, nil
+}
+
 // Validate ensures YouTube runtime settings are usable.
 func (c YouTubeConfig) Validate() error {
 	if strings.TrimSpace(c.YTDLPPath) == "" {
 		return errors.New("youtube.yt_dlp_path is required")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Transcription)) {
+	case "captions", "auto", "stt":
+	default:
+		return fmt.Errorf("youtube.transcription must be captions, auto, or stt: %q", c.Transcription)
 	}
 	if c.RetryAttempts < 1 {
 		return fmt.Errorf("youtube.retry_attempts must be at least 1: %d", c.RetryAttempts)

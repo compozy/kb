@@ -71,7 +71,7 @@ kb ingest codebase <path> --topic <topic-id>  # analyze a codebase into raw/code
 
 Use path-relative topic identifiers for nested topics, e.g. `--topic harness/goclaw`.
 
-YouTube extraction uses `raw/youtube/` as the canonical transcript directory. `kb` prefers `yt-dlp` for captions and metadata because that extractor tracks YouTube protocol changes more closely than the built-in legacy fallback. Install or update `yt-dlp` when public captions fail before treating the issue as only a proxy/cookie problem:
+YouTube extraction uses `raw/youtube/` as the canonical transcript directory. `kb` requires `yt-dlp` for metadata, captions, and audio extraction. Install or update `yt-dlp` when public captions fail before treating the issue as only a proxy/cookie problem:
 
 ```toml
 [youtube]
@@ -81,7 +81,10 @@ cookies_file = "/path/to/youtube-cookies.txt"
 user_agent = "Mozilla/5.0 ..."
 retry_attempts = 3
 retry_backoff = "1s"
+transcription = "captions" # captions | auto | stt
 ```
+
+Use `kb ingest youtube <url> --topic <topic-id> --transcribe auto` to use manual captions when present and STT when only automatic captions or no captions are available. Use `--transcribe stt` to force STT. The old shortcut flag is intentionally unsupported.
 
 `YOUTUBE_YT_DLP_PATH`, `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; after confirming `yt-dlp` is installed and current, treat that as a network or auth configuration issue, not a missing-transcript issue.
 

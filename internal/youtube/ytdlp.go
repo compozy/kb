@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	ytdl "github.com/kkdai/youtube/v2"
-
 	"github.com/compozy/kb/internal/config"
 )
 
@@ -58,6 +56,18 @@ type ytDLPCaptionCandidate struct {
 	Automatic bool
 }
 
+type ytDLPDownloadedAudio struct {
+	Path    string
+	Format  string
+	cleanup func()
+}
+
+func (audio ytDLPDownloadedAudio) Cleanup() {
+	if audio.cleanup != nil {
+		audio.cleanup()
+	}
+}
+
 func newYTDLPBackend(cfg config.YouTubeConfig, retry retryPolicy) *ytDLPBackend {
 	binaryPath := strings.TrimSpace(cfg.YTDLPPath)
 	if binaryPath == "" {
@@ -77,6 +87,15 @@ func (backend *ytDLPBackend) Extract(
 	parsed parsedVideoURL,
 	preferredLanguages []string,
 ) (*Result, error) {
+	return backend.ExtractCaptions(ctx, parsed, preferredLanguages, true)
+}
+
+func (backend *ytDLPBackend) ExtractCaptions(
+	ctx context.Context,
+	parsed parsedVideoURL,
+	preferredLanguages []string,
+	allowAutomatic bool,
+) (*Result, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
 	}
@@ -89,15 +108,25 @@ func (backend *ytDLPBackend) Extract(
 		return nil, err
 	}
 
+	return backend.extractCaptionsFromInfo(ctx, parsed, info, preferredLanguages, allowAutomatic)
+}
+
+func (backend *ytDLPBackend) extractCaptionsFromInfo(
+	ctx context.Context,
+	parsed parsedVideoURL,
+	info ytDLPInfo,
+	preferredLanguages []string,
+	allowAutomatic bool,
+) (*Result, error) {
 	result := &Result{Metadata: metadataFromYTDLPInfo(parsed, info)}
-	candidate, ok := selectYTDLPCaption(info, preferredLanguages)
+	candidate, ok := selectYTDLPCaption(info, preferredLanguages, allowAutomatic)
 	if !ok {
 		return result, &Error{
 			Kind:    ErrorKindTranscriptUnavailable,
 			URL:     parsed.CanonicalURL,
 			VideoID: parsed.VideoID,
 			Message: transcriptUnavailableMessage,
-			Err:     ytdl.ErrTranscriptDisabled,
+			Err:     errTranscriptDisabled,
 		}
 	}
 
@@ -112,6 +141,11 @@ func (backend *ytDLPBackend) Extract(
 	result.Markdown = markdown
 	result.Source = TranscriptSourceCaptions
 	result.Language = candidate.Language
+	if candidate.Automatic {
+		result.CaptionKind = CaptionKindAutomatic
+	} else {
+		result.CaptionKind = CaptionKindManual
+	}
 	return result, nil
 }
 
@@ -185,6 +219,84 @@ func (backend *ytDLPBackend) downloadCaption(
 	}
 }
 
+func (backend *ytDLPBackend) downloadAudio(
+	ctx context.Context,
+	rawURL string,
+	format string,
+) (ytDLPDownloadedAudio, error) {
+	if backend == nil {
+		return ytDLPDownloadedAudio{}, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	format = strings.TrimSpace(strings.ToLower(format))
+	if format == "" {
+		format = "mp3"
+	}
+	tempDir, err := os.MkdirTemp("", "kb-ytdlp-audio-*")
+	if err != nil {
+		return ytDLPDownloadedAudio{}, fmt.Errorf("yt-dlp audio: create temp dir: %w", err)
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(tempDir)
+	}
+
+	args := append(backend.baseArgs(),
+		"--extract-audio",
+		"--audio-format", format,
+		"--paths", "home:"+tempDir,
+		"--output", "%(id)s.%(ext)s",
+		rawURL,
+	)
+	if _, _, err := backend.run(ctx, "audio", args...); err != nil {
+		cleanup()
+		return ytDLPDownloadedAudio{}, wrapYTDLPAudioFetchError(err)
+	}
+
+	path, detectedFormat, err := findYTDLPAudioFile(tempDir)
+	if err != nil {
+		cleanup()
+		return ytDLPDownloadedAudio{}, wrapYTDLPAudioFetchError(err)
+	}
+	return ytDLPDownloadedAudio{Path: path, Format: detectedFormat, cleanup: cleanup}, nil
+}
+
+func wrapYTDLPAudioFetchError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isYTDLPNetworkBlockedError(err) {
+		return newNetworkBlockedError(
+			"",
+			"audio download was blocked by YouTube through yt-dlp; update yt-dlp, configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
+			err,
+		)
+	}
+	return fmt.Errorf("yt-dlp audio: %w", err)
+}
+
+func findYTDLPAudioFile(directory string) (string, string, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return "", "", fmt.Errorf("read audio output directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name())), ".")
+		if ext == "" {
+			continue
+		}
+		switch ext {
+		case "mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm":
+			return filepath.Join(directory, entry.Name()), ext, nil
+		}
+	}
+	return "", "", errors.New("yt-dlp audio: no audio file was produced")
+}
+
 func wrapYTDLPCaptionFetchError(err error) error {
 	if err == nil {
 		return nil
@@ -208,6 +320,9 @@ func (backend *ytDLPBackend) baseArgs() []string {
 		"--no-playlist",
 		"--retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
 		"--fragment-retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
+	}
+	if sleep := normalizedRetrySleep(backend.retry); sleep != "" {
+		args = append(args, "--retry-sleep", sleep)
 	}
 	if proxy := strings.TrimSpace(backend.cfg.Proxy); proxy != "" {
 		args = append(args, "--proxy", proxy)
@@ -272,6 +387,13 @@ func normalizedRetryAttempts(retry retryPolicy) int {
 		return 1
 	}
 	return retry.Attempts
+}
+
+func normalizedRetrySleep(retry retryPolicy) string {
+	if retry.Backoff <= 0 {
+		return ""
+	}
+	return strconv.FormatFloat(retry.Backoff.Seconds(), 'f', -1, 64)
 }
 
 func cleanYTDLPDiagnostics(text string) string {
@@ -350,8 +472,8 @@ func parseYTDLPUploadDate(value string) time.Time {
 	return parsed.UTC()
 }
 
-func selectYTDLPCaption(info ytDLPInfo, preferredLanguages []string) (ytDLPCaptionCandidate, bool) {
-	candidates := ytDLPCaptionCandidates(info)
+func selectYTDLPCaption(info ytDLPInfo, preferredLanguages []string, allowAutomatic bool) (ytDLPCaptionCandidate, bool) {
+	candidates := ytDLPCaptionCandidates(info, allowAutomatic)
 	if len(candidates) == 0 {
 		return ytDLPCaptionCandidate{}, false
 	}
@@ -370,12 +492,15 @@ func selectYTDLPCaption(info ytDLPInfo, preferredLanguages []string) (ytDLPCapti
 	return candidates[0], true
 }
 
-func ytDLPCaptionCandidates(info ytDLPInfo) []ytDLPCaptionCandidate {
+func ytDLPCaptionCandidates(info ytDLPInfo, allowAutomatic bool) []ytDLPCaptionCandidate {
 	candidates := make([]ytDLPCaptionCandidate, 0, len(info.Subtitles)+len(info.AutomaticCaptions))
 	for language, formats := range info.Subtitles {
 		if isUsableYTDLPCaption(language, formats) {
 			candidates = append(candidates, ytDLPCaptionCandidate{Language: strings.TrimSpace(language)})
 		}
+	}
+	if !allowAutomatic {
+		return candidates
 	}
 	for language, formats := range info.AutomaticCaptions {
 		if isUsableYTDLPCaption(language, formats) {
@@ -465,7 +590,7 @@ func formatYTDLPJSON3Transcript(data []byte) (string, error) {
 		return "", fmt.Errorf("yt-dlp captions: parse json3: %w", err)
 	}
 
-	transcript := make(ytdl.VideoTranscript, 0, len(payload.Events))
+	transcript := make([]transcriptSegment, 0, len(payload.Events))
 	for _, event := range payload.Events {
 		if len(event.Segments) == 0 {
 			continue
@@ -478,7 +603,7 @@ func formatYTDLPJSON3Transcript(data []byte) (string, error) {
 		if text == "" {
 			continue
 		}
-		transcript = append(transcript, ytdl.TranscriptSegment{
+		transcript = append(transcript, transcriptSegment{
 			StartMs: event.StartMs,
 			Text:    text,
 		})
@@ -488,7 +613,7 @@ func formatYTDLPJSON3Transcript(data []byte) (string, error) {
 
 func formatYTDLPVTTTranscript(data []byte) (string, error) {
 	lines := strings.Split(string(data), "\n")
-	transcript := make(ytdl.VideoTranscript, 0, len(lines)/3)
+	transcript := make([]transcriptSegment, 0, len(lines)/3)
 	for index := 0; index < len(lines); index++ {
 		line := strings.TrimSpace(strings.TrimPrefix(lines[index], "\ufeff"))
 		if !strings.Contains(line, "-->") {
@@ -511,7 +636,7 @@ func formatYTDLPVTTTranscript(data []byte) (string, error) {
 		if text == "" {
 			continue
 		}
-		transcript = append(transcript, ytdl.TranscriptSegment{StartMs: startMs, Text: text})
+		transcript = append(transcript, transcriptSegment{StartMs: startMs, Text: text})
 	}
 	return formatTranscriptMarkdown(transcript), nil
 }

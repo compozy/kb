@@ -1,240 +1,25 @@
+// Package youtube extracts transcripts and metadata from YouTube videos.
 package youtube
 
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	ytdl "github.com/kkdai/youtube/v2"
-
 	"github.com/compozy/kb/internal/config"
 )
 
-func TestExtractorExtractReturnsMetadataAndCaptionMarkdown(t *testing.T) {
+func TestExtractorRequiresYTDLPBackend(t *testing.T) {
 	t.Parallel()
 
-	video := &ytdl.Video{
-		ID:          "dQw4w9WgXcQ",
-		Title:       "Example Video",
-		Author:      "Example Channel",
-		Duration:    95 * time.Second,
-		PublishDate: time.Date(2024, time.March, 7, 14, 30, 0, 0, time.UTC),
-		CaptionTracks: []ytdl.CaptionTrack{
-			{LanguageCode: "en", Kind: ""},
-		},
-	}
-
-	client := &stubYouTubeClient{
-		video: video,
-		transcripts: map[string]ytdl.VideoTranscript{
-			"en": {
-				{StartMs: 0, Text: " Hello   world "},
-				{StartMs: 5_000, Text: "Second line"},
-			},
-		},
-	}
-
-	extractor := &Extractor{youtube: client}
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-	if err != nil {
-		t.Fatalf("Extract returned error: %v", err)
-	}
-
-	if client.videoURL != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" {
-		t.Fatalf("video URL = %q", client.videoURL)
-	}
-
-	if result.Metadata.VideoID != "dQw4w9WgXcQ" {
-		t.Fatalf("video ID = %q, want %q", result.Metadata.VideoID, "dQw4w9WgXcQ")
-	}
-	if result.Metadata.Title != "Example Video" {
-		t.Fatalf("title = %q, want %q", result.Metadata.Title, "Example Video")
-	}
-	if result.Metadata.Channel != "Example Channel" {
-		t.Fatalf("channel = %q, want %q", result.Metadata.Channel, "Example Channel")
-	}
-	if result.Metadata.Duration != 95*time.Second {
-		t.Fatalf("duration = %v, want %v", result.Metadata.Duration, 95*time.Second)
-	}
-	if !result.Metadata.PublishDate.Equal(video.PublishDate) {
-		t.Fatalf("publish date = %v, want %v", result.Metadata.PublishDate, video.PublishDate)
-	}
-	if result.Source != TranscriptSourceCaptions {
-		t.Fatalf("source = %q, want %q", result.Source, TranscriptSourceCaptions)
-	}
-	if result.Language != "en" {
-		t.Fatalf("language = %q, want %q", result.Language, "en")
-	}
-
-	wantMarkdown := strings.Join([]string{
-		"## 00:00",
-		"Hello world",
-		"",
-		"## 00:05",
-		"Second line",
-	}, "\n")
-	if result.Markdown != wantMarkdown {
-		t.Fatalf("markdown = %q, want %q", result.Markdown, wantMarkdown)
-	}
-}
-
-func TestExtractorFallsBackToSTTWhenTranscriptUnavailableAndAllowed(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID:     "dQw4w9WgXcQ",
-		Title:  "Fallback Video",
-		Author: "Example Channel",
-		CaptionTracks: []ytdl.CaptionTrack{
-			{LanguageCode: "en", Kind: "asr"},
-		},
-		Formats: ytdl.FormatList{
-			{MimeType: `audio/mp4; codecs="mp4a.40.2"`, AudioChannels: 2},
-		},
-	}
-
-	client := &stubYouTubeClient{
-		video:          video,
-		transcriptErrs: map[string]error{"en": ytdl.ErrTranscriptDisabled},
-		audioData:      []byte("audio-bytes"),
-	}
-	stt := &stubSTTClient{
-		configured: true,
-		transcript: "Hello from fallback",
-	}
-
-	extractor := &Extractor{
-		youtube: client,
-		stt:     stt,
-	}
-
-	result, err := extractor.Extract(context.Background(), "https://youtu.be/dQw4w9WgXcQ", ExtractOptions{})
-	if err != nil {
-		t.Fatalf("Extract returned error: %v", err)
-	}
-
-	if !stt.called {
-		t.Fatal("expected STT fallback to be invoked")
-	}
-	if stt.format != "m4a" {
-		t.Fatalf("format = %q, want %q", stt.format, "m4a")
-	}
-	if !reflect.DeepEqual(stt.audio, []byte("audio-bytes")) {
-		t.Fatalf("audio = %q, want audio-bytes", string(stt.audio))
-	}
-	if result.Source != TranscriptSourceSTT {
-		t.Fatalf("source = %q, want %q", result.Source, TranscriptSourceSTT)
-	}
-	if result.Markdown != "## 00:00\nHello from fallback" {
-		t.Fatalf("markdown = %q", result.Markdown)
-	}
-}
-
-func TestExtractorDoesNotInvokeSTTWhenNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID:            "dQw4w9WgXcQ",
-		Title:         "Captions Missing",
-		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
-		Formats: ytdl.FormatList{
-			{MimeType: `audio/mp4; codecs="mp4a.40.2"`, AudioChannels: 2},
-		},
-	}
-
-	client := &stubYouTubeClient{
-		video:          video,
-		transcriptErrs: map[string]error{"en": ytdl.ErrTranscriptDisabled},
-		audioData:      []byte("audio-bytes"),
-	}
-	stt := &stubSTTClient{configured: false}
-
-	extractor := &Extractor{
-		youtube: client,
-		stt:     stt,
-	}
-
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/shorts/dQw4w9WgXcQ", ExtractOptions{})
+	_, err := (&Extractor{}).Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
 	if err == nil {
-		t.Fatal("expected Extract to fail")
+		t.Fatal("expected Extract to fail without yt-dlp backend")
 	}
-	if result == nil {
-		t.Fatal("expected partial result with metadata")
-	}
-	if stt.called {
-		t.Fatal("did not expect STT fallback to run")
-	}
-
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindTranscriptUnavailable {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindTranscriptUnavailable)
-	}
-}
-
-func TestExtractorReturnsStructuredErrorsForVideoAccessFailures(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name     string
-		err      error
-		wantKind ErrorKind
-	}{
-		{name: "private", err: ytdl.ErrVideoPrivate, wantKind: ErrorKindPrivate},
-		{name: "age restricted", err: ytdl.ErrLoginRequired, wantKind: ErrorKindAgeRestricted},
-		{name: "unavailable", err: &ytdl.ErrPlayabiltyStatus{Status: "ERROR", Reason: "Video unavailable"}, wantKind: ErrorKindUnavailable},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			extractor := &Extractor{
-				youtube: &stubYouTubeClient{videoErr: tc.err},
-			}
-
-			_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-			if err == nil {
-				t.Fatal("expected Extract to fail")
-			}
-
-			var youtubeErr *Error
-			if !errors.As(err, &youtubeErr) {
-				t.Fatalf("expected structured error, got %T", err)
-			}
-			if youtubeErr.Kind != tc.wantKind {
-				t.Fatalf("kind = %q, want %q", youtubeErr.Kind, tc.wantKind)
-			}
-		})
-	}
-}
-
-func TestExtractorRejectsInvalidYouTubeURL(t *testing.T) {
-	t.Parallel()
-
-	extractor := &Extractor{youtube: &stubYouTubeClient{}}
-
-	_, err := extractor.Extract(context.Background(), "https://example.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-	if err == nil {
-		t.Fatal("expected Extract to fail")
-	}
-
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindInvalidURL {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindInvalidURL)
+	if !strings.Contains(err.Error(), "yt-dlp backend is required") {
+		t.Fatalf("error = %q, want yt-dlp requirement", err.Error())
 	}
 }
 
@@ -248,6 +33,8 @@ func TestParseVideoURLHandlesCommonYouTubeFormats(t *testing.T) {
 		{name: "watch", raw: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
 		{name: "short", raw: "https://youtu.be/dQw4w9WgXcQ"},
 		{name: "shorts", raw: "https://www.youtube.com/shorts/dQw4w9WgXcQ"},
+		{name: "embed", raw: "https://www.youtube.com/embed/dQw4w9WgXcQ"},
+		{name: "mobile", raw: "https://m.youtube.com/watch?v=dQw4w9WgXcQ"},
 	}
 
 	for _, tc := range testCases {
@@ -269,12 +56,41 @@ func TestParseVideoURLHandlesCommonYouTubeFormats(t *testing.T) {
 	}
 }
 
+func TestParseVideoURLRejectsInvalidURLs(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{
+		"",
+		"https://example.com/watch?v=dQw4w9WgXcQ",
+		"https://www.youtube.com/watch?v=short",
+		"://bad",
+	} {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseVideoURL(raw)
+			if err == nil {
+				t.Fatal("expected parseVideoURL to fail")
+			}
+			var youtubeErr *Error
+			if !errors.As(err, &youtubeErr) {
+				t.Fatalf("expected structured error, got %T", err)
+			}
+			if youtubeErr.Kind != ErrorKindInvalidURL {
+				t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindInvalidURL)
+			}
+		})
+	}
+}
+
 func TestFormatTranscriptMarkdownUsesTimestampHeaders(t *testing.T) {
 	t.Parallel()
 
-	transcript := ytdl.VideoTranscript{
-		{StartMs: 0, Text: "first segment"},
+	transcript := []transcriptSegment{
+		{StartMs: 0, Text: " first   segment "},
 		{StartMs: 3_723_000, Text: "later segment"},
+		{StartMs: 4_000_000, Text: "   "},
 	}
 
 	got := formatTranscriptMarkdown(transcript)
@@ -290,27 +106,27 @@ func TestFormatTranscriptMarkdownUsesTimestampHeaders(t *testing.T) {
 	}
 }
 
-func TestNewExtractorConstructsDefaultBackends(t *testing.T) {
+func TestNewExtractorWithConfigConstructsYTDLPAndSTT(t *testing.T) {
 	t.Parallel()
 
-	cookiesPath := filepath.Join(t.TempDir(), "youtube-cookies.txt")
-	if err := os.WriteFile(cookiesPath, []byte(".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tvalue\n"), 0o644); err != nil {
-		t.Fatalf("write cookies: %v", err)
-	}
 	youtubeConfig := config.YouTubeConfig{
 		YTDLPPath:     "/opt/bin/yt-dlp",
 		Proxy:         "http://proxy.internal:8080",
-		CookiesFile:   cookiesPath,
+		CookiesFile:   "/tmp/youtube-cookies.txt",
 		UserAgent:     "kb-test-agent",
 		RetryAttempts: 4,
 		RetryBackoff:  "250ms",
 	}
-	extractor := NewExtractor(config.OpenRouterConfig{}, youtubeConfig)
+	extractor := NewExtractorWithConfig(config.STTConfig{
+		Provider:    "openai",
+		APIKey:      "openai-key",
+		APIURL:      "https://api.openai.test",
+		Model:       "gpt-4o-transcribe",
+		Language:    "auto",
+		AudioFormat: "mp3",
+	}, config.OpenRouterConfig{}, youtubeConfig)
 	if extractor == nil {
 		t.Fatal("expected extractor")
-	}
-	if extractor.youtube == nil {
-		t.Fatal("expected YouTube client")
 	}
 	if extractor.stt == nil {
 		t.Fatal("expected STT client")
@@ -357,340 +173,79 @@ func TestErrorFormattingAndUnwrap(t *testing.T) {
 func TestShouldAttemptSTT(t *testing.T) {
 	t.Parallel()
 
-	if (&Extractor{}).shouldAttemptSTT(ExtractOptions{}) {
+	if (&Extractor{}).shouldAttemptSTT(TranscriptionPolicyAuto) {
 		t.Fatal("expected false when STT client is missing")
 	}
 
-	extractor := &Extractor{stt: &stubSTTClient{configured: false}}
-	if !extractor.shouldAttemptSTT(ExtractOptions{EnableSTTFallback: true}) {
-		t.Fatal("expected explicit fallback flag to enable STT")
+	extractor := &Extractor{stt: &stubSTTClient{}}
+	if !extractor.shouldAttemptSTT(TranscriptionPolicyAuto) {
+		t.Fatal("expected auto policy to request STT when a transcriber is present")
 	}
-
-	extractor = &Extractor{stt: &stubSTTClient{configured: true}}
-	if !extractor.shouldAttemptSTT(ExtractOptions{}) {
-		t.Fatal("expected configured client to enable STT")
+	if !extractor.shouldAttemptSTT(TranscriptionPolicySTT) {
+		t.Fatal("expected stt policy to request STT when a transcriber is present")
+	}
+	if extractor.shouldAttemptSTT(TranscriptionPolicyCaptions) {
+		t.Fatal("expected captions policy to avoid STT")
 	}
 }
 
-func TestOrderedCaptionTracksPrefersPreferredLanguageAndManualTracks(t *testing.T) {
+func TestParseTranscriptionPolicy(t *testing.T) {
 	t.Parallel()
 
-	tracks := []ytdl.CaptionTrack{
-		{LanguageCode: "fr", Kind: "asr"},
-		{LanguageCode: "en", Kind: "asr"},
-		{LanguageCode: "en-US", Kind: ""},
-		{LanguageCode: "de", Kind: ""},
+	for _, value := range []string{"", "captions", "auto", "stt", " STT "} {
+		if _, err := ParseTranscriptionPolicy(value); err != nil {
+			t.Fatalf("ParseTranscriptionPolicy(%q) returned error: %v", value, err)
+		}
 	}
+	if _, err := ParseTranscriptionPolicy("maybe"); err == nil {
+		t.Fatal("expected invalid transcription policy to fail")
+	}
+}
 
-	got := orderedCaptionTracks(tracks, []string{" en ", "en"})
-	if len(got) != 4 {
-		t.Fatalf("ordered length = %d, want 4", len(got))
-	}
-	if got[0].LanguageCode != "en-US" {
-		t.Fatalf("first language = %q, want %q", got[0].LanguageCode, "en-US")
-	}
-	if got[1].LanguageCode != "en" {
-		t.Fatalf("second language = %q, want %q", got[1].LanguageCode, "en")
+func TestLanguageHelpers(t *testing.T) {
+	t.Parallel()
+
+	got := normalizeLanguages([]string{" en ", "EN", "", "pt-BR"})
+	if len(got) != 2 || got[0] != "en" || got[1] != "pt-br" {
+		t.Fatalf("normalized languages = %#v", got)
 	}
 	if !languageMatches("en-US", "en") {
 		t.Fatal("expected language prefix match")
 	}
+	if languageMatches("de", "en") {
+		t.Fatal("did not expect unrelated language match")
+	}
 }
 
-func TestPickAudioFormatPrefersSupportedAudioMimeTypes(t *testing.T) {
+func TestIsYouTubeNetworkBlocked(t *testing.T) {
 	t.Parallel()
 
-	format, normalized, err := pickAudioFormat(ytdl.FormatList{
-		{MimeType: `audio/webm; codecs="opus"`, AudioChannels: 2, URL: "https://cdn.example.com/audio.webm"},
-		{MimeType: `audio/mp4; codecs="mp4a.40.2"`, AudioChannels: 2, URL: "https://cdn.example.com/audio.m4a"},
-	})
-	if err != nil {
-		t.Fatalf("pickAudioFormat returned error: %v", err)
+	if !isYouTubeNetworkBlocked(errors.New("unexpected status code: 403")) {
+		t.Fatal("expected forbidden status to be treated as network blocked")
 	}
-	if normalized != "m4a" {
-		t.Fatalf("normalized format = %q, want %q", normalized, "m4a")
+	if !isYouTubeNetworkBlocked(errors.New("unexpected status code: 429")) {
+		t.Fatal("expected text status to be treated as network blocked")
 	}
-	if !strings.Contains(format.MimeType, "audio/mp4") {
-		t.Fatalf("mime type = %q, want audio/mp4", format.MimeType)
+	if isYouTubeNetworkBlocked(errors.New("unexpected status code: 404")) {
+		t.Fatal("did not expect 404 to be treated as network blocked")
 	}
-
-	if got := normalizeAudioFormat("", "https://cdn.example.com/audio.mp3"); got != "mp3" {
-		t.Fatalf("normalizeAudioFormat by extension = %q, want %q", got, "mp3")
-	}
-	if got := normalizeAudioFormat(`audio/ogg; codecs="opus"`, ""); got != "ogg" {
-		t.Fatalf("normalizeAudioFormat by mime = %q, want %q", got, "ogg")
-	}
-}
-
-func TestPickAudioFormatReturnsStructuredErrorWhenAudioMissing(t *testing.T) {
-	t.Parallel()
-
-	_, _, err := pickAudioFormat(ytdl.FormatList{
-		{MimeType: `video/mp4; codecs="avc1.640028"`},
-	})
-	if err == nil {
-		t.Fatal("expected pickAudioFormat to fail")
-	}
-
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindAudioUnavailable {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindAudioUnavailable)
-	}
-}
-
-func TestDownloadAudioReturnsStructuredErrorForEmptyStream(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID: "dQw4w9WgXcQ",
-		Formats: ytdl.FormatList{
-			{MimeType: `audio/mp4; codecs="mp4a.40.2"`, AudioChannels: 2},
-		},
-	}
-
-	extractor := &Extractor{
-		youtube: &stubYouTubeClient{
-			audioData: []byte{},
-		},
-	}
-
-	_, _, err := extractor.downloadAudio(context.Background(), video)
-	if err == nil {
-		t.Fatal("expected downloadAudio to fail")
-	}
-
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindAudioUnavailable {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindAudioUnavailable)
-	}
-}
-
-func TestExtractorRetriesTransientTranscriptFailure(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID:            "dQw4w9WgXcQ",
-		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
-	}
-	client := &stubYouTubeClient{
-		video: video,
-		transcripts: map[string]ytdl.VideoTranscript{
-			"en": {{StartMs: 0, Text: "Recovered"}},
-		},
-		transcriptErrSequence: []error{ytdl.ErrUnexpectedStatusCode(http.StatusTooManyRequests)},
-	}
-	extractor := &Extractor{
-		youtube: client,
-		retry:   retryPolicy{Attempts: 2},
-	}
-
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-	if err != nil {
-		t.Fatalf("Extract returned error: %v", err)
-	}
-	if client.transcriptCalls != 2 {
-		t.Fatalf("transcript calls = %d, want 2", client.transcriptCalls)
-	}
-	if !strings.Contains(result.Markdown, "Recovered") {
-		t.Fatalf("markdown = %q, want recovered transcript", result.Markdown)
-	}
-}
-
-func TestExtractorDoesNotAttemptSTTForBlockedCaptions(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID:            "dQw4w9WgXcQ",
-		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
-		Formats: ytdl.FormatList{
-			{MimeType: "audio/mp4; codecs=\"mp4a.40.2\"", AudioChannels: 2},
-		},
-	}
-	stt := &stubSTTClient{configured: true}
-	extractor := &Extractor{
-		youtube: &stubYouTubeClient{
-			video:          video,
-			transcriptErrs: map[string]error{"en": ytdl.ErrUnexpectedStatusCode(http.StatusForbidden)},
-		},
-		stt:   stt,
-		retry: retryPolicy{Attempts: 1},
-	}
-
-	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-	if err == nil {
-		t.Fatal("expected Extract to fail")
-	}
-	if stt.called {
-		t.Fatal("did not expect STT for blocked captions")
-	}
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindNetworkBlocked {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindNetworkBlocked)
-	}
-	if !strings.Contains(youtubeErr.Error(), "[youtube].proxy") {
-		t.Fatalf("error should mention proxy config, got %q", youtubeErr.Error())
-	}
-}
-
-func TestDownloadAudioWrapsBlockedStreamAsAudioUnavailable(t *testing.T) {
-	t.Parallel()
-
-	video := &ytdl.Video{
-		ID: "dQw4w9WgXcQ",
-		Formats: ytdl.FormatList{
-			{MimeType: "audio/mp4; codecs=\"mp4a.40.2\"", AudioChannels: 2},
-		},
-	}
-	extractor := &Extractor{
-		youtube: &stubYouTubeClient{streamErr: ytdl.ErrUnexpectedStatusCode(http.StatusForbidden)},
-		retry:   retryPolicy{Attempts: 1},
-	}
-
-	_, _, err := extractor.downloadAudio(context.Background(), video)
-	if err == nil {
-		t.Fatal("expected downloadAudio to fail")
-	}
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) {
-		t.Fatalf("expected structured error, got %T", err)
-	}
-	if youtubeErr.Kind != ErrorKindAudioUnavailable {
-		t.Fatalf("kind = %q, want %q", youtubeErr.Kind, ErrorKindAudioUnavailable)
-	}
-	if !strings.Contains(youtubeErr.Error(), "[youtube].proxy") {
-		t.Fatalf("error should mention proxy config, got %q", youtubeErr.Error())
-	}
-}
-
-func TestParseCookiesSupportsNetscapeAndHeaderFormats(t *testing.T) {
-	t.Parallel()
-
-	cookies, err := parseCookies(strings.NewReader(strings.Join([]string{
-		".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tnetscape-value",
-		"LOGIN_INFO=header-value; PREF=pref-value",
-	}, "\n")))
-	if err != nil {
-		t.Fatalf("parseCookies returned error: %v", err)
-	}
-	if len(cookies) != 3 {
-		t.Fatalf("cookies length = %d, want 3", len(cookies))
-	}
-	if cookies[0].Name != "SID" || cookies[0].Value != "netscape-value" || !cookies[0].Secure {
-		t.Fatalf("netscape cookie = %#v", cookies[0])
-	}
-	if cookies[1].Name != "LOGIN_INFO" || cookies[1].Value != "header-value" {
-		t.Fatalf("header cookie = %#v", cookies[1])
-	}
-}
-
-func TestRequestDecoratingTransportAddsCookiesAndUserAgent(t *testing.T) {
-	t.Parallel()
-
-	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if got := request.Header.Get("User-Agent"); got != "kb-test-agent" {
-			t.Fatalf("User-Agent = %q, want kb-test-agent", got)
-		}
-		if got := request.Header.Get("Cookie"); !strings.Contains(got, "SID=value") {
-			t.Fatalf("Cookie header = %q, want SID=value", got)
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("ok")),
-			Header:     make(http.Header),
-			Request:    request,
-		}, nil
-	})
-	transport := &requestDecoratingTransport{
-		base:      base,
-		cookies:   []*http.Cookie{{Name: "SID", Value: "value"}},
-		userAgent: "kb-test-agent",
-	}
-	request, err := http.NewRequest(http.MethodGet, "https://www.youtube.com", nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-
-	response, err := transport.RoundTrip(request)
-	if err != nil {
-		t.Fatalf("RoundTrip returned error: %v", err)
-	}
-	_ = response.Body.Close()
-}
-
-type stubYouTubeClient struct {
-	video                 *ytdl.Video
-	videoErr              error
-	videoURL              string
-	transcripts           map[string]ytdl.VideoTranscript
-	transcriptErrs        map[string]error
-	transcriptErrSequence []error
-	transcriptCalls       int
-	audioData             []byte
-	streamErr             error
-}
-
-func (client *stubYouTubeClient) GetVideoContext(_ context.Context, rawURL string) (*ytdl.Video, error) {
-	client.videoURL = rawURL
-	if client.videoErr != nil {
-		return nil, client.videoErr
-	}
-	if client.video == nil {
-		return nil, errors.New("video not configured")
-	}
-	return client.video, nil
-}
-
-func (client *stubYouTubeClient) GetTranscriptCtx(_ context.Context, _ *ytdl.Video, lang string) (ytdl.VideoTranscript, error) {
-	client.transcriptCalls++
-	if len(client.transcriptErrSequence) > 0 {
-		err := client.transcriptErrSequence[0]
-		client.transcriptErrSequence = client.transcriptErrSequence[1:]
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := client.transcriptErrs[lang]; err != nil {
-		return nil, err
-	}
-	if transcript, ok := client.transcripts[lang]; ok {
-		return transcript, nil
-	}
-	return nil, ytdl.ErrTranscriptDisabled
-}
-
-func (client *stubYouTubeClient) GetStreamContext(_ context.Context, _ *ytdl.Video, _ *ytdl.Format) (io.ReadCloser, int64, error) {
-	if client.streamErr != nil {
-		return nil, 0, client.streamErr
-	}
-	return io.NopCloser(strings.NewReader(string(client.audioData))), int64(len(client.audioData)), nil
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
-	return fn(request)
 }
 
 type stubSTTClient struct {
-	configured bool
-	called     bool
-	audio      []byte
-	format     string
-	transcript string
-	err        error
+	called      bool
+	audio       []byte
+	format      string
+	transcript  string
+	transcripts []string
+	err         error
 }
 
-func (client *stubSTTClient) Configured() bool {
-	return client.configured
+func (client *stubSTTClient) Provider() string {
+	return "stub"
+}
+
+func (client *stubSTTClient) Model() string {
+	return "stub-model"
 }
 
 func (client *stubSTTClient) Transcribe(_ context.Context, audio []byte, format string) (string, error) {
@@ -699,6 +254,11 @@ func (client *stubSTTClient) Transcribe(_ context.Context, audio []byte, format 
 	client.format = format
 	if client.err != nil {
 		return "", client.err
+	}
+	if len(client.transcripts) > 0 {
+		transcript := client.transcripts[0]
+		client.transcripts = client.transcripts[1:]
+		return transcript, nil
 	}
 	return client.transcript, nil
 }

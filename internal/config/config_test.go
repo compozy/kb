@@ -24,6 +24,10 @@ func clearServiceEnv(t *testing.T) {
 	t.Setenv(EnvFirecrawlAPIURL, "")
 	t.Setenv(EnvOpenRouterAPIKey, "")
 	t.Setenv(EnvOpenRouterAPIURL, "")
+	t.Setenv(EnvOpenAIAPIKey, "")
+	t.Setenv(EnvOpenAIAPIURL, "")
+	t.Setenv(EnvSTTProvider, "")
+	t.Setenv(EnvSTTModel, "")
 	t.Setenv(EnvYouTubeYTDLPPath, "")
 	t.Setenv(EnvYouTubeProxy, "")
 	t.Setenv(EnvYouTubeCookiesFile, "")
@@ -61,8 +65,26 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if cfg.OpenRouter.STTModel != defaultOpenRouterSTTModel {
 		t.Errorf("expected default openrouter.stt_model %q, got %q", defaultOpenRouterSTTModel, cfg.OpenRouter.STTModel)
 	}
+	if cfg.STT.Provider != defaultSTTProvider {
+		t.Errorf("expected default stt.provider %q, got %q", defaultSTTProvider, cfg.STT.Provider)
+	}
+	if cfg.STT.APIURL != defaultOpenAIAPIURL {
+		t.Errorf("expected default stt.api_url %q, got %q", defaultOpenAIAPIURL, cfg.STT.APIURL)
+	}
+	if cfg.STT.Model != defaultSTTModel {
+		t.Errorf("expected default stt.model %q, got %q", defaultSTTModel, cfg.STT.Model)
+	}
+	if cfg.STT.AudioFormat != defaultSTTAudioFormat {
+		t.Errorf("expected default stt.audio_format %q, got %q", defaultSTTAudioFormat, cfg.STT.AudioFormat)
+	}
+	if cfg.STT.Concurrency != defaultSTTConcurrency {
+		t.Errorf("expected default stt.concurrency %d, got %d", defaultSTTConcurrency, cfg.STT.Concurrency)
+	}
 	if cfg.YouTube.YTDLPPath != defaultYouTubeYTDLPPath {
 		t.Errorf("expected default youtube.yt_dlp_path %q, got %q", defaultYouTubeYTDLPPath, cfg.YouTube.YTDLPPath)
+	}
+	if cfg.YouTube.Transcription != defaultYouTubeTranscription {
+		t.Errorf("expected default youtube.transcription %q, got %q", defaultYouTubeTranscription, cfg.YouTube.Transcription)
 	}
 	if cfg.YouTube.RetryAttempts != defaultYouTubeRetryAttempts {
 		t.Errorf("expected default youtube.retry_attempts %d, got %d", defaultYouTubeRetryAttempts, cfg.YouTube.RetryAttempts)
@@ -96,11 +118,25 @@ api_key = "openrouter-key"
 api_url = "https://openrouter.internal/api"
 stt_model = "acme/stt"
 
+[stt]
+provider = "openai"
+api_key = "openai-key"
+api_url = "https://openai.internal"
+model = "gpt-4o-mini-transcribe"
+language = "pt"
+prompt = "Technical conference talk."
+audio_format = "mp3"
+chunk_duration = "5m"
+max_chunk_bytes = 123456
+concurrency = 3
+ffmpeg_path = "/opt/bin/ffmpeg"
+
 	[youtube]
 	yt_dlp_path = "/opt/bin/yt-dlp"
 	proxy = "http://proxy.internal:8080"
 	cookies_file = "/tmp/youtube-cookies.txt"
 	user_agent = "kb-test"
+transcription = "auto"
 retry_attempts = 5
 retry_backoff = "250ms"
 `
@@ -140,8 +176,29 @@ retry_backoff = "250ms"
 	if cfg.OpenRouter.STTModel != "acme/stt" {
 		t.Errorf("expected openrouter.stt_model 'acme/stt', got %q", cfg.OpenRouter.STTModel)
 	}
+	if cfg.STT.APIKey != "openai-key" {
+		t.Errorf("expected stt.api_key 'openai-key', got %q", cfg.STT.APIKey)
+	}
+	if cfg.STT.APIURL != "https://openai.internal" {
+		t.Errorf("expected stt.api_url 'https://openai.internal', got %q", cfg.STT.APIURL)
+	}
+	if cfg.STT.Model != "gpt-4o-mini-transcribe" {
+		t.Errorf("expected stt.model 'gpt-4o-mini-transcribe', got %q", cfg.STT.Model)
+	}
+	if cfg.STT.Language != "pt" {
+		t.Errorf("expected stt.language 'pt', got %q", cfg.STT.Language)
+	}
+	if cfg.STT.Prompt != "Technical conference talk." {
+		t.Errorf("expected stt.prompt, got %q", cfg.STT.Prompt)
+	}
+	if cfg.STT.ChunkDuration != "5m" || cfg.STT.MaxChunkBytes != 123456 || cfg.STT.Concurrency != 3 {
+		t.Errorf("unexpected stt chunk settings: %#v", cfg.STT)
+	}
 	if cfg.YouTube.YTDLPPath != "/opt/bin/yt-dlp" {
 		t.Errorf("expected youtube.yt_dlp_path, got %q", cfg.YouTube.YTDLPPath)
+	}
+	if cfg.YouTube.Transcription != "auto" {
+		t.Errorf("expected youtube.transcription auto, got %q", cfg.YouTube.Transcription)
 	}
 	if cfg.YouTube.Proxy != "http://proxy.internal:8080" {
 		t.Errorf("expected youtube.proxy, got %q", cfg.YouTube.Proxy)
@@ -175,6 +232,9 @@ func TestLoadEmptyPathUsesDefaults(t *testing.T) {
 	}
 	if cfg.OpenRouter.STTModel != defaultOpenRouterSTTModel {
 		t.Errorf("expected default openrouter.stt_model %q, got %q", defaultOpenRouterSTTModel, cfg.OpenRouter.STTModel)
+	}
+	if cfg.STT.Model != defaultSTTModel {
+		t.Errorf("expected default stt.model %q, got %q", defaultSTTModel, cfg.STT.Model)
 	}
 }
 
@@ -229,6 +289,22 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name:   "invalid youtube retry backoff",
 			mutate: func(c *Config) { c.YouTube.RetryBackoff = "soon" },
+		},
+		{
+			name:   "invalid stt provider",
+			mutate: func(c *Config) { c.STT.Provider = "local" },
+		},
+		{
+			name:   "invalid stt audio format",
+			mutate: func(c *Config) { c.STT.AudioFormat = "flac" },
+		},
+		{
+			name:   "invalid stt concurrency",
+			mutate: func(c *Config) { c.STT.Concurrency = -1 },
+		},
+		{
+			name:   "invalid youtube transcription",
+			mutate: func(c *Config) { c.YouTube.Transcription = "maybe" },
 		},
 	}
 
@@ -362,6 +438,39 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
 			},
 		},
 		{
+			name:     "openai api key overrides stt config",
+			envKey:   EnvOpenAIAPIKey,
+			envValue: "env-openai-key",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.STT.APIKey != "env-openai-key" {
+					t.Fatalf("expected stt.api_key to be overridden, got %q", cfg.STT.APIKey)
+				}
+			},
+		},
+		{
+			name:     "stt provider overrides toml",
+			envKey:   EnvSTTProvider,
+			envValue: "openrouter",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.STT.Provider != "openrouter" {
+					t.Fatalf("expected stt.provider to be overridden, got %q", cfg.STT.Provider)
+				}
+			},
+		},
+		{
+			name:     "stt model overrides toml",
+			envKey:   EnvSTTModel,
+			envValue: "gpt-4o-mini-transcribe",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.STT.Model != "gpt-4o-mini-transcribe" {
+					t.Fatalf("expected stt.model to be overridden, got %q", cfg.STT.Model)
+				}
+			},
+		},
+		{
 			name:     "youtube yt-dlp path overrides toml",
 			envKey:   EnvYouTubeYTDLPPath,
 			envValue: "/env/bin/yt-dlp",
@@ -424,6 +533,12 @@ api_url = "https://toml.firecrawl.dev"
 api_key = "toml-openrouter-key"
 api_url = "https://toml.openrouter.ai/api"
 stt_model = "toml/stt"
+
+[stt]
+provider = "openai"
+api_key = "toml-openai-key"
+api_url = "https://toml.openai.internal"
+model = "gpt-4o-transcribe"
 
 	[youtube]
 	yt_dlp_path = "/toml/bin/yt-dlp"

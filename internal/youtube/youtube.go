@@ -2,23 +2,14 @@
 package youtube
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
-
-	ytdl "github.com/kkdai/youtube/v2"
 
 	"github.com/compozy/kb/internal/config"
 )
@@ -29,14 +20,33 @@ const (
 
 var youtubeVideoIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
+var errTranscriptDisabled = errors.New("transcript disabled")
+
 // TranscriptSource identifies how the transcript was produced.
 type TranscriptSource string
 
 const (
 	// TranscriptSourceCaptions means YouTube captions were fetched directly.
 	TranscriptSourceCaptions TranscriptSource = "captions"
-	// TranscriptSourceSTT means audio was transcribed through OpenRouter.
+	// TranscriptSourceSTT means audio was transcribed through an STT provider.
 	TranscriptSourceSTT TranscriptSource = "stt"
+)
+
+// CaptionKind identifies whether fetched YouTube captions were manual or ASR.
+type CaptionKind string
+
+const (
+	CaptionKindManual    CaptionKind = "manual"
+	CaptionKindAutomatic CaptionKind = "automatic"
+)
+
+// TranscriptionPolicy controls whether captions or STT are used.
+type TranscriptionPolicy string
+
+const (
+	TranscriptionPolicyCaptions TranscriptionPolicy = "captions"
+	TranscriptionPolicyAuto     TranscriptionPolicy = "auto"
+	TranscriptionPolicySTT      TranscriptionPolicy = "stt"
 )
 
 // ErrorKind categorizes user-facing YouTube extraction failures.
@@ -115,16 +125,20 @@ type Metadata struct {
 
 // Result contains the extracted metadata and transcript markdown.
 type Result struct {
-	Metadata Metadata
-	Markdown string
-	Source   TranscriptSource
-	Language string
+	Metadata            Metadata
+	Markdown            string
+	Source              TranscriptSource
+	Language            string
+	CaptionKind         CaptionKind
+	TranscriptionPolicy TranscriptionPolicy
+	STTProvider         string
+	STTModel            string
 }
 
 // ExtractOptions controls transcript extraction behavior.
 type ExtractOptions struct {
-	EnableSTTFallback  bool
-	PreferredLanguages []string
+	TranscriptionPolicy TranscriptionPolicy
+	PreferredLanguages  []string
 }
 
 type parsedVideoURL struct {
@@ -132,14 +146,14 @@ type parsedVideoURL struct {
 	VideoID      string
 }
 
-type youtubeClient interface {
-	GetVideoContext(ctx context.Context, rawURL string) (*ytdl.Video, error)
-	GetTranscriptCtx(ctx context.Context, video *ytdl.Video, lang string) (ytdl.VideoTranscript, error)
-	GetStreamContext(ctx context.Context, video *ytdl.Video, format *ytdl.Format) (io.ReadCloser, int64, error)
+type transcriptSegment struct {
+	StartMs int
+	Text    string
 }
 
 type sttClient interface {
-	Configured() bool
+	Provider() string
+	Model() string
 	Transcribe(ctx context.Context, audio []byte, format string) (string, error)
 }
 
@@ -150,25 +164,24 @@ type retryPolicy struct {
 
 // Extractor orchestrates transcript extraction and optional STT fallback.
 type Extractor struct {
-	youtube  youtubeClient
-	ytDLP    *ytDLPBackend
-	stt      sttClient
-	retry    retryPolicy
-	setupErr error
+	ytDLP     *ytDLPBackend
+	stt       sttClient
+	sttConfig config.STTConfig
+	setupErr  error
 }
 
-// NewExtractor constructs a default extractor with yt-dlp as the primary
-// caption backend, kkdai/youtube as legacy fallback, and OpenRouter STT fallback.
-func NewExtractor(cfg config.OpenRouterConfig, youtubeConfigs ...config.YouTubeConfig) *Extractor {
+// NewExtractorWithConfig constructs an extractor with explicit STT provider
+// configuration.
+func NewExtractorWithConfig(
+	sttConfig config.STTConfig,
+	openRouterConfig config.OpenRouterConfig,
+	youtubeConfigs ...config.YouTubeConfig,
+) *Extractor {
 	youtubeConfig := config.Default().YouTube
 	if len(youtubeConfigs) > 0 {
 		youtubeConfig = youtubeConfigs[0]
 	}
-	httpClient, err := newHTTPClient(youtubeConfig)
-	backoff, backoffErr := youtubeConfig.RetryBackoffDuration()
-	if err == nil {
-		err = backoffErr
-	}
+	backoff, err := youtubeConfig.RetryBackoffDuration()
 	attempts := youtubeConfig.RetryAttempts
 	if attempts < 1 {
 		attempts = 1
@@ -180,145 +193,11 @@ func NewExtractor(cfg config.OpenRouterConfig, youtubeConfigs ...config.YouTubeC
 	}
 
 	return &Extractor{
-		youtube:  &ytdl.Client{HTTPClient: httpClient},
-		ytDLP:    newYTDLPBackend(youtubeConfig, retry),
-		stt:      NewOpenRouterClient(cfg),
-		retry:    retry,
-		setupErr: err,
+		ytDLP:     newYTDLPBackend(youtubeConfig, retry),
+		stt:       NewTranscriber(sttConfig, openRouterConfig),
+		sttConfig: normalizeSTTConfig(sttConfig),
+		setupErr:  err,
 	}
-}
-
-func newHTTPClient(cfg config.YouTubeConfig) (*http.Client, error) {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	proxyValue := strings.TrimSpace(cfg.Proxy)
-	if proxyValue != "" {
-		proxyURL, err := url.Parse(proxyValue)
-		if err != nil {
-			return nil, fmt.Errorf("parse youtube proxy: %w", err)
-		}
-		switch strings.ToLower(proxyURL.Scheme) {
-		case "http", "https", "socks5":
-		default:
-			return nil, fmt.Errorf("youtube proxy scheme must be http, https, or socks5: %q", proxyURL.Scheme)
-		}
-		transport.Proxy = http.ProxyURL(proxyURL)
-	} else {
-		transport.Proxy = http.ProxyFromEnvironment
-	}
-
-	cookies, err := loadCookiesFile(cfg.CookiesFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return &http.Client{
-		Transport: &requestDecoratingTransport{
-			base:      transport,
-			cookies:   cookies,
-			userAgent: strings.TrimSpace(cfg.UserAgent),
-		},
-	}, nil
-}
-
-type requestDecoratingTransport struct {
-	base      http.RoundTripper
-	cookies   []*http.Cookie
-	userAgent string
-}
-
-func (transport *requestDecoratingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if transport == nil {
-		return http.DefaultTransport.RoundTrip(request)
-	}
-	clonedRequest := request.Clone(request.Context())
-	for _, cookie := range transport.cookies {
-		clonedRequest.AddCookie(cookie)
-	}
-	if transport.userAgent != "" {
-		clonedRequest.Header.Set("User-Agent", transport.userAgent)
-	}
-	base := transport.base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(clonedRequest)
-}
-
-func loadCookiesFile(path string) ([]*http.Cookie, error) {
-	cleanPath := strings.TrimSpace(path)
-	if cleanPath == "" {
-		return nil, nil
-	}
-
-	file, err := os.Open(cleanPath)
-	if err != nil {
-		return nil, fmt.Errorf("open youtube cookies file %q: %w", cleanPath, err)
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	cookies, err := parseCookies(file)
-	if err != nil {
-		return nil, fmt.Errorf("parse youtube cookies file %q: %w", cleanPath, err)
-	}
-	return cookies, nil
-}
-
-func parseCookies(reader io.Reader) ([]*http.Cookie, error) {
-	scanner := bufio.NewScanner(reader)
-	cookies := []*http.Cookie{}
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "#HttpOnly_") {
-			line = strings.TrimPrefix(line, "#HttpOnly_")
-		} else if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if strings.Count(line, "	") >= 6 {
-			cookie, err := parseNetscapeCookie(line)
-			if err != nil {
-				return nil, err
-			}
-			cookies = append(cookies, cookie)
-			continue
-		}
-
-		for _, part := range strings.Split(line, ";") {
-			name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-			if !ok || strings.TrimSpace(name) == "" {
-				continue
-			}
-			cookies = append(cookies, &http.Cookie{Name: strings.TrimSpace(name), Value: strings.TrimSpace(value)})
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return cookies, nil
-}
-
-func parseNetscapeCookie(line string) (*http.Cookie, error) {
-	fields := strings.Split(line, "	")
-	if len(fields) < 7 {
-		return nil, fmt.Errorf("invalid Netscape cookie line")
-	}
-	name := strings.TrimSpace(fields[5])
-	if name == "" {
-		return nil, fmt.Errorf("invalid Netscape cookie line: missing name")
-	}
-
-	return &http.Cookie{
-		Domain: strings.TrimSpace(fields[0]),
-		Path:   strings.TrimSpace(fields[2]),
-		Secure: strings.EqualFold(strings.TrimSpace(fields[3]), "TRUE"),
-		Name:   name,
-		Value:  strings.TrimSpace(fields[6]),
-	}, nil
 }
 
 // Extract fetches video metadata and transcript markdown from a YouTube URL.
@@ -326,11 +205,11 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 	if extractor == nil {
 		return nil, errors.New("youtube extract: extractor is nil")
 	}
-	if extractor.youtube == nil && extractor.ytDLP == nil {
-		return nil, errors.New("youtube extract: client is nil")
+	if extractor.ytDLP == nil {
+		return nil, errors.New("youtube extract: yt-dlp backend is required")
 	}
 	if extractor.setupErr != nil {
-		return nil, fmt.Errorf("youtube extract: configure network client: %w", extractor.setupErr)
+		return nil, fmt.Errorf("youtube extract: configure yt-dlp backend: %w", extractor.setupErr)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -341,311 +220,77 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 		return nil, err
 	}
 
-	if extractor.ytDLP != nil {
-		result, err := extractor.ytDLP.Extract(ctx, parsed, options.PreferredLanguages)
-		if err == nil {
-			return result, nil
-		}
-		if isContextError(err) {
-			return result, err
-		}
-		if isTranscriptUnavailable(err) {
-			return extractor.extractSTTAfterTranscriptUnavailable(ctx, parsed, result, err, options)
-		}
-
-		allowLegacySTT := !errors.Is(err, errYTDLPCaptionFetchFailed)
-		legacyResult, legacyErr := extractor.extractWithLegacyBackend(ctx, parsed, options, allowLegacySTT)
-		if legacyErr == nil {
-			return legacyResult, nil
-		}
-		if legacyResult != nil {
-			result = legacyResult
-		}
-		return result, errors.Join(
-			fmt.Errorf("yt-dlp backend: %w", err),
-			fmt.Errorf("legacy kkdai backend: %w", legacyErr),
-		)
-	}
-
-	return extractor.extractWithLegacyBackend(ctx, parsed, options, true)
+	return extractor.extractWithYTDLPBackend(ctx, parsed, options)
 }
 
-func (extractor *Extractor) extractWithLegacyBackend(
+func (extractor *Extractor) extractWithYTDLPBackend(
 	ctx context.Context,
 	parsed parsedVideoURL,
 	options ExtractOptions,
-	allowSTT bool,
 ) (*Result, error) {
-	if extractor.youtube == nil {
-		return nil, errors.New("youtube extract: legacy client is nil")
-	}
-
-	video, err := extractor.getVideo(ctx, parsed)
+	policy := normalizeTranscriptionPolicy(options)
+	info, err := extractor.ytDLP.loadInfo(ctx, parsed.CanonicalURL)
 	if err != nil {
-		return nil, err
+		if isContextError(err) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("yt-dlp backend: %w", err)
 	}
 
 	result := &Result{
-		Metadata: Metadata{
-			VideoID:     parsed.VideoID,
-			URL:         parsed.CanonicalURL,
-			Title:       strings.TrimSpace(video.Title),
-			Channel:     strings.TrimSpace(video.Author),
-			Duration:    video.Duration,
-			PublishDate: video.PublishDate.UTC(),
-		},
+		Metadata:            metadataFromYTDLPInfo(parsed, info),
+		TranscriptionPolicy: policy,
+	}
+	if policy == TranscriptionPolicySTT {
+		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, nil)
 	}
 
-	markdown, language, err := extractor.extractTranscript(ctx, video, options.PreferredLanguages)
+	allowAutomaticCaptions := policy == TranscriptionPolicyCaptions
+	captionResult, err := extractor.ytDLP.extractCaptionsFromInfo(ctx, parsed, info, options.PreferredLanguages, allowAutomaticCaptions)
 	if err == nil {
-		result.Markdown = markdown
-		result.Source = TranscriptSourceCaptions
-		result.Language = language
-		return result, nil
+		captionResult.TranscriptionPolicy = policy
+		return captionResult, nil
+	}
+	if captionResult != nil {
+		result = captionResult
+		result.TranscriptionPolicy = policy
 	}
 	if isContextError(err) {
 		return result, err
 	}
-
-	if !allowSTT || !extractor.shouldAttemptSTT(options) || !isTranscriptUnavailable(err) {
-		return result, err
+	if isTranscriptUnavailable(err) && policy == TranscriptionPolicyAuto {
+		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, err)
 	}
-
-	audio, format, audioErr := extractor.downloadAudio(ctx, video)
-	if audioErr != nil {
-		return result, errors.Join(err, fmt.Errorf("youtube stt fallback: %w", audioErr))
-	}
-
-	transcript, sttErr := extractor.stt.Transcribe(ctx, audio, format)
-	if sttErr != nil {
-		return result, errors.Join(err, fmt.Errorf("youtube stt fallback: %w", sttErr))
-	}
-
-	result.Markdown = formatSTTMarkdown(transcript)
-	result.Source = TranscriptSourceSTT
-
-	return result, nil
+	return result, err
 }
 
-func (extractor *Extractor) extractSTTAfterTranscriptUnavailable(
-	ctx context.Context,
-	parsed parsedVideoURL,
-	result *Result,
-	transcriptErr error,
-	options ExtractOptions,
-) (*Result, error) {
-	if !extractor.shouldAttemptSTT(options) {
-		return result, transcriptErr
-	}
-	if extractor.youtube == nil {
-		return result, errors.Join(transcriptErr, errors.New("youtube stt fallback: legacy client is nil"))
-	}
-
-	video, err := extractor.getVideo(ctx, parsed)
-	if err != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", err))
-	}
-	if result == nil {
-		result = &Result{}
-	}
-	if strings.TrimSpace(result.Metadata.VideoID) == "" {
-		result.Metadata = Metadata{
-			VideoID:     parsed.VideoID,
-			URL:         parsed.CanonicalURL,
-			Title:       strings.TrimSpace(video.Title),
-			Channel:     strings.TrimSpace(video.Author),
-			Duration:    video.Duration,
-			PublishDate: video.PublishDate.UTC(),
-		}
-	}
-
-	audio, format, audioErr := extractor.downloadAudio(ctx, video)
-	if audioErr != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", audioErr))
-	}
-
-	transcript, sttErr := extractor.stt.Transcribe(ctx, audio, format)
-	if sttErr != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt fallback: %w", sttErr))
-	}
-
-	result.Markdown = formatSTTMarkdown(transcript)
-	result.Source = TranscriptSourceSTT
-	result.Language = ""
-
-	return result, nil
-}
-
-func (extractor *Extractor) shouldAttemptSTT(options ExtractOptions) bool {
+func (extractor *Extractor) shouldAttemptSTT(policy TranscriptionPolicy) bool {
 	if extractor.stt == nil {
 		return false
 	}
-	return options.EnableSTTFallback || extractor.stt.Configured()
+	return policy == TranscriptionPolicyAuto || policy == TranscriptionPolicySTT
 }
 
-func (extractor *Extractor) getVideo(ctx context.Context, parsed parsedVideoURL) (*ytdl.Video, error) {
-	var video *ytdl.Video
-	err := extractor.retryOperation(ctx, func() error {
-		loadedVideo, err := extractor.youtube.GetVideoContext(ctx, parsed.CanonicalURL)
-		if err != nil {
-			return wrapVideoError(parsed, err)
-		}
-		video = loadedVideo
-		return nil
-	})
-	if err != nil {
-		return nil, err
+func normalizeTranscriptionPolicy(options ExtractOptions) TranscriptionPolicy {
+	policy, err := ParseTranscriptionPolicy(string(options.TranscriptionPolicy))
+	if err == nil {
+		return policy
 	}
-	return video, nil
+	return TranscriptionPolicyCaptions
 }
 
-func (extractor *Extractor) getTranscript(ctx context.Context, video *ytdl.Video, language string) (ytdl.VideoTranscript, error) {
-	var transcript ytdl.VideoTranscript
-	err := extractor.retryOperation(ctx, func() error {
-		loadedTranscript, err := extractor.youtube.GetTranscriptCtx(ctx, video, language)
-		if err != nil {
-			return err
-		}
-		transcript = loadedTranscript
-		return nil
-	})
-	if err != nil {
-		return nil, err
+// ParseTranscriptionPolicy validates a transcription policy string.
+func ParseTranscriptionPolicy(value string) (TranscriptionPolicy, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(TranscriptionPolicyAuto):
+		return TranscriptionPolicyAuto, nil
+	case string(TranscriptionPolicySTT):
+		return TranscriptionPolicySTT, nil
+	case "", string(TranscriptionPolicyCaptions):
+		return TranscriptionPolicyCaptions, nil
+	default:
+		return "", fmt.Errorf("transcription policy must be captions, auto, or stt: %q", value)
 	}
-	return transcript, nil
-}
-
-func (extractor *Extractor) getStream(ctx context.Context, video *ytdl.Video, format *ytdl.Format) (io.ReadCloser, int64, error) {
-	var stream io.ReadCloser
-	var size int64
-	err := extractor.retryOperation(ctx, func() error {
-		loadedStream, loadedSize, err := extractor.youtube.GetStreamContext(ctx, video, format)
-		if err != nil {
-			return err
-		}
-		stream = loadedStream
-		size = loadedSize
-		return nil
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return stream, size, nil
-}
-
-func (extractor *Extractor) retryOperation(ctx context.Context, operation func() error) error {
-	attempts := extractor.retry.Attempts
-	if attempts < 1 {
-		attempts = 1
-	}
-	backoff := extractor.retry.Backoff
-
-	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		err := operation()
-		if err == nil {
-			return nil
-		}
-		if isContextError(err) {
-			return err
-		}
-		lastErr = err
-		if attempt == attempts || !isRetryableYouTubeError(err) {
-			return err
-		}
-		if backoff <= 0 {
-			continue
-		}
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-		backoff *= 2
-	}
-	return lastErr
-}
-
-func (extractor *Extractor) extractTranscript(ctx context.Context, video *ytdl.Video, preferredLanguages []string) (string, string, error) {
-	tracks := orderedCaptionTracks(video.CaptionTracks, preferredLanguages)
-	if len(tracks) == 0 {
-		return "", "", &Error{
-			Kind:    ErrorKindTranscriptUnavailable,
-			VideoID: video.ID,
-			Message: transcriptUnavailableMessage,
-			Err:     ytdl.ErrTranscriptDisabled,
-		}
-	}
-
-	var transcriptErrors []error
-
-	for _, track := range tracks {
-		transcript, err := extractor.getTranscript(ctx, video, track.LanguageCode)
-		if err != nil {
-			if isContextError(err) {
-				return "", "", err
-			}
-			if isYouTubeNetworkBlocked(err) {
-				return "", "", newNetworkBlockedError(video.ID, "captions request was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network", err)
-			}
-			transcriptErrors = append(transcriptErrors, fmt.Errorf("%s: %w", track.LanguageCode, err))
-			continue
-		}
-
-		markdown := formatTranscriptMarkdown(transcript)
-		if markdown == "" {
-			transcriptErrors = append(transcriptErrors, fmt.Errorf("%s: empty transcript", track.LanguageCode))
-			continue
-		}
-
-		return markdown, track.LanguageCode, nil
-	}
-
-	return "", "", &Error{
-		Kind:    ErrorKindTranscriptUnavailable,
-		VideoID: video.ID,
-		Message: transcriptUnavailableMessage,
-		Err:     errors.Join(transcriptErrors...),
-	}
-}
-
-func (extractor *Extractor) downloadAudio(ctx context.Context, video *ytdl.Video) ([]byte, string, error) {
-	format, normalizedFormat, err := pickAudioFormat(video.Formats)
-	if err != nil {
-		return nil, "", err
-	}
-
-	stream, _, err := extractor.getStream(ctx, video, format)
-	if err != nil {
-		if isYouTubeNetworkBlocked(err) {
-			return nil, "", &Error{
-				Kind:    ErrorKindAudioUnavailable,
-				VideoID: video.ID,
-				Message: "audio download was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
-				Err:     err,
-			}
-		}
-		return nil, "", fmt.Errorf("download audio stream: %w", err)
-	}
-	defer func() {
-		_ = stream.Close()
-	}()
-
-	audio, err := io.ReadAll(stream)
-	if err != nil {
-		return nil, "", fmt.Errorf("read audio stream: %w", err)
-	}
-	if len(audio) == 0 {
-		return nil, "", &Error{
-			Kind:    ErrorKindAudioUnavailable,
-			VideoID: video.ID,
-			Message: "audio stream is empty",
-		}
-	}
-
-	return audio, normalizedFormat, nil
 }
 
 func parseVideoURL(rawURL string) (parsedVideoURL, error) {
@@ -705,50 +350,6 @@ func parseVideoURL(rawURL string) (parsedVideoURL, error) {
 	}, nil
 }
 
-func wrapVideoError(parsed parsedVideoURL, err error) error {
-	switch {
-	case errors.Is(err, ytdl.ErrVideoPrivate):
-		return &Error{
-			Kind:    ErrorKindPrivate,
-			URL:     parsed.CanonicalURL,
-			VideoID: parsed.VideoID,
-			Message: "video is private",
-			Err:     err,
-		}
-	case errors.Is(err, ytdl.ErrLoginRequired):
-		return &Error{
-			Kind:    ErrorKindAgeRestricted,
-			URL:     parsed.CanonicalURL,
-			VideoID: parsed.VideoID,
-			Message: "video is age restricted",
-			Err:     err,
-		}
-	default:
-		if isYouTubeNetworkBlocked(err) {
-			return &Error{
-				Kind:    ErrorKindNetworkBlocked,
-				URL:     parsed.CanonicalURL,
-				VideoID: parsed.VideoID,
-				Message: "video request was blocked by YouTube; configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
-				Err:     err,
-			}
-		}
-
-		var statusErr *ytdl.ErrPlayabiltyStatus
-		if errors.As(err, &statusErr) {
-			return &Error{
-				Kind:    ErrorKindUnavailable,
-				URL:     parsed.CanonicalURL,
-				VideoID: parsed.VideoID,
-				Message: "video is unavailable",
-				Err:     err,
-			}
-		}
-
-		return fmt.Errorf("load YouTube video %q: %w", parsed.CanonicalURL, err)
-	}
-}
-
 func newNetworkBlockedError(videoID string, message string, err error) error {
 	return &Error{
 		Kind:    ErrorKindNetworkBlocked,
@@ -761,17 +362,6 @@ func newNetworkBlockedError(videoID string, message string, err error) error {
 func isTranscriptUnavailable(err error) bool {
 	var youtubeErr *Error
 	return errors.As(err, &youtubeErr) && youtubeErr.Kind == ErrorKindTranscriptUnavailable
-}
-
-func isRetryableYouTubeError(err error) bool {
-	if isContextError(err) {
-		return false
-	}
-	if isYouTubeNetworkBlocked(err) {
-		return true
-	}
-	var netErr net.Error
-	return errors.As(err, &netErr)
 }
 
 func isYouTubeNetworkBlocked(err error) bool {
@@ -789,11 +379,6 @@ func unexpectedStatusCode(err error) (int, bool) {
 	if err == nil {
 		return 0, false
 	}
-	var statusErr ytdl.ErrUnexpectedStatusCode
-	if errors.As(err, &statusErr) {
-		return int(statusErr), true
-	}
-
 	message := err.Error()
 	for _, status := range []int{
 		http.StatusBadRequest,
@@ -809,40 +394,6 @@ func unexpectedStatusCode(err error) (int, bool) {
 		}
 	}
 	return 0, false
-}
-
-func orderedCaptionTracks(tracks []ytdl.CaptionTrack, preferredLanguages []string) []ytdl.CaptionTrack {
-	ordered := append([]ytdl.CaptionTrack(nil), tracks...)
-	if len(ordered) == 0 {
-		return nil
-	}
-
-	preferredLanguages = normalizeLanguages(preferredLanguages)
-
-	sort.SliceStable(ordered, func(i int, j int) bool {
-		left := captionTrackPriority(ordered[i], preferredLanguages)
-		right := captionTrackPriority(ordered[j], preferredLanguages)
-		return left < right
-	})
-
-	return ordered
-}
-
-func captionTrackPriority(track ytdl.CaptionTrack, preferredLanguages []string) int {
-	preferredRank := len(preferredLanguages) + 1
-	for index, language := range preferredLanguages {
-		if languageMatches(track.LanguageCode, language) {
-			preferredRank = index
-			break
-		}
-	}
-
-	manualRank := 1
-	if strings.TrimSpace(strings.ToLower(track.Kind)) != "asr" {
-		manualRank = 0
-	}
-
-	return preferredRank*2 + manualRank
 }
 
 func normalizeLanguages(languages []string) []string {
@@ -885,7 +436,7 @@ func languageMatches(trackLanguage string, preferredLanguage string) bool {
 	return false
 }
 
-func formatTranscriptMarkdown(transcript ytdl.VideoTranscript) string {
+func formatTranscriptMarkdown(transcript []transcriptSegment) string {
 	var builder strings.Builder
 	wroteSegment := false
 
@@ -908,15 +459,6 @@ func formatTranscriptMarkdown(transcript ytdl.VideoTranscript) string {
 	return builder.String()
 }
 
-func formatSTTMarkdown(text string) string {
-	text = normalizeTranscriptText(text)
-	if text == "" {
-		return ""
-	}
-
-	return "## 00:00\n" + text
-}
-
 func normalizeTranscriptText(text string) string {
 	words := strings.Fields(text)
 	return strings.TrimSpace(strings.Join(words, " "))
@@ -937,61 +479,6 @@ func formatTimestamp(startMs int) string {
 	}
 
 	return fmt.Sprintf("%02d:%02d", minutes, seconds)
-}
-
-func pickAudioFormat(formats ytdl.FormatList) (*ytdl.Format, string, error) {
-	audioFormats := append(ytdl.FormatList(nil), formats.Type("audio")...)
-	if len(audioFormats) == 0 {
-		return nil, "", &Error{
-			Kind:    ErrorKindAudioUnavailable,
-			Message: "no audio-only format available",
-		}
-	}
-
-	audioFormats.Sort()
-
-	for index := range audioFormats {
-		formatName := normalizeAudioFormat(audioFormats[index].MimeType, audioFormats[index].URL)
-		if formatName == "" {
-			continue
-		}
-		return &audioFormats[index], formatName, nil
-	}
-
-	return nil, "", &Error{
-		Kind:    ErrorKindAudioUnavailable,
-		Message: "no supported audio format available",
-	}
-}
-
-func normalizeAudioFormat(mimeType string, rawURL string) string {
-	if mediaType, _, err := mime.ParseMediaType(mimeType); err == nil {
-		switch strings.ToLower(strings.TrimSpace(mediaType)) {
-		case "audio/mp4":
-			return "m4a"
-		case "audio/mpeg":
-			return "mp3"
-		case "audio/wav", "audio/x-wav":
-			return "wav"
-		case "audio/flac", "audio/x-flac":
-			return "flac"
-		case "audio/aac", "audio/x-aac":
-			return "aac"
-		case "audio/ogg", "audio/opus":
-			return "ogg"
-		case "audio/webm":
-			return "webm"
-		}
-	}
-
-	if parsedURL, err := url.Parse(rawURL); err == nil {
-		switch strings.TrimPrefix(strings.ToLower(path.Ext(parsedURL.Path)), ".") {
-		case "m4a", "mp3", "wav", "flac", "aac", "ogg", "webm":
-			return strings.TrimPrefix(strings.ToLower(path.Ext(parsedURL.Path)), ".")
-		}
-	}
-
-	return ""
 }
 
 func firstPathSegment(value string) string {

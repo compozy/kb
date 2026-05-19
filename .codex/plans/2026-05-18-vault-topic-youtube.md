@@ -50,18 +50,19 @@ A implementação pode fazer breaking changes porque o projeto está em alpha. O
     proxy = ""
     cookies_file = ""
     user_agent = ""
+    yt_dlp_path = "yt-dlp"
+    transcription = "captions"
     retry_attempts = 3
     retry_backoff = "1s"
     ```
-  - Adicionar env overrides para valores operacionais: `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, `YOUTUBE_USER_AGENT`.
-  - Construir `youtube.Extractor` com `config.YoutubeConfig` + `OpenRouterConfig`.
-  - Injetar `http.Client` no `kkdai/youtube` via `Client.HTTPClient`, com proxy explícito quando configurado e fallback para proxy de ambiente quando apropriado.
-  - Carregar cookies de arquivo Netscape/cookie-header simples e aplicá-los no transporte HTTP.
-  - Implementar retry com backoff apenas para falhas transitórias/rede/status 400/403/429/5xx; não repetir erro sem legenda ou URL inválida.
+  - Adicionar env overrides para valores operacionais: `YOUTUBE_YT_DLP_PATH`, `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, `YOUTUBE_USER_AGENT`.
+  - Construir `youtube.Extractor` com `YoutubeConfig`, `STTConfig` e `OpenRouterConfig`.
+  - Usar `yt-dlp` como backend obrigatório para metadata, captions e audio; proxy/cookies/user-agent/retries são repassados como argumentos do processo.
+  - Implementar retry/backoff por argumentos do `yt-dlp`; não repetir erro sem legenda ou URL inválida.
   - Classificar erros:
     - captions sem track: `transcript_unavailable`
     - HTTP 400/403/429 em captions/stream: erro acionável indicando provável bloqueio de IP e sugerindo `[youtube].proxy` ou cookies
-    - stream 403 durante STT: `audio_unavailable` com causa de rede, sem prometer que OpenRouter resolveria
+    - audio bloqueado durante STT: `audio_unavailable` com causa de rede e ação sobre proxy/cookies/user-agent
   - Não implementar `po_token` nesta rodada; não expor campo sem suporte real.
 
 ## Public Interfaces / Types
@@ -73,7 +74,7 @@ A implementação pode fazer breaking changes porque o projeto está em alpha. O
 - CLI:
   - `--topic` aceita path relativo, como `harness/goclaw`.
   - Novo comando de migração explícita para `raw/transcripts -> raw/youtube`.
-  - `kb ingest youtube` usa config `[youtube]` automaticamente; `--stt` continua controlando fallback de STT.
+  - `kb ingest youtube` usa config `[youtube]` automaticamente; `--transcribe captions|auto|stt` controla a política de transcrição.
 
 ## Test Plan
 
@@ -100,12 +101,12 @@ A implementação pode fazer breaking changes porque o projeto está em alpha. O
   - migração move `raw/transcripts/*.md` para `raw/youtube/*.md`, registra log e falha em conflito.
 
 - YouTube:
-  - extractor constrói `kkdai/youtube` com `http.Client` customizado;
-  - proxy configurado é usado pelo transporte;
-  - cookies configurados entram nas requests;
+  - extractor resolve e chama `yt-dlp` com argumentos de rede configurados;
+  - proxy configurado é repassado ao `yt-dlp`;
+  - cookies configurados são repassados ao `yt-dlp`;
   - retries acontecem para status transitórios e não acontecem para transcript disabled;
   - erro 400/403/429 retorna mensagem acionável sobre proxy/cookies/IP;
-  - STT só roda quando captions falham de forma recuperável e o áudio baixa com sucesso.
+  - STT roda conforme `--transcribe auto|stt` e sempre usa audio baixado pelo `yt-dlp`.
 
 - Gate:
   - Rodar `rtk make verify` como verificação final obrigatória.
@@ -117,4 +118,3 @@ A implementação pode fazer breaking changes porque o projeto está em alpha. O
 - Tópicos aninhados são identificados por path relativo completo.
 - Como o projeto está em alpha, não vamos manter aliases silenciosos que perpetuem dois modelos válidos.
 - `po_token` fica fora porque o adapter atual não oferece suporte direto e expor config sem aplicação real seria uma falsa correção.
-

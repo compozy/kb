@@ -28,16 +28,17 @@ type Registry interface {
 
 // Options configures a single-source ingest run.
 type Options struct {
-	VaultPath      string
-	Topic          string
-	SourceKind     models.SourceKind
-	SourcePath     string
-	SourceURL      string
-	Title          string
-	Markdown       string
-	ConvertOptions map[string]any
-	Registry       Registry
-	ScrapedAt      time.Time
+	VaultPath        string
+	Topic            string
+	SourceKind       models.SourceKind
+	SourcePath       string
+	SourceURL        string
+	Title            string
+	Markdown         string
+	ExtraFrontmatter map[string]any
+	ConvertOptions   map[string]any
+	Registry         Registry
+	ScrapedAt        time.Time
 }
 
 // Ingest validates the target topic, optionally converts the source, writes the
@@ -179,6 +180,9 @@ func buildFrontmatter(
 	if sourcePath := normalizedSourcePath(options.SourcePath); sourcePath != "" {
 		values["source_path"] = sourcePath
 	}
+	if err := mergeExtraFrontmatter(values, options.ExtraFrontmatter); err != nil {
+		return nil, err
+	}
 
 	if options.SourceKind == models.SourceKindBookmarkCluster {
 		sourceURLs := extractSourceURLs(markdown)
@@ -193,6 +197,34 @@ func buildFrontmatter(
 	}
 
 	return values, nil
+}
+
+func mergeExtraFrontmatter(values map[string]any, extra map[string]any) error {
+	if len(extra) == 0 {
+		return nil
+	}
+	reserved := map[string]struct{}{
+		"title":       {},
+		"type":        {},
+		"stage":       {},
+		"domain":      {},
+		"source_kind": {},
+		"scraped":     {},
+		"tags":        {},
+		"source_url":  {},
+		"source_path": {},
+	}
+	for key, value := range extra {
+		cleanKey := strings.TrimSpace(key)
+		if cleanKey == "" {
+			return errors.New("extra frontmatter key cannot be empty")
+		}
+		if _, exists := reserved[cleanKey]; exists {
+			return fmt.Errorf("extra frontmatter cannot override reserved key %q", cleanKey)
+		}
+		values[cleanKey] = value
+	}
+	return nil
 }
 
 func appendLogEntry(logPath string, when time.Time, slug string, sourceKind models.SourceKind, filePath string, title string) error {

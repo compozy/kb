@@ -62,17 +62,22 @@ type chatCompletionTextPart struct {
 	Text string `json:"text"`
 }
 
-// OpenRouterClient calls the OpenRouter chat completions API for STT fallback.
+// OpenRouterClient calls the OpenRouter chat completions API as an STT provider.
 type OpenRouterClient struct {
 	apiKey string
 	apiURL string
 	model  string
+	prompt string
 
 	httpClient *http.Client
 }
 
 // NewOpenRouterClient constructs an STT client from runtime configuration.
 func NewOpenRouterClient(cfg config.OpenRouterConfig) *OpenRouterClient {
+	return NewOpenRouterClientWithPrompt(cfg, "")
+}
+
+func NewOpenRouterClientWithPrompt(cfg config.OpenRouterConfig, prompt string) *OpenRouterClient {
 	defaults := config.Default().OpenRouter
 
 	apiURL := strings.TrimSpace(cfg.APIURL)
@@ -89,6 +94,7 @@ func NewOpenRouterClient(cfg config.OpenRouterConfig) *OpenRouterClient {
 		apiKey:     strings.TrimSpace(cfg.APIKey),
 		apiURL:     strings.TrimRight(apiURL, "/"),
 		model:      model,
+		prompt:     strings.TrimSpace(prompt),
 		httpClient: http.DefaultClient,
 	}
 }
@@ -97,6 +103,17 @@ func NewOpenRouterClient(cfg config.OpenRouterConfig) *OpenRouterClient {
 // OpenRouter API.
 func (client *OpenRouterClient) Configured() bool {
 	return client != nil && strings.TrimSpace(client.apiKey) != ""
+}
+
+func (client *OpenRouterClient) Provider() string {
+	return "openrouter"
+}
+
+func (client *OpenRouterClient) Model() string {
+	if client == nil {
+		return ""
+	}
+	return client.model
 }
 
 // Transcribe sends audio bytes to OpenRouter and returns the transcript text.
@@ -127,7 +144,7 @@ func (client *OpenRouterClient) Transcribe(ctx context.Context, audio []byte, fo
 				Content: []chatCompletionContentPart{
 					{
 						Type: "text",
-						Text: defaultTranscriptionPrompt,
+						Text: client.transcriptionPrompt(),
 					},
 					{
 						Type: "input_audio",
@@ -199,6 +216,13 @@ func (client *OpenRouterClient) Transcribe(ctx context.Context, audio []byte, fo
 	}
 
 	return transcript, nil
+}
+
+func (client *OpenRouterClient) transcriptionPrompt() string {
+	if client == nil || strings.TrimSpace(client.prompt) == "" {
+		return defaultTranscriptionPrompt
+	}
+	return defaultTranscriptionPrompt + "\n\n" + strings.TrimSpace(client.prompt)
 }
 
 func (client *OpenRouterClient) endpointURL() string {

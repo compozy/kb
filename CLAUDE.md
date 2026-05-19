@@ -45,7 +45,7 @@ make help
 | `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
 | `internal/convert` | Converter registry and format-specific file converters |
 | `internal/firecrawl` | Firecrawl REST client for `kb ingest url` |
-| `internal/youtube` | YouTube transcript extraction and OpenRouter STT fallback |
+| `internal/youtube` | YouTube caption extraction through `yt-dlp` and STT providers |
 | `internal/frontmatter` | Shared frontmatter parsing and generation helpers |
 | `internal/lint` | KB structural lint engine and report rendering |
 | `internal/generate` | Codebase-to-KB pipeline used by `kb ingest codebase` and the hidden legacy `generate` alias |
@@ -86,10 +86,13 @@ make help
 
 ## Runtime Config Notes
 
-- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[log]`, `[firecrawl]`, and `[openrouter]`.
+- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[log]`, `[vault]`, `[firecrawl]`, `[openrouter]`, `[stt]`, and `[youtube]`.
 - `APP_CONFIG` selects the TOML file path.
-- `.env` may supply `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, `OPENROUTER_API_KEY`, and `OPENROUTER_API_URL`.
-- `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
+- `kb ingest youtube` requires `yt-dlp` for metadata, captions, and audio extraction. `[youtube].yt_dlp_path`, `[youtube].proxy`, `[youtube].cookies_file`, `[youtube].user_agent`, `[youtube].retry_attempts`, `[youtube].retry_backoff`, and `[youtube].transcription` configure that path.
+- YouTube transcription policy is `captions|auto|stt`: `captions` uses YouTube captions only, `auto` uses manual captions when present and STT when only automatic captions or no captions are available, and `stt` forces audio transcription.
+- OpenAI is the default STT provider through `/v1/audio/transcriptions`. Configure it with `[stt]` plus `OPENAI_API_KEY`, `OPENAI_API_URL`, `STT_PROVIDER`, and `STT_MODEL`.
+- OpenRouter is an optional STT provider when `stt.provider = "openrouter"`; configure it with `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model`.
+- Long STT audio is segmented with `ffmpeg`; keep `[stt].ffmpeg_path`, `[stt].chunk_duration`, `[stt].max_chunk_bytes`, and `[stt].concurrency` aligned with provider upload limits.
 
 ## Testing Conventions
 

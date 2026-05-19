@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	ytdl "github.com/kkdai/youtube/v2"
-
 	"github.com/compozy/kb/internal/config"
 )
 
@@ -156,22 +154,10 @@ func TestYTDLPBackendSelectsPreferredAutomaticCaption(t *testing.T) {
 	assertArgsContain(t, invocations[1], "--sub-langs", "pt-BR")
 }
 
-func TestExtractorFallsBackToLegacyWhenYTDLPIsUnavailable(t *testing.T) {
+func TestExtractorFailsWhenYTDLPIsUnavailable(t *testing.T) {
 	t.Parallel()
 
-	video := &ytdl.Video{
-		ID:            "dQw4w9WgXcQ",
-		Title:         "Legacy Video",
-		CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
-	}
-	client := &stubYouTubeClient{
-		video: video,
-		transcripts: map[string]ytdl.VideoTranscript{
-			"en": {{StartMs: 0, Text: "Legacy transcript"}},
-		},
-	}
 	extractor := &Extractor{
-		youtube: client,
 		ytDLP: &ytDLPBackend{
 			binaryPath: "missing-yt-dlp",
 			lookPath: func(string) (string, error) {
@@ -181,19 +167,16 @@ func TestExtractorFallsBackToLegacyWhenYTDLPIsUnavailable(t *testing.T) {
 		},
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
-	if err != nil {
-		t.Fatalf("Extract returned error: %v", err)
+	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	if err == nil {
+		t.Fatal("expected Extract to fail")
 	}
-	if !strings.Contains(result.Markdown, "Legacy transcript") {
-		t.Fatalf("markdown = %q, want legacy transcript", result.Markdown)
-	}
-	if client.transcriptCalls != 1 {
-		t.Fatalf("legacy transcript calls = %d, want 1", client.transcriptCalls)
+	if !errors.Is(err, errYTDLPUnavailable) {
+		t.Fatalf("error = %v, want yt-dlp unavailable", err)
 	}
 }
 
-func TestExtractorDoesNotCallLegacyWhenYTDLPSucceeds(t *testing.T) {
+func TestExtractorUsesYTDLPWhenAvailable(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
@@ -201,10 +184,8 @@ func TestExtractorDoesNotCallLegacyWhenYTDLPSucceeds(t *testing.T) {
 		captionExt:   "json3",
 		captionBody:  `{"events":[{"tStartMs":0,"segs":[{"utf8":"Primary transcript"}]}]}`,
 	})
-	client := &stubYouTubeClient{videoErr: errors.New("legacy should not be called")}
 	extractor := &Extractor{
-		youtube: client,
-		ytDLP:   newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 	}
 
 	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
@@ -214,9 +195,6 @@ func TestExtractorDoesNotCallLegacyWhenYTDLPSucceeds(t *testing.T) {
 	if !strings.Contains(result.Markdown, "Primary transcript") {
 		t.Fatalf("markdown = %q, want primary transcript", result.Markdown)
 	}
-	if client.videoURL != "" || client.transcriptCalls != 0 {
-		t.Fatalf("legacy client was called: url=%q transcriptCalls=%d", client.videoURL, client.transcriptCalls)
-	}
 }
 
 func TestExtractorUsesSTTWhenYTDLPProvesCaptionsUnavailable(t *testing.T) {
@@ -224,26 +202,19 @@ func TestExtractorUsesSTTWhenYTDLPProvesCaptionsUnavailable(t *testing.T) {
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
 		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"No Captions","subtitles":{},"automatic_captions":{}}`,
+		audioExt:     "mp3",
+		audioBody:    "audio-from-ytdlp",
 	})
-	client := &stubYouTubeClient{
-		video: &ytdl.Video{
-			ID:     "dQw4w9WgXcQ",
-			Title:  "No Captions",
-			Author: "Example Channel",
-			Formats: ytdl.FormatList{
-				{MimeType: `audio/mp4; codecs="mp4a.40.2"`, AudioChannels: 2},
-			},
-		},
-		audioData: []byte("audio-bytes"),
-	}
-	stt := &stubSTTClient{configured: true, transcript: "Fallback transcript"}
+	stt := &stubSTTClient{transcript: "Fallback transcript"}
 	extractor := &Extractor{
-		youtube: client,
-		ytDLP:   newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
-		stt:     stt,
+		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		stt:       stt,
+		sttConfig: config.Default().STT,
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+		TranscriptionPolicy: TranscriptionPolicyAuto,
+	})
 	if err != nil {
 		t.Fatalf("Extract returned error: %v", err)
 	}
@@ -253,11 +224,84 @@ func TestExtractorUsesSTTWhenYTDLPProvesCaptionsUnavailable(t *testing.T) {
 	if result.Markdown != "## 00:00\nFallback transcript" {
 		t.Fatalf("markdown = %q", result.Markdown)
 	}
-	if !reflect.DeepEqual(stt.audio, []byte("audio-bytes")) {
-		t.Fatalf("stt audio = %q, want audio-bytes", string(stt.audio))
+	if !reflect.DeepEqual(stt.audio, []byte("audio-from-ytdlp\n")) {
+		t.Fatalf("stt audio = %q, want audio-from-ytdlp", string(stt.audio))
 	}
-	if client.transcriptCalls != 0 {
-		t.Fatalf("legacy captions should not be tried after yt-dlp proves absence, calls=%d", client.transcriptCalls)
+}
+
+func TestExtractorAutoPolicyUsesSTTWhenOnlyAutomaticCaptionsExist(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Automatic Only","subtitles":{},"automatic_captions":{"en":[{"ext":"json3"}]}}`,
+		audioExt:     "mp3",
+		audioBody:    "audio-from-ytdlp",
+		captionExit:  1,
+		captionErr:   "caption download should not run for auto policy with only automatic captions",
+	})
+	stt := &stubSTTClient{transcript: "STT transcript"}
+	extractor := &Extractor{
+		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		stt:       stt,
+		sttConfig: config.Default().STT,
+	}
+
+	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+		TranscriptionPolicy: TranscriptionPolicyAuto,
+	})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Source != TranscriptSourceSTT {
+		t.Fatalf("source = %q, want stt", result.Source)
+	}
+	if result.Markdown != "## 00:00\nSTT transcript" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %#v, want metadata and audio", invocations)
+	}
+	if containsArg(invocations[1], "--write-subs") || containsArg(invocations[1], "--write-auto-subs") {
+		t.Fatalf("caption download should not run for auto policy without manual captions: %#v", invocations[1])
+	}
+}
+
+func TestExtractorSTTPolicyIgnoresYTDLPCaptions(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
+		audioExt:     "mp3",
+		audioBody:    "audio-from-ytdlp",
+		captionExit:  1,
+		captionErr:   "caption download should not run",
+	})
+	stt := &stubSTTClient{transcript: "Forced STT transcript"}
+	extractor := &Extractor{
+		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		stt:       stt,
+		sttConfig: config.Default().STT,
+	}
+
+	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+		TranscriptionPolicy: TranscriptionPolicySTT,
+	})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Source != TranscriptSourceSTT {
+		t.Fatalf("source = %q, want stt", result.Source)
+	}
+	if result.Markdown != "## 00:00\nForced STT transcript" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %#v, want metadata and audio", invocations)
+	}
+	if containsArg(invocations[1], "--write-subs") || containsArg(invocations[1], "--write-auto-subs") {
+		t.Fatalf("caption download should not run for STT policy: %#v", invocations[1])
 	}
 }
 
@@ -269,19 +313,10 @@ func TestExtractorDoesNotUseSTTWhenYTDLPSeesCaptionsButFetchFails(t *testing.T) 
 		captionExit:  1,
 		captionErr:   "HTTP Error 429: Too Many Requests",
 	})
-	client := &stubYouTubeClient{
-		video: &ytdl.Video{
-			ID:            "dQw4w9WgXcQ",
-			Title:         "Captioned",
-			CaptionTracks: []ytdl.CaptionTrack{{LanguageCode: "en"}},
-		},
-		transcriptErrs: map[string]error{"en": ytdl.ErrTranscriptDisabled},
-	}
-	stt := &stubSTTClient{configured: true, transcript: "should not run"}
+	stt := &stubSTTClient{transcript: "should not run"}
 	extractor := &Extractor{
-		youtube: client,
-		ytDLP:   newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
-		stt:     stt,
+		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		stt:   stt,
 	}
 
 	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
@@ -300,7 +335,67 @@ func TestExtractorDoesNotUseSTTWhenYTDLPSeesCaptionsButFetchFails(t *testing.T) 
 	}
 }
 
-func TestExtractorReportsBothBackendFailures(t *testing.T) {
+func TestYTDLPBackendDownloadsAudioWithConfiguredNetworkArgs(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		audioExt:  "mp3",
+		audioBody: "audio-bytes",
+	})
+	backend := newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{
+		YTDLPPath:   "custom-yt-dlp",
+		Proxy:       "http://proxy.internal:8080",
+		CookiesFile: "/tmp/youtube-cookies.txt",
+		UserAgent:   "kb-test-agent",
+	}, retryPolicy{Attempts: 4, Backoff: 2 * time.Second})
+
+	audio, err := backend.downloadAudio(context.Background(), parsedRickRollURL().CanonicalURL, "mp3")
+	if err != nil {
+		t.Fatalf("downloadAudio returned error: %v", err)
+	}
+	defer audio.Cleanup()
+	data, err := os.ReadFile(audio.Path)
+	if err != nil {
+		t.Fatalf("read audio: %v", err)
+	}
+	if string(data) != "audio-bytes\n" {
+		t.Fatalf("audio data = %q", string(data))
+	}
+	if audio.Format != "mp3" {
+		t.Fatalf("audio format = %q, want mp3", audio.Format)
+	}
+
+	invocations := readYTDLPInvocationLog(t, logPath)
+	if len(invocations) != 1 {
+		t.Fatalf("invocations = %#v, want one audio invocation", invocations)
+	}
+	assertArgsContain(t, invocations[0], "--extract-audio")
+	assertArgsContain(t, invocations[0], "--audio-format", "mp3")
+	assertArgsContain(t, invocations[0], "--proxy", "http://proxy.internal:8080")
+	assertArgsContain(t, invocations[0], "--cookies", "/tmp/youtube-cookies.txt")
+	assertArgsContain(t, invocations[0], "--user-agent", "kb-test-agent")
+	assertArgsContain(t, invocations[0], "--retries", "4")
+	assertArgsContain(t, invocations[0], "--fragment-retries", "4")
+	assertArgsContain(t, invocations[0], "--retry-sleep", "2")
+}
+
+func TestFindYTDLPAudioFileRejectsUnsupportedFormats(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "audio.flac"), []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio: %v", err)
+	}
+	_, _, err := findYTDLPAudioFile(dir)
+	if err == nil {
+		t.Fatal("expected unsupported audio format to fail")
+	}
+	if !strings.Contains(err.Error(), "no audio file") {
+		t.Fatalf("error = %v, want no audio file produced", err)
+	}
+}
+
+func TestExtractorReportsYTDLPMetadataFailure(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
@@ -308,8 +403,7 @@ func TestExtractorReportsBothBackendFailures(t *testing.T) {
 		metadataErr:  "yt-dlp protocol failed",
 	})
 	extractor := &Extractor{
-		youtube: &stubYouTubeClient{videoErr: errors.New("legacy protocol failed")},
-		ytDLP:   newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 	}
 
 	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
@@ -317,8 +411,8 @@ func TestExtractorReportsBothBackendFailures(t *testing.T) {
 		t.Fatal("expected Extract to fail")
 	}
 	message := err.Error()
-	if !strings.Contains(message, "yt-dlp backend") || !strings.Contains(message, "legacy kkdai backend") {
-		t.Fatalf("error = %q, want both backend diagnostics", message)
+	if !strings.Contains(message, "yt-dlp backend") || strings.Contains(message, "legacy") {
+		t.Fatalf("error = %q, want only yt-dlp diagnostics", message)
 	}
 }
 
@@ -330,6 +424,10 @@ type fakeYTDLPOptions struct {
 	captionBody  string
 	captionExit  int
 	captionErr   string
+	audioExt     string
+	audioBody    string
+	audioExit    int
+	audioErr     string
 }
 
 func writeFakeYTDLP(t *testing.T, options fakeYTDLPOptions) (string, string) {
@@ -359,6 +457,29 @@ func writeFakeYTDLP(t *testing.T, options fakeYTDLPOptions) (string, string) {
 			builder.WriteString("\n")
 		}
 		builder.WriteString("JSON\n")
+	}
+	builder.WriteString("    ;;\n")
+	builder.WriteString("  *\" --extract-audio \"*)\n")
+	if options.audioErr != "" {
+		builder.WriteString("    printf '%s\\n' " + shellQuoteYTDLPTest(options.audioErr) + " >&2\n")
+	}
+	if options.audioExit != 0 {
+		builder.WriteString("    exit " + strconv.Itoa(options.audioExit) + "\n")
+	} else if options.audioExt != "" {
+		builder.WriteString("    out_dir=\"\"\n")
+		builder.WriteString("    previous=\"\"\n")
+		builder.WriteString("    for arg in \"$@\"; do\n")
+		builder.WriteString("      if [ \"$previous\" = \"--paths\" ]; then out_dir=${arg#home:}; fi\n")
+		builder.WriteString("      previous=\"$arg\"\n")
+		builder.WriteString("    done\n")
+		builder.WriteString("    [ -n \"$out_dir\" ] || exit 7\n")
+		builder.WriteString("    mkdir -p \"$out_dir\"\n")
+		builder.WriteString("    cat > \"$out_dir/dQw4w9WgXcQ." + options.audioExt + "\" <<'AUDIO'\n")
+		builder.WriteString(options.audioBody)
+		if !strings.HasSuffix(options.audioBody, "\n") {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("AUDIO\n")
 	}
 	builder.WriteString("    ;;\n")
 	builder.WriteString("  *)\n")

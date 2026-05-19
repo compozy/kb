@@ -32,6 +32,18 @@ const (
 	// EnvOpenRouterAPIURL stores the OpenRouter API URL override.
 	EnvOpenRouterAPIURL = "OPENROUTER_API_URL"
 
+	// EnvOpenAIAPIKey stores the OpenAI API key override for STT.
+	EnvOpenAIAPIKey = "OPENAI_API_KEY"
+
+	// EnvOpenAIAPIURL stores the OpenAI API URL override for STT.
+	EnvOpenAIAPIURL = "OPENAI_API_URL"
+
+	// EnvSTTProvider stores the STT provider override.
+	EnvSTTProvider = "STT_PROVIDER"
+
+	// EnvSTTModel stores the STT model override.
+	EnvSTTModel = "STT_MODEL"
+
 	// EnvYouTubeProxy stores the YouTube proxy URL override.
 	EnvYouTubeProxy = "YOUTUBE_PROXY"
 
@@ -63,6 +75,20 @@ func ApplyEnvOverrides(cfg *Config) {
 	}
 	if value, ok := os.LookupEnv(EnvOpenRouterAPIURL); ok && value != "" {
 		cfg.OpenRouter.APIURL = value
+	}
+	if value, ok := os.LookupEnv(EnvSTTProvider); ok && value != "" {
+		cfg.STT.Provider = value
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.STT.Provider), "openai") {
+		if value, ok := os.LookupEnv(EnvOpenAIAPIKey); ok && value != "" {
+			cfg.STT.APIKey = value
+		}
+		if value, ok := os.LookupEnv(EnvOpenAIAPIURL); ok && value != "" {
+			cfg.STT.APIURL = value
+		}
+	}
+	if value, ok := os.LookupEnv(EnvSTTModel); ok && value != "" {
+		cfg.STT.Model = value
 	}
 	if value, ok := os.LookupEnv(EnvYouTubeYTDLPPath); ok && value != "" {
 		cfg.YouTube.YTDLPPath = value

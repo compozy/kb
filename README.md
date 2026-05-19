@@ -59,14 +59,14 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) when available and falls back to the built-in legacy extractor; install or update `yt-dlp` for the most reliable YouTube caption extraction. The `ingest youtube --stt` fallback requires an [OpenRouter](https://openrouter.ai) API key.
+> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
 
 <details>
 <summary><strong>What it touches</strong></summary>
 
 - **Creates files** in `.kb/vault/` inside the target repository (or a custom `--vault` path)
 - **Reads** source files in the target repository (never modifies them)
-- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube` calls YouTube through `yt-dlp` or the legacy extractor; `ingest youtube --stt` also calls OpenRouter. All other commands are fully local.
+- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube` calls YouTube through `yt-dlp`; `ingest youtube --transcribe auto|stt` also calls the configured STT provider. All other commands are fully local.
 - **No telemetry** -- nothing is sent anywhere
 - **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kb/` directory
 
@@ -142,7 +142,7 @@ $ kb search "error handling patterns" --limit 3
 
 **Topic-based knowledge bases** -- `kb` organizes knowledge into topics, each with its own `raw/`, `wiki/`, `outputs/`, and `bases/` directories. Use `kb topic new` for manual scaffolding, or let `kb ingest codebase` bootstrap a new topic directly on first run.
 
-**Multi-source ingestion** -- Ingest web articles via Firecrawl, local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube transcripts (with optional OpenRouter STT fallback), codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
+**Multi-source ingestion** -- Ingest web articles via Firecrawl, local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube captions or STT transcripts, codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
 
 **Codebase analysis** -- Point `kb ingest codebase` at a repository and it generates an [Obsidian](https://obsidian.md) vault layer with every symbol, file, and dependency relationship mapped into interconnected markdown notes. It computes cyclomatic complexity, blast radius, coupling, instability, and dead code detection, then compiles wiki articles and interactive [Base](https://obsidian.md/blog/bases/) views.
 
@@ -193,7 +193,7 @@ Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` r
 ```bash
 kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
 kb ingest file <path> --topic <slug>              # Convert and ingest a local file
-kb ingest youtube <url> --topic <slug> [--stt]    # Extract a YouTube transcript
+kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt]
 kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
 kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster markdown file
 ```
@@ -204,7 +204,7 @@ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster ma
 | --- | --- | --- |
 | `url` | required | -- |
 | `file` | required | -- |
-| `youtube` | required | `--stt` (enable OpenRouter STT fallback) |
+| `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`) |
 | `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
 | `bookmarks` | required | -- |
 
@@ -407,17 +407,26 @@ The scanner:
 
 `kb` is primarily configured through CLI flags. Optional runtime configuration is loaded from a TOML file and environment variables.
 
-| Variable            | Source     | Description                                |
-| ------------------- | ---------- | ------------------------------------------ |
-| `APP_CONFIG`        | env        | Path to TOML config file                   |
-| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url`         |
-| `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint                     |
-| `OPENROUTER_API_KEY`| env / TOML | OpenRouter API key for `ingest youtube --stt` |
-| `OPENROUTER_API_URL`| env / TOML | OpenRouter API endpoint                    |
+| Variable | Source | Description |
+| --- | --- | --- |
+| `APP_CONFIG` | env | Path to TOML config file |
+| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url` |
+| `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint |
+| `OPENAI_API_KEY` | env / TOML | OpenAI STT API key for the default `openai` provider |
+| `OPENAI_API_URL` | env / TOML | OpenAI-compatible STT API base URL |
+| `STT_PROVIDER` | env / TOML | STT provider: `openai` or `openrouter` |
+| `STT_MODEL` | env / TOML | STT model override, for example `gpt-4o-transcribe` |
+| `OPENROUTER_API_KEY` | env / TOML | OpenRouter API key when `stt.provider = "openrouter"` |
+| `OPENROUTER_API_URL` | env / TOML | OpenRouter API endpoint |
 | `YOUTUBE_YT_DLP_PATH` | env / TOML | `yt-dlp` executable path for `ingest youtube` |
-| `YOUTUBE_PROXY` | env / TOML | Proxy URL forwarded to YouTube extractors |
-| `YOUTUBE_COOKIES_FILE` | env / TOML | Netscape cookies file for YouTube auth/rate-limit cases |
-| `YOUTUBE_USER_AGENT` | env / TOML | User-Agent forwarded to YouTube extractors |
+| `YOUTUBE_PROXY` | env / TOML | Proxy URL passed to `yt-dlp` |
+| `YOUTUBE_COOKIES_FILE` | env / TOML | Netscape cookies file passed to `yt-dlp` |
+| `YOUTUBE_USER_AGENT` | env / TOML | User-Agent passed to `yt-dlp` |
+
+`ingest youtube` supports three transcription policies:
+`captions` uses YouTube captions only, `stt` forces audio transcription, and `auto` uses manual captions when present and falls back to STT when only automatic captions exist or captions are unavailable. STT writes provenance frontmatter such as `transcript_source`, `stt_provider`, and `stt_model`.
+
+STT has real cost and latency. Prefer `captions` for normal ingestion, and use `auto` or `stt` when YouTube captions are unavailable or unsuitable.
 
 See [`config.example.toml`](config.example.toml) for the full TOML schema.
 

@@ -7,6 +7,7 @@
 # - `[vault]`
 # - `[firecrawl]`
 # - `[openrouter]`
+# - `[stt]`
 # - `[youtube]`
 #
 # Primary CLI surface is configured through commands and flags:
@@ -23,6 +24,10 @@
 # - FIRECRAWL_API_URL
 # - OPENROUTER_API_KEY
 # - OPENROUTER_API_URL
+# - OPENAI_API_KEY
+# - OPENAI_API_URL
+# - STT_PROVIDER
+# - STT_MODEL
 # - YOUTUBE_YT_DLP_PATH
 # - YOUTUBE_PROXY
 # - YOUTUBE_COOKIES_FILE
@@ -50,10 +55,24 @@ api_key = ""
 api_url = "https://openrouter.ai/api"
 stt_model = "google/gemini-2.5-flash"
 
+[stt]
+provider = "openai"
+api_key = ""
+api_url = "https://api.openai.com"
+model = "gpt-4o-transcribe"
+language = "auto"
+prompt = ""
+audio_format = "mp3"
+chunk_duration = "10m"
+max_chunk_bytes = 24000000
+concurrency = 2
+ffmpeg_path = "ffmpeg"
+
 [youtube]
 yt_dlp_path = "yt-dlp"
 proxy = ""
 cookies_file = ""
 user_agent = ""
+transcription = "captions"
 retry_attempts = 3
 retry_backoff = "1s"

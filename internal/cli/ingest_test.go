@@ -282,7 +282,7 @@ func TestIngestFileCommandRoutesToOrchestrator(t *testing.T) {
 	}
 }
 
-func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
+func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	restoreIngestGlobals(t)
 
 	var gotExtractURL string
@@ -349,7 +349,7 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 		"ingest", "youtube", "https://youtu.be/abcdefghijk",
 		"--topic", "systems-design",
 		"--vault", "/tmp/vault",
-		"--stt",
+		"--transcribe", "auto",
 	})
 
 	if err := command.ExecuteContext(context.Background()); err != nil {
@@ -359,8 +359,8 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 	if gotExtractURL != "https://youtu.be/abcdefghijk" {
 		t.Fatalf("extract URL = %q, want source URL", gotExtractURL)
 	}
-	if !gotExtractOptions.EnableSTTFallback {
-		t.Fatalf("expected STT fallback to be enabled, got %#v", gotExtractOptions)
+	if gotExtractOptions.TranscriptionPolicy != youtube.TranscriptionPolicyAuto {
+		t.Fatalf("transcription policy = %q, want auto", gotExtractOptions.TranscriptionPolicy)
 	}
 	if gotIngest.SourceKind != models.SourceKindYouTubeTranscript {
 		t.Fatalf("ingest source kind = %q, want %q", gotIngest.SourceKind, models.SourceKindYouTubeTranscript)
@@ -378,6 +378,44 @@ func TestIngestYouTubeCommandAcceptsSTTFlag(t *testing.T) {
 	}
 	if result.SourceType != models.SourceKindYouTubeTranscript {
 		t.Fatalf("unexpected result payload: %#v", result)
+	}
+}
+
+func TestYouTubeFrontmatterIncludesTranscriptProvenance(t *testing.T) {
+	values := youtubeFrontmatter(&youtube.Result{
+		Source:              youtube.TranscriptSourceSTT,
+		TranscriptionPolicy: youtube.TranscriptionPolicyAuto,
+		STTProvider:         "openai",
+		STTModel:            "gpt-4o-transcribe",
+	})
+	want := map[string]any{
+		"transcript_source":    "stt",
+		"transcription_policy": "auto",
+		"stt_provider":         "openai",
+		"stt_model":            "gpt-4o-transcribe",
+	}
+	if !reflect.DeepEqual(values, want) {
+		t.Fatalf("frontmatter = %#v, want %#v", values, want)
+	}
+}
+
+func TestIngestYouTubeCommandRejectsRemovedSTTFlag(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	stderr := new(bytes.Buffer)
+	command.SetErr(stderr)
+	command.SetArgs([]string{
+		"ingest", "youtube", "https://youtu.be/abcdefghijk",
+		"--topic", "systems-design",
+		"--vault", "/tmp/vault",
+		"--stt",
+	})
+
+	err := command.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --stt") {
+		t.Fatalf("error = %v, want unknown --stt flag", err)
 	}
 }
 

@@ -43,7 +43,7 @@ make help                # mage target list
 | `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
 | `internal/convert` | Converter registry and format-specific file converters |
 | `internal/firecrawl` | Firecrawl REST client for `kb ingest url` |
-| `internal/youtube` | YouTube transcript extraction and OpenRouter STT fallback |
+| `internal/youtube` | YouTube caption extraction through `yt-dlp` and STT providers |
 | `internal/frontmatter` | Shared frontmatter parsing and generation helpers |
 | `internal/lint` | KB structural lint engine and report rendering |
 | `internal/generate` | Codebase-to-KB pipeline used by `kb ingest codebase` and the hidden legacy `generate` alias |
@@ -91,7 +91,7 @@ make help                # mage target list
 - `topic` subcommands share the root `--vault` flag for vault path resolution.
 - `ingest` subcommands require `--topic <slug>` to identify the target topic.
 - `ingest codebase` accepts `--include`, `--exclude`, `--semantic`, `--progress`, and `--log-format`.
-- `ingest youtube` accepts `--stt` for OpenRouter speech-to-text fallback.
+- `ingest youtube` accepts `--transcribe captions|auto|stt`; `yt-dlp` is required for YouTube metadata, captions, and audio extraction.
 - `inspect` subcommands share `--vault`, `--topic`, and `--format` (`table`, `json`, `tsv`).
 - `lint` accepts `--format`, `--save`, and optional positional `<slug>` or `--topic`.
 - `search` supports `--lex`, `--vec`, `--limit`, `--min-score`, `--full`, `--all`, `--collection`, `--vault`, `--topic`, and `--format`.
@@ -104,7 +104,8 @@ make help                # mage target list
 - `APP_CONFIG` overrides the config file path.
 - `.env` is loaded automatically when present.
 - `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the Firecrawl client for `ingest url`.
-- `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model` (TOML-only) configure the OpenRouter client for `ingest youtube --stt`.
+- `OPENAI_API_KEY`, `OPENAI_API_URL`, `STT_PROVIDER`, and `STT_MODEL` configure the default OpenAI STT provider for `ingest youtube --transcribe auto|stt`.
+- `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model` (TOML-only) configure the optional OpenRouter STT provider when `stt.provider = "openrouter"`.
 - Generation, inspect, search, and index behavior is configured by CLI flags rather than TOML keys.
 
 ## Architecture Notes
@@ -113,7 +114,7 @@ make help                # mage target list
 - The codebase pipeline is: scan -> adapter parse -> graph normalize -> metrics compute -> vault render -> vault write -> inspect/search/index read paths.
 - `kb ingest file` routes through a converter registry (`internal/convert`) that matches file extensions to format-specific converters (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, text, images with OCR).
 - `kb ingest url` uses `internal/firecrawl` for web scraping, then writes through `internal/ingest`.
-- `kb ingest youtube` uses `internal/youtube` for transcript extraction, with optional OpenRouter STT fallback.
+- `kb ingest youtube` uses `internal/youtube` for `yt-dlp` caption/audio extraction, with OpenAI STT by default and OpenRouter as an optional provider.
 - Raw KB documents must include frontmatter before being written; use `internal/frontmatter` helpers instead of hand-assembling YAML.
 - `vault.RenderDocuments` returns markdown bodies that already include frontmatter. Base definitions are rendered separately and written as YAML `.base` files.
 - `kb topic new` owns the topic skeleton under the vault root, including `raw/`, `wiki/`, `outputs/`, `bases/`, `CLAUDE.md`, `AGENTS.md`, and `log.md`.

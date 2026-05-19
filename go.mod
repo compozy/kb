@@ -11,7 +11,6 @@ require (
 require (
 	github.com/JohannesKaufmann/dom v0.2.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
-	github.com/kkdai/youtube/v2 v2.10.5
 	github.com/otiai10/gosseract/v2 v2.4.1
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
@@ -32,12 +31,7 @@ require (
 )
 
 require (
-	github.com/bitly/go-simplejson v0.5.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
-	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
-	github.com/google/pprof v0.0.0-20260302011040-a15ffb7f9dcc // indirect
 	github.com/hhrutter/lzw v1.0.0 // indirect
 	github.com/hhrutter/pkcs7 v0.2.0 // indirect
 	github.com/hhrutter/tiff v1.0.2 // indirect

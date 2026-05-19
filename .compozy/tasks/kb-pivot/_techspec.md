@@ -59,10 +59,10 @@ The binary is renamed from `kodebase` to `kb`. The existing codebase analysis pi
 **External system interactions:**
 
 - **Firecrawl REST API** — URL scraping (`ingest url`)
-- **YouTube** — Transcript extraction via `kkdai/youtube` library; OpenRouter STT fallback for audio-only (`ingest youtube`)
+- **YouTube** — Caption and audio extraction via `yt-dlp`; optional STT via configured OpenAI/OpenRouter provider (`ingest youtube`)
 - **QMD CLI** — Search indexing and semantic search (via subprocess, same as today)
 - **Tesseract** — OCR for images (optional, `ingest file` with image files)
-- **OpenRouter API** — Audio transcription fallback for YouTube videos without captions
+- **OpenAI/OpenRouter API** — Audio transcription for YouTube videos when `--transcribe auto|stt` selects STT
 
 ## Implementation Design
 
@@ -166,24 +166,57 @@ tags:
 
 ```go
 type Config struct {
-    App       AppConfig
-    Log       LogConfig
-    Firecrawl FirecrawlConfig
+    App        AppConfig
+    Log        LogConfig
+    Vault      VaultConfig
+    Firecrawl  FirecrawlConfig
     OpenRouter OpenRouterConfig
-    Secrets   Secrets
+    STT        STTConfig
+    YouTube    YouTubeConfig
+}
+
+type VaultConfig struct {
+    Root       string
+    TopicGlobs []string
 }
 
 type FirecrawlConfig struct {
-    APIKey string `toml:"api_key"` // or FIRECRAWL_API_KEY env
-    APIURL string `toml:"api_url"` // default: https://api.firecrawl.dev
+    APIKey string // or FIRECRAWL_API_KEY env
+    APIURL string // default: https://api.firecrawl.dev
 }
 
 type OpenRouterConfig struct {
-    APIKey string `toml:"api_key"` // or OPENROUTER_API_KEY env
-    APIURL string `toml:"api_url"` // default: https://openrouter.ai/api
-    STTModel string `toml:"stt_model"` // default: google/gemini-2.5-flash
+    APIKey   string // or OPENROUTER_API_KEY env
+    APIURL   string // default: https://openrouter.ai/api
+    STTModel string // default: google/gemini-2.5-flash
+}
+
+type STTConfig struct {
+    Provider      string // openai | openrouter; default: openai
+    APIKey        string // OPENAI_API_KEY when provider=openai
+    APIURL        string // default: https://api.openai.com
+    Model         string // default: gpt-4o-transcribe
+    Language      string // default: auto
+    Prompt        string
+    AudioFormat   string // mp3, mp4, mpeg, mpga, m4a, wav, webm
+    ChunkDuration string // default: 10m
+    MaxChunkBytes int64
+    Concurrency   int
+    FFmpegPath    string
+}
+
+type YouTubeConfig struct {
+    YTDLPPath     string // or YOUTUBE_YT_DLP_PATH env
+    Proxy         string // or YOUTUBE_PROXY env
+    CookiesFile   string // or YOUTUBE_COOKIES_FILE env
+    UserAgent     string // or YOUTUBE_USER_AGENT env
+    Transcription string // captions | auto | stt; default: captions
+    RetryAttempts int
+    RetryBackoff  string
 }
 ```
+
+Provider-aware env behavior keeps OpenAI and OpenRouter credentials separate: `OPENAI_API_KEY` and `OPENAI_API_URL` populate `[stt]` only when `stt.provider = "openai"`; OpenRouter credentials come from `OPENROUTER_API_KEY` and `OPENROUTER_API_URL` when `stt.provider = "openrouter"`. `STT_PROVIDER` and `STT_MODEL` can override the provider/model at runtime. YouTube policy values are `captions`, `auto`, and `stt`; `auto` uses manual captions when available and falls back to STT when only automatic captions or no captions are available.
 
 ### API Endpoints
 
@@ -192,7 +225,8 @@ Not applicable — this is a CLI tool. External API interactions:
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
 | Firecrawl | `POST /v2/scrape` | URL → Markdown conversion |
-| OpenRouter | `POST /api/v1/chat/completions` | Audio transcription (STT fallback) |
+| OpenAI | `POST /v1/audio/transcriptions` | Default audio transcription provider |
+| OpenRouter | `POST /api/v1/chat/completions` | Optional compatible audio transcription provider |
 
 ## Integration Points
 
@@ -209,12 +243,12 @@ Not applicable — this is a CLI tool. External API interactions:
 - **Integration**: Subprocess via `exec.CommandContext` (unchanged from current implementation)
 - **Changes**: Collection naming convention aligns with topic slugs
 
-### OpenRouter API
+### STT Providers
 
-- **Purpose**: STT fallback for YouTube videos without auto-generated captions
-- **Auth**: Bearer token via `OPENROUTER_API_KEY` env or config
-- **Flow**: Download audio track → base64 encode → send as `input_audio` content → receive transcription
-- **Condition**: Only invoked when `kkdai/youtube` transcript extraction fails and `--stt` flag is passed or OpenRouter API key is configured
+- **Purpose**: Speech-to-text for YouTube videos when captions are unavailable or explicitly bypassed
+- **Auth**: Bearer token via `OPENAI_API_KEY` for the default `openai` provider, or `OPENROUTER_API_KEY` when `stt.provider = "openrouter"`
+- **Flow**: Download audio through `yt-dlp` → segment long files with `ffmpeg` → transcribe chunks → stitch transcript with timestamp offsets
+- **Condition**: Invoked by `kb ingest youtube --transcribe stt`, or by `--transcribe auto` when manual captions are unavailable
 
 ### Tesseract (optional)
 
@@ -237,7 +271,7 @@ Not applicable — this is a CLI tool. External API interactions:
 | `internal/ingest/` | new | Ingest orchestration: converter selection, frontmatter generation, vault writing, log appending | Implement from scratch |
 | `internal/lint/` | new | Vault structural health checker | Implement from scratch |
 | `internal/firecrawl/` | new | Firecrawl REST API client | Implement from scratch |
-| `internal/youtube/` | new | YouTube transcript extraction + OpenRouter STT fallback | Implement from scratch |
+| `internal/youtube/` | new | YouTube caption extraction via `yt-dlp` plus OpenAI/OpenRouter STT providers | Implement from scratch |
 | `internal/topic/` | new | Topic scaffolding and management | Implement from scratch |
 | `internal/frontmatter/` | new | YAML frontmatter parsing and generation | Implement from scratch |
 | `internal/scanner/` | unchanged | Still used by codebase ingest pipeline | No action |
@@ -274,7 +308,7 @@ Not applicable — this is a CLI tool. External API interactions:
 3. **`internal/convert/`** — Converter interface, registry, and simple converters (plain text, CSV, JSON, XML, HTML-to-Markdown). Depends on step 1 for metadata types.
 4. **`internal/convert/` (complex formats)** — PDF, DOCX, PPTX, XLSX, EPUB converters using ZIP+XML parsing and library integrations. Depends on step 3 for the Converter interface.
 5. **`internal/firecrawl/`** — Firecrawl REST API client. No internal dependencies (uses net/http).
-6. **`internal/youtube/`** — YouTube transcript extractor + OpenRouter STT fallback. No internal dependencies.
+6. **`internal/youtube/`** — YouTube caption extractor + STT providers. No internal dependencies.
 7. **`internal/ingest/`** — Ingest orchestrator: selects converter, prepends frontmatter, writes to vault, appends log. Depends on steps 1, 2, 3, 4, 5, 6.
 8. **`internal/lint/`** — Vault lint engine: walks vault, parses frontmatter, extracts wikilinks, runs checks. Depends on step 1 for frontmatter parsing.
 9. **Adapt `internal/generate/`** — Modify generate pipeline to write output to `raw/codebase/` under a topic. Depends on steps 1, 2, 7.
@@ -286,10 +320,11 @@ Not applicable — this is a CLI tool. External API interactions:
 - **pdfcpu**: `go get github.com/pdfcpu/pdfcpu`
 - **html-to-markdown v2**: `go get github.com/JohannesKaufmann/html-to-markdown/v2`
 - **excelize**: `go get github.com/xuri/excelize/v2`
-- **kkdai/youtube**: `go get github.com/kkdai/youtube/v2`
 - **gosseract**: `go get github.com/otiai10/gosseract/v2` (requires Tesseract system library)
 - **yaml.v3**: `go get gopkg.in/yaml.v3` (for frontmatter parsing)
-- No infrastructure or external service dependencies beyond what's already in place (QMD binary).
+- **yt-dlp**: required runtime binary for `ingest youtube`
+- **ffmpeg**: required runtime binary when STT audio must be segmented
+- No infrastructure or external service dependencies beyond QMD, Firecrawl, YouTube, and configured STT providers.
 
 ## Monitoring and Observability
 
@@ -304,15 +339,15 @@ Not applicable — this is a CLI tool. External API interactions:
 
 - **Converter registry over monolithic ingest**: Each format is independently maintained and testable. New formats require only implementing the `Converter` interface. Trade-off: more files, but each is small and focused.
 - **ZIP+XML for Office formats**: DOCX, PPTX, and EPUB are all ZIP archives containing XML. Parsing the XML directly (as markitdown does) avoids heavy Office library dependencies. Trade-off: may miss some formatting details but captures text and structure.
-- **YouTube transcript-first, STT-fallback**: `kkdai/youtube` extracts auto-generated captions programmatically. Only when captions are unavailable does the tool fall back to downloading audio and transcribing via OpenRouter. Trade-off: STT requires an API key and costs money, but covers videos without captions.
+- **YouTube captions-first, STT selectable**: `yt-dlp` is the single YouTube backend for captions and audio. The default `captions` policy avoids STT cost; `auto` uses manual captions when present and falls back to STT when only automatic captions or no captions are available; `stt` forces audio transcription. Trade-off: STT requires provider credentials, costs money, and adds latency, but covers videos without usable captions.
 - **Codebase as ingest source, not top-level command**: The `generate` command becomes `ingest codebase`. The full pipeline (scan → parse → graph → metrics → render) is preserved but output goes to `raw/codebase/` within a topic. `inspect` subcommands continue to work against codebase-ingested data. Trade-off: `generate` users must adapt to `ingest codebase`, but the conceptual model is cleaner.
 
 ### Known Risks
 
 - **PDF extraction quality**: pdfcpu's text extraction may struggle with complex layouts (multi-column, scanned documents). Mitigation: support a `--ocr` flag that uses Tesseract as a secondary extraction method.
 - **DOCX/PPTX coverage**: Rolling our own ZIP+XML parser means we may miss edge cases in complex Office documents. Mitigation: test against a diverse set of real-world documents; accept that 90% coverage is sufficient for knowledge base ingestion.
-- **YouTube API changes**: Auto-generated caption extraction depends on YouTube's internal API. Mitigation: `kkdai/youtube` is actively maintained (3.9k stars); the STT fallback provides resilience.
-- **Binary size increase**: Adding pdfcpu, excelize, gosseract bindings, and kkdai/youtube will increase the binary. Mitigation: use Go build tags to make OCR (gosseract/Tesseract) opt-in at compile time.
+- **YouTube API changes**: Caption and media extraction depends on YouTube behavior exposed through `yt-dlp`. Mitigation: keep `yt-dlp` updated, support proxy/cookie/user-agent configuration, and use STT when captions are unavailable.
+- **Binary size increase**: Adding pdfcpu, excelize, and gosseract bindings will increase the binary. Mitigation: use Go build tags to make OCR (gosseract/Tesseract) opt-in at compile time.
 
 ## Architecture Decision Records
 

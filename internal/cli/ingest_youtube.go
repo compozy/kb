@@ -18,12 +18,12 @@ type youtubeTranscriptExtractor interface {
 }
 
 var newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptExtractor {
-	return youtube.NewExtractor(cfg.OpenRouter, cfg.YouTube)
+	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.YouTube)
 }
 
 func newIngestYouTubeCommand() *cobra.Command {
 	var topic string
-	var enableSTT bool
+	var transcribe string
 
 	command := &cobra.Command{
 		Use:   "youtube <url>",
@@ -39,12 +39,20 @@ func newIngestYouTubeCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("ingest youtube: %w", err)
 			}
+			policyValue := strings.TrimSpace(cfg.YouTube.Transcription)
+			if cmd.Flags().Changed("transcribe") {
+				policyValue = transcribe
+			}
+			policy, err := youtube.ParseTranscriptionPolicy(policyValue)
+			if err != nil {
+				return fmt.Errorf("ingest youtube: %w", err)
+			}
 
 			extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
 				commandContext(cmd),
 				args[0],
 				youtube.ExtractOptions{
-					EnableSTTFallback: enableSTT,
+					TranscriptionPolicy: policy,
 				},
 			)
 			if err != nil {
@@ -57,12 +65,13 @@ func newIngestYouTubeCommand() *cobra.Command {
 			}
 
 			result, err := runIngest(commandContext(cmd), kingest.Options{
-				VaultPath:  target.VaultPath,
-				Topic:      target.TopicInfo.Slug,
-				SourceKind: models.SourceKindYouTubeTranscript,
-				SourceURL:  sourceURL,
-				Title:      extractResult.Metadata.Title,
-				Markdown:   extractResult.Markdown,
+				VaultPath:        target.VaultPath,
+				Topic:            target.TopicInfo.Slug,
+				SourceKind:       models.SourceKindYouTubeTranscript,
+				SourceURL:        sourceURL,
+				Title:            extractResult.Metadata.Title,
+				Markdown:         extractResult.Markdown,
+				ExtraFrontmatter: youtubeFrontmatter(extractResult),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest youtube: %w", err)
@@ -73,7 +82,33 @@ func newIngestYouTubeCommand() *cobra.Command {
 	}
 
 	requireTopicFlag(command, &topic)
-	command.Flags().BoolVar(&enableSTT, "stt", false, "Enable OpenRouter speech-to-text fallback when captions are unavailable")
+	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
 
 	return command
+}
+
+func youtubeFrontmatter(result *youtube.Result) map[string]any {
+	if result == nil {
+		return nil
+	}
+	values := map[string]any{}
+	if result.Source != "" {
+		values["transcript_source"] = string(result.Source)
+	}
+	if result.TranscriptionPolicy != "" {
+		values["transcription_policy"] = string(result.TranscriptionPolicy)
+	}
+	if result.Language != "" {
+		values["transcript_language"] = result.Language
+	}
+	if result.CaptionKind != "" {
+		values["caption_kind"] = string(result.CaptionKind)
+	}
+	if result.STTProvider != "" {
+		values["stt_provider"] = result.STTProvider
+	}
+	if result.STTModel != "" {
+		values["stt_model"] = result.STTModel
+	}
+	return values
 }

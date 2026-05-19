@@ -309,6 +309,66 @@ func TestIngestWithPreConvertedContentSkipsRegistryAndWritesDirectly(t *testing.
 	}
 }
 
+func TestIngestWritesExtraFrontmatter(t *testing.T) {
+	t.Parallel()
+
+	vaultPath, topicSlug := scaffoldTopic(t)
+	result, err := Ingest(context.Background(), Options{
+		VaultPath:  vaultPath,
+		Topic:      topicSlug,
+		SourceKind: models.SourceKindYouTubeTranscript,
+		SourceURL:  "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		Title:      "Conference Talk",
+		Markdown:   "## 00:00\nTranscript.\n",
+		ExtraFrontmatter: map[string]any{
+			"transcript_source":    "stt",
+			"transcription_policy": "auto",
+			"stt_provider":         "openai",
+			"stt_model":            "gpt-4o-transcribe",
+		},
+		ScrapedAt: fixedScrapeTime,
+	})
+	if err != nil {
+		t.Fatalf("Ingest returned error: %v", err)
+	}
+
+	values, _ := parseMarkdownFile(t, filepath.Join(vaultPath, filepath.FromSlash(result.FilePath)))
+	assertFrontmatter(t, values, map[string]any{
+		"title":                "Conference Talk",
+		"type":                 "source",
+		"stage":                "raw",
+		"domain":               "systems",
+		"source_kind":          "youtube-transcript",
+		"source_url":           "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		"scraped":              "2026-04-11",
+		"transcript_source":    "stt",
+		"transcription_policy": "auto",
+		"stt_provider":         "openai",
+		"stt_model":            "gpt-4o-transcribe",
+		"tags":                 []string{"systems", "raw", "youtube-transcript"},
+	})
+}
+
+func TestIngestRejectsExtraFrontmatterReservedKeys(t *testing.T) {
+	t.Parallel()
+
+	vaultPath, topicSlug := scaffoldTopic(t)
+	_, err := Ingest(context.Background(), Options{
+		VaultPath:  vaultPath,
+		Topic:      topicSlug,
+		SourceKind: models.SourceKindYouTubeTranscript,
+		Title:      "Bad Frontmatter",
+		Markdown:   "## 00:00\nTranscript.\n",
+		ExtraFrontmatter: map[string]any{
+			"source_url": "https://override.example",
+		},
+		ScrapedAt: fixedScrapeTime,
+	})
+	if err == nil || !strings.Contains(err.Error(), "reserved key") {
+		t.Fatalf("error = %v, want reserved key validation", err)
+	}
+}
+
 func TestIngestEndToEndWithScaffoldedTopic(t *testing.T) {
 	t.Parallel()
 
