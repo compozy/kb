@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 
+### 🎉 Features
+- Add stt for youtube
+
+## 0.0.7 - 2026-05-19
+
+
 ### 🐛 Bug Fixes
 - Ytdl fallback
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.7 ([#19](https://github.com/compozy/kb/issues/19))
 
 ## 0.0.6 - 2026-05-18
 
@@ -163,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.7]: https://github.com/compozy/kb/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/compozy/kb/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/compozy/kb/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/compozy/kb/compare/v0.0.3...v0.0.4
