@@ -736,13 +736,13 @@ func schemaForPath(relativePath string) (schemaSpec, bool) {
 		}, true
 	case strings.HasPrefix(relativePath, "raw/youtube/"):
 		return schemaSpec{
-			dateFields: []string{"scraped"},
+			dateFields: []string{"scraped", "upload_date"},
 			expected: map[string]string{
 				"type":        "source",
 				"stage":       "raw",
 				"source_kind": string(models.SourceKindYouTubeTranscript),
 			},
-			listFields: []string{"tags"},
+			listFields: []string{"tags", "categories", "youtube_tags"},
 			required:   []string{"title", "type", "stage", "domain", "source_kind", "scraped", "tags"},
 		}, true
 	case strings.HasPrefix(relativePath, "raw/codebase/files/"):

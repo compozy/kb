@@ -426,6 +426,8 @@ The scanner:
 `ingest youtube` supports three transcription policies:
 `captions` uses YouTube captions only, `stt` forces audio transcription, and `auto` uses manual captions when present and falls back to STT when only automatic captions exist or captions are unavailable. STT writes provenance frontmatter such as `transcript_source`, `stt_provider`, and `stt_model`.
 
+YouTube ingests also persist video metadata from `yt-dlp` in the transcript frontmatter for sorting and filtering: engagement counts (`view_count`, `like_count`, `comment_count`), publication context (`upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`), and classification fields (`categories`, `youtube_tags`, `language`, `live_status`, `was_live`, `chapter_count`). Hidden or omitted scalar fields are written as `null`; `categories` and `youtube_tags` are empty lists when absent; `chapter_count` is `0` when no chapter metadata is returned. Video keywords use `youtube_tags` because `tags` remains the KB taxonomy field, and only the chapter count is stored, not full chapter content.
+
 STT has real cost and latency. Prefer `captions` for normal ingestion, and use `auto` or `stt` when YouTube captions are unavailable or unsuitable.
 
 See [`config.example.toml`](config.example.toml) for the full TOML schema.

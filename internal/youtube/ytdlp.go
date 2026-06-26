@@ -36,20 +36,35 @@ type ytDLPBackend struct {
 }
 
 type ytDLPInfo struct {
-	ID                string                           `json:"id"`
-	Title             string                           `json:"title"`
-	Uploader          string                           `json:"uploader"`
-	Channel           string                           `json:"channel"`
-	Duration          float64                          `json:"duration"`
-	UploadDate        string                           `json:"upload_date"`
-	WebpageURL        string                           `json:"webpage_url"`
-	Subtitles         map[string][]ytDLPSubtitleFormat `json:"subtitles"`
-	AutomaticCaptions map[string][]ytDLPSubtitleFormat `json:"automatic_captions"`
+	ID                   string                           `json:"id"`
+	Title                string                           `json:"title"`
+	Uploader             string                           `json:"uploader"`
+	UploaderID           string                           `json:"uploader_id"`
+	Channel              string                           `json:"channel"`
+	ChannelID            string                           `json:"channel_id"`
+	ChannelFollowerCount *int64                           `json:"channel_follower_count"`
+	Duration             float64                          `json:"duration"`
+	DurationString       string                           `json:"duration_string"`
+	UploadDate           string                           `json:"upload_date"`
+	WebpageURL           string                           `json:"webpage_url"`
+	ViewCount            *int64                           `json:"view_count"`
+	LikeCount            *int64                           `json:"like_count"`
+	CommentCount         *int64                           `json:"comment_count"`
+	Categories           []string                         `json:"categories"`
+	Tags                 []string                         `json:"tags"`
+	Language             string                           `json:"language"`
+	LiveStatus           string                           `json:"live_status"`
+	WasLive              *bool                            `json:"was_live"`
+	Chapters             []ytDLPChapter                   `json:"chapters"`
+	Subtitles            map[string][]ytDLPSubtitleFormat `json:"subtitles"`
+	AutomaticCaptions    map[string][]ytDLPSubtitleFormat `json:"automatic_captions"`
 }
 
 type ytDLPSubtitleFormat struct {
 	Ext string `json:"ext"`
 }
+
+type ytDLPChapter struct{}
 
 type ytDLPCaptionCandidate struct {
 	Language  string
@@ -447,13 +462,27 @@ func metadataFromYTDLPInfo(parsed parsedVideoURL, info ytDLPInfo) Metadata {
 	if channel == "" {
 		channel = strings.TrimSpace(info.Uploader)
 	}
+	duration := durationFromYTDLPSeconds(info.Duration)
 	return Metadata{
-		VideoID:     videoID,
-		URL:         videoURL,
-		Title:       strings.TrimSpace(info.Title),
-		Channel:     channel,
-		Duration:    durationFromYTDLPSeconds(info.Duration),
-		PublishDate: parseYTDLPUploadDate(info.UploadDate),
+		VideoID:              videoID,
+		URL:                  videoURL,
+		Title:                strings.TrimSpace(info.Title),
+		Channel:              channel,
+		ChannelID:            strings.TrimSpace(info.ChannelID),
+		UploaderID:           strings.TrimSpace(info.UploaderID),
+		Duration:             duration,
+		DurationString:       durationStringFromYTDLP(info.DurationString, duration),
+		PublishDate:          parseYTDLPUploadDate(info.UploadDate),
+		ViewCount:            cloneInt64(info.ViewCount),
+		LikeCount:            cloneInt64(info.LikeCount),
+		CommentCount:         cloneInt64(info.CommentCount),
+		ChannelFollowerCount: cloneInt64(info.ChannelFollowerCount),
+		Categories:           normalizeYTDLPStringSlice(info.Categories),
+		VideoTags:            normalizeYTDLPStringSlice(info.Tags),
+		Language:             strings.TrimSpace(info.Language),
+		LiveStatus:           strings.TrimSpace(info.LiveStatus),
+		WasLive:              cloneBool(info.WasLive),
+		ChapterCount:         len(info.Chapters),
 	}
 }
 
@@ -470,6 +499,54 @@ func parseYTDLPUploadDate(value string) time.Time {
 		return time.Time{}
 	}
 	return parsed.UTC()
+}
+
+func durationStringFromYTDLP(value string, duration time.Duration) string {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		return trimmed
+	}
+	if duration <= 0 {
+		return ""
+	}
+	totalSeconds := int64(duration / time.Second)
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%d:%02d", minutes, seconds)
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func normalizeYTDLPStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }
 
 func selectYTDLPCaption(info ytDLPInfo, preferredLanguages []string, allowAutomatic bool) (ytDLPCaptionCandidate, bool) {

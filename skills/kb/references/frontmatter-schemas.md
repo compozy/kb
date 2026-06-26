@@ -94,12 +94,36 @@ domain: <topic-domain>
 source_kind: youtube-transcript
 source_url: https://www.youtube.com/watch?v=<video-id>
 scraped: YYYY-MM-DD
+view_count: 3271
+like_count: 77
+comment_count: 11
+upload_date: YYYY-MM-DD
+duration: 6441
+duration_string: 1:47:21
+channel: Changelog
+channel_id: UCZb...
+uploader_id: "@Changelog"
+channel_follower_count: 20000
+categories:
+  - Science & Technology
+youtube_tags:
+  - go
+language: en
+live_status: not_live
+was_live: false
+chapter_count: 17
+transcript_source: captions
+transcription_policy: captions
+transcript_language: en
+caption_kind: manual
 tags:
   - <topic-domain>
   - raw
   - youtube-transcript
 ---
 ```
+
+The YouTube metric fields come from `yt-dlp --dump-single-json`. Engagement counts, `channel_follower_count`, `was_live`, and other scalar source-controlled fields may be `null` when YouTube hides or omits them. `categories` and `youtube_tags` are always lists and are empty when absent. `chapter_count` is always an integer count; the CLI stores only that count, not full chapter content. `youtube_tags` stores video keywords because `tags` is reserved for KB taxonomy.
 
 `raw/youtube/` is the canonical transcript directory. Legacy `raw/transcripts/` content should be moved with `kb migrate transcripts --topic <topic-id>`, not treated as a second valid layout.
 

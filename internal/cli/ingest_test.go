@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	kconfig "github.com/compozy/kb/internal/config"
 	"github.com/compozy/kb/internal/firecrawl"
@@ -288,6 +289,11 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	var gotExtractURL string
 	var gotExtractOptions youtube.ExtractOptions
 	var gotIngest kingest.Options
+	viewCount := int64(3271)
+	likeCount := int64(77)
+	commentCount := int64(11)
+	channelFollowers := int64(20000)
+	wasLive := false
 	wantYouTubeConfig := kconfig.YouTubeConfig{
 		YTDLPPath:     "custom-yt-dlp",
 		Proxy:         "http://proxy.internal:8080",
@@ -320,8 +326,24 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 				gotExtractOptions = options
 				return &youtube.Result{
 					Metadata: youtube.Metadata{
-						URL:   "https://www.youtube.com/watch?v=abcdefghijk",
-						Title: "Queueing Theory Deep Dive",
+						URL:                  "https://www.youtube.com/watch?v=abcdefghijk",
+						Title:                "Queueing Theory Deep Dive",
+						Channel:              "Changelog",
+						ChannelID:            "UCZbTest",
+						UploaderID:           "@Changelog",
+						Duration:             6441 * time.Second,
+						DurationString:       "1:47:21",
+						PublishDate:          time.Date(2025, time.July, 2, 0, 0, 0, 0, time.UTC),
+						ViewCount:            &viewCount,
+						LikeCount:            &likeCount,
+						CommentCount:         &commentCount,
+						ChannelFollowerCount: &channelFollowers,
+						Categories:           []string{"Science & Technology"},
+						VideoTags:            []string{"go", "systems"},
+						Language:             "en",
+						LiveStatus:           "not_live",
+						WasLive:              &wasLive,
+						ChapterCount:         17,
 					},
 					Markdown: "# Queueing Theory Deep Dive\n\nTranscript.\n",
 				}, nil
@@ -371,6 +393,36 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	if gotIngest.Title != "Queueing Theory Deep Dive" {
 		t.Fatalf("ingest title = %q", gotIngest.Title)
 	}
+	if got := gotIngest.ExtraFrontmatter["view_count"]; got != viewCount {
+		t.Fatalf("view_count = %#v, want %d", got, viewCount)
+	}
+	if got := gotIngest.ExtraFrontmatter["upload_date"]; got != "2025-07-02" {
+		t.Fatalf("upload_date = %#v, want 2025-07-02", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["duration"]; got != int64(6441) {
+		t.Fatalf("duration = %#v, want 6441", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["duration_string"]; got != "1:47:21" {
+		t.Fatalf("duration_string = %#v, want 1:47:21", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["channel"]; got != "Changelog" {
+		t.Fatalf("channel = %#v, want Changelog", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["channel_id"]; got != "UCZbTest" {
+		t.Fatalf("channel_id = %#v, want UCZbTest", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["uploader_id"]; got != "@Changelog" {
+		t.Fatalf("uploader_id = %#v, want @Changelog", got)
+	}
+	if got := gotIngest.ExtraFrontmatter["channel_follower_count"]; got != channelFollowers {
+		t.Fatalf("channel_follower_count = %#v, want %d", got, channelFollowers)
+	}
+	if got := gotIngest.ExtraFrontmatter["youtube_tags"]; !reflect.DeepEqual(got, []string{"go", "systems"}) {
+		t.Fatalf("youtube_tags = %#v", got)
+	}
+	if _, exists := gotIngest.ExtraFrontmatter["tags"]; exists {
+		t.Fatalf("frontmatter should not override reserved tags: %#v", gotIngest.ExtraFrontmatter)
+	}
 
 	var result models.IngestResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
@@ -381,21 +433,67 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	}
 }
 
-func TestYouTubeFrontmatterIncludesTranscriptProvenance(t *testing.T) {
+func TestYouTubeFrontmatterIncludesVideoMetricsAndTranscriptProvenance(t *testing.T) {
+	viewCount := int64(3271)
+	likeCount := int64(77)
+	commentCount := int64(11)
+	channelFollowers := int64(20000)
+	wasLive := false
 	values := youtubeFrontmatter(&youtube.Result{
+		Metadata: youtube.Metadata{
+			Channel:              "Changelog",
+			ChannelID:            "UCZbTest",
+			UploaderID:           "@Changelog",
+			Duration:             6441 * time.Second,
+			DurationString:       "1:47:21",
+			PublishDate:          time.Date(2025, time.July, 2, 0, 0, 0, 0, time.UTC),
+			ViewCount:            &viewCount,
+			LikeCount:            &likeCount,
+			CommentCount:         &commentCount,
+			ChannelFollowerCount: &channelFollowers,
+			Categories:           []string{"Science & Technology"},
+			VideoTags:            []string{"go", "systems"},
+			Language:             "en",
+			LiveStatus:           "not_live",
+			WasLive:              &wasLive,
+			ChapterCount:         17,
+		},
 		Source:              youtube.TranscriptSourceSTT,
 		TranscriptionPolicy: youtube.TranscriptionPolicyAuto,
+		Language:            "en-US",
+		CaptionKind:         youtube.CaptionKindAutomatic,
 		STTProvider:         "openai",
 		STTModel:            "gpt-4o-transcribe",
 	})
 	want := map[string]any{
-		"transcript_source":    "stt",
-		"transcription_policy": "auto",
-		"stt_provider":         "openai",
-		"stt_model":            "gpt-4o-transcribe",
+		"view_count":             viewCount,
+		"like_count":             likeCount,
+		"comment_count":          commentCount,
+		"upload_date":            "2025-07-02",
+		"duration":               int64(6441),
+		"duration_string":        "1:47:21",
+		"channel":                "Changelog",
+		"channel_id":             "UCZbTest",
+		"uploader_id":            "@Changelog",
+		"channel_follower_count": channelFollowers,
+		"categories":             []string{"Science & Technology"},
+		"youtube_tags":           []string{"go", "systems"},
+		"language":               "en",
+		"live_status":            "not_live",
+		"was_live":               false,
+		"chapter_count":          17,
+		"transcript_source":      "stt",
+		"transcription_policy":   "auto",
+		"transcript_language":    "en-US",
+		"caption_kind":           "automatic",
+		"stt_provider":           "openai",
+		"stt_model":              "gpt-4o-transcribe",
 	}
 	if !reflect.DeepEqual(values, want) {
 		t.Fatalf("frontmatter = %#v, want %#v", values, want)
+	}
+	if _, exists := values["tags"]; exists {
+		t.Fatalf("frontmatter should not include reserved tags: %#v", values)
 	}
 }
 

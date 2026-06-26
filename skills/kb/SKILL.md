@@ -86,6 +86,8 @@ transcription = "captions" # captions | auto | stt
 
 Use `kb ingest youtube <url> --topic <topic-id> --transcribe auto` to use manual captions when present and STT when only automatic captions or no captions are available. Use `--transcribe stt` to force STT. The old shortcut flag is intentionally unsupported.
 
+YouTube transcript frontmatter includes video metadata from `yt-dlp` for filtering and ordering, including `view_count`, `like_count`, `comment_count`, `upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`, `categories`, `youtube_tags`, `language`, `live_status`, `was_live`, and `chapter_count`. Use `youtube_tags` for video keywords because `tags` is KB taxonomy; see `references/frontmatter-schemas.md` for null, list, and count behavior.
+
 `YOUTUBE_YT_DLP_PATH`, `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; after confirming `yt-dlp` is installed and current, treat that as a network or auth configuration issue, not a missing-transcript issue.
 
 ### Layout migrations

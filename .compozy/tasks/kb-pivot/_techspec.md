@@ -162,6 +162,8 @@ tags:
 ---
 ```
 
+For `source_kind: youtube-transcript`, `kb ingest youtube` also persists `yt-dlp` video metadata as flat optional frontmatter: `view_count`, `like_count`, `comment_count`, `upload_date`, `duration` seconds, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`, `categories`, `youtube_tags`, `language`, `live_status`, `was_live`, and `chapter_count`. `youtube_tags` stores YouTube keywords because `tags` remains reserved for KB taxonomy. Chapter payloads are not stored; only `chapter_count` is persisted.
+
 **Config model** (extends existing `internal/config`):
 
 ```go

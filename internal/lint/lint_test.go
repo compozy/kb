@@ -153,6 +153,57 @@ func TestLintDetectsFormatViolations(t *testing.T) {
 	})
 }
 
+func TestLintValidatesOptionalYouTubeMetricFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts valid metric fields", func(t *testing.T) {
+		t.Parallel()
+
+		topicPath := newTestTopic(t)
+		values := sourceFrontmatter("Conference Talk", string(models.SourceKindYouTubeTranscript), "2026-04-10")
+		values["upload_date"] = "2025-07-02"
+		values["categories"] = []string{"Science & Technology"}
+		values["youtube_tags"] = []string{"go", "systems"}
+		writeMarkdownFile(t, topicPath, "raw/youtube/conference-talk.md", values, "## 00:00\nTranscript\n")
+
+		issues := mustLint(t, topicPath)
+		if len(issues) != 0 {
+			t.Fatalf("issues = %#v, want none", issues)
+		}
+	})
+
+	t.Run("rejects invalid date and list shapes", func(t *testing.T) {
+		t.Parallel()
+
+		topicPath := newTestTopic(t)
+		values := sourceFrontmatter("Bad Talk", string(models.SourceKindYouTubeTranscript), "2026-04-10")
+		values["upload_date"] = "20250702"
+		values["categories"] = "Science & Technology"
+		values["youtube_tags"] = []any{"go", 123}
+		writeMarkdownFile(t, topicPath, "raw/youtube/bad-talk.md", values, "## 00:00\nTranscript\n")
+
+		issues := mustLint(t, topicPath)
+		assertHasIssue(t, issues, models.LintIssue{
+			Kind:     models.LintIssueKindFormat,
+			Severity: models.SeverityError,
+			FilePath: "raw/youtube/bad-talk.md",
+			Target:   "upload_date",
+		})
+		assertHasIssue(t, issues, models.LintIssue{
+			Kind:     models.LintIssueKindFormat,
+			Severity: models.SeverityError,
+			FilePath: "raw/youtube/bad-talk.md",
+			Target:   "categories",
+		})
+		assertHasIssue(t, issues, models.LintIssue{
+			Kind:     models.LintIssueKindFormat,
+			Severity: models.SeverityError,
+			FilePath: "raw/youtube/bad-talk.md",
+			Target:   "youtube_tags",
+		})
+	})
+}
+
 func TestLintReturnsIssuesSortedBySeverityThenFilePath(t *testing.T) {
 	t.Parallel()
 

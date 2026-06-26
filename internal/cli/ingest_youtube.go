@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -91,7 +92,25 @@ func youtubeFrontmatter(result *youtube.Result) map[string]any {
 	if result == nil {
 		return nil
 	}
-	values := map[string]any{}
+	metadata := result.Metadata
+	values := map[string]any{
+		"view_count":             optionalInt64(metadata.ViewCount),
+		"like_count":             optionalInt64(metadata.LikeCount),
+		"comment_count":          optionalInt64(metadata.CommentCount),
+		"upload_date":            optionalDate(metadata.PublishDate),
+		"duration":               optionalDurationSeconds(metadata.Duration),
+		"duration_string":        optionalString(metadata.DurationString),
+		"channel":                optionalString(metadata.Channel),
+		"channel_id":             optionalString(metadata.ChannelID),
+		"uploader_id":            optionalString(metadata.UploaderID),
+		"channel_follower_count": optionalInt64(metadata.ChannelFollowerCount),
+		"categories":             cloneStringSlice(metadata.Categories),
+		"youtube_tags":           cloneStringSlice(metadata.VideoTags),
+		"language":               optionalString(metadata.Language),
+		"live_status":            optionalString(metadata.LiveStatus),
+		"was_live":               optionalBool(metadata.WasLive),
+		"chapter_count":          metadata.ChapterCount,
+	}
 	if result.Source != "" {
 		values["transcript_source"] = string(result.Source)
 	}
@@ -111,4 +130,47 @@ func youtubeFrontmatter(result *youtube.Result) map[string]any {
 		values["stt_model"] = result.STTModel
 	}
 	return values
+}
+
+func optionalString(value string) any {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+func optionalDate(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC().Format("2006-01-02")
+}
+
+func optionalDurationSeconds(value time.Duration) any {
+	if value <= 0 {
+		return nil
+	}
+	return int64(value / time.Second)
+}
+
+func optionalInt64(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func optionalBool(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	return append([]string(nil), values...)
 }

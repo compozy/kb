@@ -115,12 +115,25 @@ func (err *Error) Unwrap() error {
 
 // Metadata contains normalized video metadata.
 type Metadata struct {
-	VideoID     string
-	URL         string
-	Title       string
-	Channel     string
-	Duration    time.Duration
-	PublishDate time.Time
+	VideoID              string
+	URL                  string
+	Title                string
+	Channel              string
+	ChannelID            string
+	UploaderID           string
+	Duration             time.Duration
+	DurationString       string
+	PublishDate          time.Time
+	ViewCount            *int64
+	LikeCount            *int64
+	CommentCount         *int64
+	ChannelFollowerCount *int64
+	Categories           []string
+	VideoTags            []string
+	Language             string
+	LiveStatus           string
+	WasLive              *bool
+	ChapterCount         int
 }
 
 // Result contains the extracted metadata and transcript markdown.

@@ -2,6 +2,7 @@ package youtube
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -23,8 +24,21 @@ func TestYTDLPBackendExtractsJSON3Captions(t *testing.T) {
 			`{"id":"dQw4w9WgXcQ",`,
 			`"title":"Example Video",`,
 			`"channel":"Example Channel",`,
-			`"duration":95,`,
+			`"channel_id":"UC123456789",`,
+			`"uploader_id":"@ExampleChannel",`,
+			`"channel_follower_count":20000,`,
+			`"duration":6441,`,
+			`"duration_string":"1:47:21",`,
 			`"upload_date":"20240307",`,
+			`"view_count":3271,`,
+			`"like_count":77,`,
+			`"comment_count":11,`,
+			`"categories":["Science & Technology"],`,
+			`"tags":["go"," distributed systems ",""],`,
+			`"language":"en",`,
+			`"live_status":"not_live",`,
+			`"was_live":false,`,
+			`"chapters":[{"title":"Intro"},{"title":"Deep dive"}],`,
 			`"webpage_url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ",`,
 			`"subtitles":{"en":[{"ext":"json3"}]},`,
 			`"automatic_captions":{"pt-BR":[{"ext":"json3"}]}}`,
@@ -55,11 +69,40 @@ func TestYTDLPBackendExtractsJSON3Captions(t *testing.T) {
 	if result.Metadata.Channel != "Example Channel" {
 		t.Fatalf("channel = %q, want Example Channel", result.Metadata.Channel)
 	}
-	if result.Metadata.Duration != 95*time.Second {
-		t.Fatalf("duration = %v, want 95s", result.Metadata.Duration)
+	if result.Metadata.ChannelID != "UC123456789" {
+		t.Fatalf("channel id = %q, want UC123456789", result.Metadata.ChannelID)
+	}
+	if result.Metadata.UploaderID != "@ExampleChannel" {
+		t.Fatalf("uploader id = %q, want @ExampleChannel", result.Metadata.UploaderID)
+	}
+	if result.Metadata.Duration != 6441*time.Second {
+		t.Fatalf("duration = %v, want 6441s", result.Metadata.Duration)
+	}
+	if result.Metadata.DurationString != "1:47:21" {
+		t.Fatalf("duration string = %q, want 1:47:21", result.Metadata.DurationString)
 	}
 	if result.Metadata.PublishDate != time.Date(2024, time.March, 7, 0, 0, 0, 0, time.UTC) {
 		t.Fatalf("publish date = %v", result.Metadata.PublishDate)
+	}
+	assertInt64Ptr(t, result.Metadata.ViewCount, 3271)
+	assertInt64Ptr(t, result.Metadata.LikeCount, 77)
+	assertInt64Ptr(t, result.Metadata.CommentCount, 11)
+	assertInt64Ptr(t, result.Metadata.ChannelFollowerCount, 20000)
+	if !reflect.DeepEqual(result.Metadata.Categories, []string{"Science & Technology"}) {
+		t.Fatalf("categories = %#v", result.Metadata.Categories)
+	}
+	if !reflect.DeepEqual(result.Metadata.VideoTags, []string{"go", "distributed systems"}) {
+		t.Fatalf("video tags = %#v", result.Metadata.VideoTags)
+	}
+	if result.Metadata.Language != "en" {
+		t.Fatalf("language = %q, want en", result.Metadata.Language)
+	}
+	if result.Metadata.LiveStatus != "not_live" {
+		t.Fatalf("live status = %q, want not_live", result.Metadata.LiveStatus)
+	}
+	assertBoolPtr(t, result.Metadata.WasLive, false)
+	if result.Metadata.ChapterCount != 2 {
+		t.Fatalf("chapter count = %d, want 2", result.Metadata.ChapterCount)
 	}
 	if result.Source != TranscriptSourceCaptions {
 		t.Fatalf("source = %q, want captions", result.Source)
@@ -92,6 +135,48 @@ func TestYTDLPBackendExtractsJSON3Captions(t *testing.T) {
 	assertArgsContain(t, invocations[1], "--sub-format", "json3/vtt/best")
 	if containsArg(invocations[1], "--write-auto-subs") {
 		t.Fatalf("manual captions should not use --write-auto-subs: %#v", invocations[1])
+	}
+}
+
+func TestMetadataFromYTDLPInfoHandlesMissingOptionalMetrics(t *testing.T) {
+	t.Parallel()
+
+	var info ytDLPInfo
+	if err := json.Unmarshal([]byte(strings.Join([]string{
+		`{"id":"dQw4w9WgXcQ",`,
+		`"title":"Sparse Video",`,
+		`"duration":90,`,
+		`"like_count":null,`,
+		`"comment_count":null,`,
+		`"channel_follower_count":null,`,
+		`"was_live":null,`,
+		`"categories":["", "Education"],`,
+		`"tags":null}`,
+	}, "")), &info); err != nil {
+		t.Fatalf("unmarshal sparse yt-dlp info: %v", err)
+	}
+
+	metadata := metadataFromYTDLPInfo(parsedRickRollURL(), info)
+	if metadata.DurationString != "1:30" {
+		t.Fatalf("duration string = %q, want fallback 1:30", metadata.DurationString)
+	}
+	if metadata.LikeCount != nil {
+		t.Fatalf("like count = %#v, want nil", metadata.LikeCount)
+	}
+	if metadata.CommentCount != nil {
+		t.Fatalf("comment count = %#v, want nil", metadata.CommentCount)
+	}
+	if metadata.ChannelFollowerCount != nil {
+		t.Fatalf("channel follower count = %#v, want nil", metadata.ChannelFollowerCount)
+	}
+	if metadata.WasLive != nil {
+		t.Fatalf("was live = %#v, want nil", metadata.WasLive)
+	}
+	if !reflect.DeepEqual(metadata.Categories, []string{"Education"}) {
+		t.Fatalf("categories = %#v, want trimmed non-empty values", metadata.Categories)
+	}
+	if !reflect.DeepEqual(metadata.VideoTags, []string{}) {
+		t.Fatalf("video tags = %#v, want empty list", metadata.VideoTags)
 	}
 }
 
@@ -576,6 +661,28 @@ func containsArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertInt64Ptr(t *testing.T, got *int64, want int64) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatalf("value = nil, want %d", want)
+	}
+	if *got != want {
+		t.Fatalf("value = %d, want %d", *got, want)
+	}
+}
+
+func assertBoolPtr(t *testing.T, got *bool, want bool) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatalf("value = nil, want %t", want)
+	}
+	if *got != want {
+		t.Fatalf("value = %t, want %t", *got, want)
+	}
 }
 
 func shellQuoteYTDLPTest(value string) string {
