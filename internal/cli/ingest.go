@@ -19,6 +19,7 @@ var runIngest = kingest.Ingest
 var runIngestTopicInfo = ktopic.Info
 var ingestGetwd = os.Getwd
 var loadIngestConfig = loadCLIConfig
+var existingYouTubeVideoIDs = kingest.ExistingYouTubeVideoIDs
 
 type ingestTarget struct {
 	TopicInfo models.TopicInfo
@@ -39,6 +40,8 @@ func newIngestCommand() *cobra.Command {
 		newIngestURLCommand(),
 		newIngestFileCommand(),
 		newIngestYouTubeCommand(),
+		newIngestChannelCommand(),
+		newIngestInstagramCommand(),
 		newIngestCodebaseCommand(),
 		newIngestBookmarksCommand(),
 	)

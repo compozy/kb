@@ -214,8 +214,8 @@ func andFilter(conditions ...models.BaseFilter) *models.BaseFilter {
 	return &models.BaseFilter{And: conditions}
 }
 
-func baseDefinitionValue(definition models.BaseDefinition) map[string]interface{} {
-	value := map[string]interface{}{
+func baseDefinitionValue(definition models.BaseDefinition) map[string]any {
+	value := map[string]any{
 		"views": baseViewsValue(definition.Views),
 	}
 
@@ -226,9 +226,9 @@ func baseDefinitionValue(definition models.BaseDefinition) map[string]interface{
 		value["formulas"] = stringMapToAny(definition.Formulas)
 	}
 	if len(definition.Properties) > 0 {
-		properties := make(map[string]interface{}, len(definition.Properties))
+		properties := make(map[string]any, len(definition.Properties))
 		for key, property := range definition.Properties {
-			properties[key] = map[string]interface{}{
+			properties[key] = map[string]any{
 				"displayName": property.DisplayName,
 			}
 		}
@@ -238,10 +238,10 @@ func baseDefinitionValue(definition models.BaseDefinition) map[string]interface{
 	return value
 }
 
-func baseViewsValue(views []models.BaseView) []interface{} {
-	items := make([]interface{}, 0, len(views))
+func baseViewsValue(views []models.BaseView) []any {
+	items := make([]any, 0, len(views))
 	for _, view := range views {
-		value := map[string]interface{}{
+		value := map[string]any{
 			"name":  view.Name,
 			"order": stringSliceToAny(view.Order),
 			"type":  string(view.Type),
@@ -251,7 +251,7 @@ func baseViewsValue(views []models.BaseView) []interface{} {
 			value["filters"] = baseFilterValue(*view.Filters)
 		}
 		if view.GroupBy != nil {
-			value["groupBy"] = map[string]interface{}{
+			value["groupBy"] = map[string]any{
 				"direction": view.GroupBy.Direction,
 				"property":  view.GroupBy.Property,
 			}
@@ -265,21 +265,21 @@ func baseViewsValue(views []models.BaseView) []interface{} {
 	return items
 }
 
-func baseFilterValue(filter models.BaseFilter) interface{} {
+func baseFilterValue(filter models.BaseFilter) any {
 	if filter.Expression != "" {
 		return filter.Expression
 	}
 
-	value := map[string]interface{}{}
+	value := map[string]any{}
 	if len(filter.And) > 0 {
-		items := make([]interface{}, 0, len(filter.And))
+		items := make([]any, 0, len(filter.And))
 		for _, nested := range filter.And {
 			items = append(items, baseFilterValue(nested))
 		}
 		value["and"] = items
 	}
 	if len(filter.Or) > 0 {
-		items := make([]interface{}, 0, len(filter.Or))
+		items := make([]any, 0, len(filter.Or))
 		for _, nested := range filter.Or {
 			items = append(items, baseFilterValue(nested))
 		}
@@ -292,11 +292,11 @@ func baseFilterValue(filter models.BaseFilter) interface{} {
 	return value
 }
 
-func renderYAMLValue(value interface{}, indent int) []string {
+func renderYAMLValue(value any, indent int) []string {
 	padding := strings.Repeat(" ", indent)
 
 	switch typed := value.(type) {
-	case []interface{}:
+	case []any:
 		if len(typed) == 0 {
 			return []string{padding + "[]"}
 		}
@@ -324,7 +324,7 @@ func renderYAMLValue(value interface{}, indent int) []string {
 			}
 		}
 		return lines
-	case map[string]interface{}:
+	case map[string]any:
 		keys := sortedMapKeys(typed)
 		if len(keys) == 0 {
 			return []string{padding + "{}"}
@@ -361,7 +361,7 @@ func renderYAMLValue(value interface{}, indent int) []string {
 	}
 }
 
-func renderYAMLScalar(value interface{}) string {
+func renderYAMLScalar(value any) string {
 	switch typed := value.(type) {
 	case string:
 		return strconv.Quote(typed)
@@ -376,16 +376,16 @@ func renderYAMLScalar(value interface{}) string {
 	}
 }
 
-func stringMapToAny(values map[string]string) map[string]interface{} {
-	converted := make(map[string]interface{}, len(values))
+func stringMapToAny(values map[string]string) map[string]any {
+	converted := make(map[string]any, len(values))
 	for key, value := range values {
 		converted[key] = value
 	}
 	return converted
 }
 
-func stringSliceToAny(values []string) []interface{} {
-	items := make([]interface{}, 0, len(values))
+func stringSliceToAny(values []string) []any {
+	items := make([]any, 0, len(values))
 	for _, value := range values {
 		items = append(items, value)
 	}

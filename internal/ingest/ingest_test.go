@@ -174,7 +174,6 @@ func TestIngestWritesExpectedSubdirectories(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -584,7 +583,6 @@ func TestRawDirectoryForSourceKind(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -741,5 +739,87 @@ func assertFrontmatter(t *testing.T, got map[string]any, want map[string]any) {
 				t.Fatalf("frontmatter[%q] = %#v, want %#v", key, gotValue, typedWant)
 			}
 		}
+	}
+}
+
+func TestExistingYouTubeVideoIDs(t *testing.T) {
+	testCases := []struct {
+		name   string
+		assert func(t *testing.T)
+	}{
+		{
+			name: "Should return empty set when raw youtube directory is absent",
+			assert: func(t *testing.T) {
+				vaultPath, slug := scaffoldTopic(t)
+				ids, err := ExistingYouTubeVideoIDs(vaultPath, slug)
+				if err != nil {
+					t.Fatalf("ExistingYouTubeVideoIDs returned error: %v", err)
+				}
+				if len(ids) != 0 {
+					t.Fatalf("want empty set, got %v", ids)
+				}
+			},
+		},
+		{
+			name: "Should collect ids from video_id and source_url",
+			assert: func(t *testing.T) {
+				vaultPath, slug := scaffoldTopic(t)
+				if _, err := Ingest(context.Background(), Options{
+					VaultPath:        vaultPath,
+					Topic:            slug,
+					SourceKind:       models.SourceKindYouTubeTranscript,
+					SourceURL:        "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+					Title:            "First Video",
+					Markdown:         "# First Video\n\nTranscript.\n",
+					ExtraFrontmatter: map[string]any{"video_id": "aaaaaaaaaaa"},
+					ScrapedAt:        fixedScrapeTime,
+				}); err != nil {
+					t.Fatalf("ingest first video: %v", err)
+				}
+				if _, err := Ingest(context.Background(), Options{
+					VaultPath:  vaultPath,
+					Topic:      slug,
+					SourceKind: models.SourceKindYouTubeTranscript,
+					SourceURL:  "https://www.youtube.com/watch?v=ccccccccccc",
+					Title:      "Second Video",
+					Markdown:   "# Second Video\n\nTranscript.\n",
+					ScrapedAt:  fixedScrapeTime,
+				}); err != nil {
+					t.Fatalf("ingest second video: %v", err)
+				}
+
+				ids, err := ExistingYouTubeVideoIDs(vaultPath, slug)
+				if err != nil {
+					t.Fatalf("ExistingYouTubeVideoIDs returned error: %v", err)
+				}
+				for _, want := range []string{"aaaaaaaaaaa", "ccccccccccc"} {
+					if _, ok := ids[want]; !ok {
+						t.Fatalf("expected video id %q in %v", want, ids)
+					}
+				}
+			},
+		},
+		{
+			name: "Should surface malformed frontmatter",
+			assert: func(t *testing.T) {
+				vaultPath, slug := scaffoldTopic(t)
+				rawPath := filepath.Join(vaultPath, slug, "raw", "youtube", "broken.md")
+				if err := os.WriteFile(rawPath, []byte("---\n: bad\n---\nbody\n"), 0o644); err != nil {
+					t.Fatalf("write malformed youtube document: %v", err)
+				}
+
+				_, err := ExistingYouTubeVideoIDs(vaultPath, slug)
+				if err == nil {
+					t.Fatal("expected malformed frontmatter error")
+				}
+				if !strings.Contains(err.Error(), "existing youtube ids: parse") {
+					t.Fatalf("error = %q, want parse context", err.Error())
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, tc.assert)
 	}
 }

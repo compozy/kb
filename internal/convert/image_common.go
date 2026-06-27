@@ -142,7 +142,7 @@ func parseTIFFIFD(data []byte, order binary.ByteOrder, offset int, metadata map[
 
 	entryCount := int(order.Uint16(data[offset : offset+2]))
 	entryOffset := offset + 2
-	for i := 0; i < entryCount; i++ {
+	for i := range entryCount {
 		start := entryOffset + i*12
 		if start+12 > len(data) {
 			return

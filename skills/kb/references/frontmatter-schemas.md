@@ -62,7 +62,7 @@ tags:
 ---
 ```
 
-`source_kind` values for current CLI ingests: `article`, `document`, `github-readme`, `youtube-transcript`, `bookmark-cluster`, `codebase-file`, `codebase-symbol`.
+`source_kind` values for current CLI ingests: `article`, `document`, `github-readme`, `youtube-transcript`, `instagram-video`, `bookmark-cluster`, `codebase-file`, `codebase-symbol`.
 
 ## GitHub README — `<topic>/raw/github/<slug>.md`
 
@@ -126,6 +126,44 @@ tags:
 The YouTube metric fields come from `yt-dlp --dump-single-json`. Engagement counts, `channel_follower_count`, `was_live`, and other scalar source-controlled fields may be `null` when YouTube hides or omits them. `categories` and `youtube_tags` are always lists and are empty when absent. `chapter_count` is always an integer count; the CLI stores only that count, not full chapter content. `youtube_tags` stores video keywords because `tags` is reserved for KB taxonomy.
 
 `raw/youtube/` is the canonical transcript directory. Legacy `raw/transcripts/` content should be moved with `kb migrate transcripts --topic <topic-id>`, not treated as a second valid layout.
+
+`kb ingest channel` writes the same `youtube-transcript` schema into `raw/youtube/` — one document per upload — so it shares this section's layout and fields.
+
+## Instagram video — `<topic>/raw/instagram/<slug>.md`
+
+```yaml
+---
+title: Reel Title
+type: source
+stage: raw
+domain: <topic-domain>
+source_kind: instagram-video
+source_url: https://www.instagram.com/reel/<shortcode>/
+scraped: YYYY-MM-DD
+shortcode: <shortcode>
+uploader: account-name
+uploader_id: account-name
+like_count: 4200
+comment_count: 88
+view_count: 150000
+upload_date: YYYY-MM-DD
+duration: 32
+duration_string: "0:32"
+language: en
+transcript_source: stt
+transcription_policy: auto
+transcript_language: en
+caption_kind: manual
+stt_provider: openai
+stt_model: gpt-4o-transcribe
+tags:
+  - <topic-domain>
+  - raw
+  - instagram-video
+---
+```
+
+Instagram documents (`kb ingest instagram`) come from the same `yt-dlp` + STT engine as YouTube. The **body** is the post caption under a `## Caption` heading followed by the spoken transcript under `## Transcript`. Engagement scalars (`like_count`, `comment_count`, `view_count`) may be `null` when Instagram omits them. `transcription_policy` defaults to `auto`; `transcript_source` is `captions`, `stt`, or `none` (caption-only fallback for a music-only reel, in which case there is no `## Transcript` section). `caption_kind`, `stt_provider`, `stt_model`, and `transcript_language` appear only when applicable. `shortcode` is the Instagram media shortcode; `uploader`/`uploader_id` are the account.
 
 ## Bookmark cluster — `<topic>/raw/bookmarks/<Topic> Bookmarks <Subtopic>.md`
 
@@ -214,6 +252,7 @@ updated: YYYY-MM-DD
 | Raw article | `raw/articles/` | `source` | `raw` |
 | Raw GitHub | `raw/github/` | `source` | `raw` |
 | Raw YouTube | `raw/youtube/` | `source` | `raw` |
+| Raw Instagram | `raw/instagram/` | `source` | `raw` |
 | Raw bookmarks | `raw/bookmarks/` | `source` | `raw` |
 | Briefing | `outputs/briefings/` | `output` | `briefing` |
 | Query result | `outputs/queries/` | `output` | `query` |

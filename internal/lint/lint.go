@@ -994,8 +994,8 @@ func (state vaultState) resolveTarget(target string, rawOnly bool) *vaultFile {
 	if file := state.pathIndex[normalized]; isAcceptableTarget(file, rawOnly) {
 		return file
 	}
-	if strings.HasPrefix(normalized, state.topicSlug+"/") {
-		if file := state.pathIndex[strings.TrimPrefix(normalized, state.topicSlug+"/")]; isAcceptableTarget(file, rawOnly) {
+	if after, ok := strings.CutPrefix(normalized, state.topicSlug+"/"); ok {
+		if file := state.pathIndex[after]; isAcceptableTarget(file, rawOnly) {
 			return file
 		}
 	}

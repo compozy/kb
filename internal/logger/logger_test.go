@@ -29,11 +29,11 @@ func TestNew(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run("Should configure "+tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			logger, err := New(tc.level, WithWriter(&bytes.Buffer{}))
+			var buf bytes.Buffer
+			logger, err := New(tc.level, WithWriter(&buf))
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -45,6 +45,20 @@ func TestNew(t *testing.T) {
 			}
 			if logger == nil {
 				t.Fatal("expected non-nil logger")
+			}
+			if tc.wantLevel > slog.LevelDebug {
+				logger.Log(context.Background(), tc.wantLevel-4, "disabled")
+				if buf.Len() != 0 {
+					t.Fatalf("level %s should suppress lower-priority records, got %s", tc.wantLevel, buf.String())
+				}
+			}
+			logger.Log(context.Background(), tc.wantLevel, "enabled")
+			var record map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
+				t.Fatalf("output is not valid JSON: %v\nraw: %s", err, buf.String())
+			}
+			if record["level"] != tc.wantLevel.String() {
+				t.Fatalf("level = %#v, want %q", record["level"], tc.wantLevel.String())
 			}
 		})
 	}
@@ -61,7 +75,7 @@ func TestNewWritesJSON(t *testing.T) {
 
 	logger.Info("test message", "key", "value")
 
-	var record map[string]interface{}
+	var record map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
 		t.Fatalf("output is not valid JSON: %v\nraw: %s", err, buf.String())
 	}
@@ -84,7 +98,7 @@ func TestNewUppercaseLevelKey(t *testing.T) {
 
 	logger.Info("test")
 
-	var record map[string]interface{}
+	var record map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}

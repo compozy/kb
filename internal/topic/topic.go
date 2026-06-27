@@ -773,7 +773,7 @@ func readLastLogEntry(logPath string) (string, error) {
 	}
 
 	last := ""
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "## [") {
 			last = trimmed

@@ -47,6 +47,8 @@ const (
 	SourceKindBookmarkCluster SourceKind = "bookmark-cluster"
 	// SourceKindDocument marks a general uploaded document.
 	SourceKindDocument SourceKind = "document"
+	// SourceKindInstagramVideo marks an ingested Instagram reel/video transcript.
+	SourceKindInstagramVideo SourceKind = "instagram-video"
 )
 
 // SourceKinds returns every source kind in stable order.
@@ -59,6 +61,7 @@ func SourceKinds() []SourceKind {
 		SourceKindCodebaseSymbol,
 		SourceKindBookmarkCluster,
 		SourceKindDocument,
+		SourceKindInstagramVideo,
 	}
 }
 

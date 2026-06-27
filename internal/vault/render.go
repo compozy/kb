@@ -140,7 +140,7 @@ func RenderDocuments(
 	return documents
 }
 
-func renderFrontmatter(frontmatter map[string]interface{}) string {
+func renderFrontmatter(frontmatter map[string]any) string {
 	lines := []string{"---"}
 	keys := sortedMapKeys(frontmatter)
 
@@ -261,8 +261,8 @@ func renderRelationList(
 	lines := make([]string, 0, len(orderedRelations))
 	for _, relation := range orderedRelations {
 		targetLabel := ""
-		if strings.HasPrefix(relation.ToID, "file:") {
-			targetLabel = strings.TrimPrefix(relation.ToID, "file:")
+		if after, ok := strings.CutPrefix(relation.ToID, "file:"); ok {
+			targetLabel = after
 		}
 
 		target := linkForNode(topic, relation.ToID, documentLookup, externalNodes, targetLabel)
@@ -299,8 +299,8 @@ func renderBacklinkList(
 	lines := make([]string, 0, len(orderedRelations))
 	for _, relation := range orderedRelations {
 		sourceLabel := ""
-		if strings.HasPrefix(relation.FromID, "file:") {
-			sourceLabel = strings.TrimPrefix(relation.FromID, "file:")
+		if after, ok := strings.CutPrefix(relation.FromID, "file:"); ok {
+			sourceLabel = after
 		}
 
 		source := linkForNode(topic, relation.FromID, documentLookup, externalNodes, sourceLabel)
@@ -387,7 +387,7 @@ func renderRawFileDocument(
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
 		RelativePath: GetRawFileDocumentPath(file.FilePath),
-		Frontmatter: map[string]interface{}{
+		Frontmatter: map[string]any{
 			"afferent_coupling":       fileMetrics.AfferentCoupling,
 			"domain":                  topic.Domain,
 			"efferent_coupling":       fileMetrics.EfferentCoupling,
@@ -419,8 +419,8 @@ func createSymbolFrontmatter(
 	symbolMetrics models.SymbolMetrics,
 	incomingRelations []models.RelationEdge,
 	outgoingRelations []models.RelationEdge,
-) map[string]interface{} {
-	frontmatter := map[string]interface{}{
+) map[string]any {
+	frontmatter := map[string]any{
 		"blast_radius":             symbolMetrics.BlastRadius,
 		"centrality":               symbolMetrics.Centrality,
 		"domain":                   topic.Domain,
@@ -594,7 +594,7 @@ func renderRawDirectoryIndex(
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
 		RelativePath: GetRawDirectoryIndexPath(directoryPath),
-		Frontmatter: map[string]interface{}{
+		Frontmatter: map[string]any{
 			"afferent_coupling": directoryMetrics.AfferentCoupling,
 			"domain":            topic.Domain,
 			"efferent_coupling": directoryMetrics.EfferentCoupling,
@@ -672,7 +672,7 @@ func renderRawLanguageIndex(
 		)
 	}
 
-	frontmatter := map[string]interface{}{
+	frontmatter := map[string]any{
 		"domain":       topic.Domain,
 		"file_count":   len(files),
 		"language":     language,

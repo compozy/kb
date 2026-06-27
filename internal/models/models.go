@@ -260,11 +260,11 @@ type MetricsResult struct {
 
 // RenderedDocument is the in-memory representation of a generated markdown file.
 type RenderedDocument struct {
-	Kind         DocumentKind           `json:"kind"`
-	ManagedArea  ManagedArea            `json:"managedArea"`
-	RelativePath string                 `json:"relativePath"`
-	Frontmatter  map[string]interface{} `json:"frontmatter"`
-	Body         string                 `json:"body"`
+	Kind         DocumentKind   `json:"kind"`
+	ManagedArea  ManagedArea    `json:"managedArea"`
+	RelativePath string         `json:"relativePath"`
+	Frontmatter  map[string]any `json:"frontmatter"`
+	Body         string         `json:"body"`
 }
 
 // TopicMetadata captures the derived topic information for a vault render.

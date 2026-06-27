@@ -1,4 +1,4 @@
-package youtube
+package mediadl
 
 import (
 	"bytes"
@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/compozy/kb/internal/config"
 )
 
 const ytdlpDefaultBinary = "yt-dlp"
@@ -27,9 +25,22 @@ var errYTDLPCaptionFetchFailed = errors.New("yt-dlp caption fetch failed")
 type commandContextFunc func(context.Context, string, ...string) *exec.Cmd
 type lookPathFunc func(string) (string, error)
 
+// BackendConfig holds the platform-neutral yt-dlp network knobs. Platform labels
+// the source ("youtube", "instagram") so diagnostics can point at the right TOML
+// section. RetryAttempts and RetryBackoff are consumed by NewExtractor.
+type BackendConfig struct {
+	Platform      string
+	YTDLPPath     string
+	Proxy         string
+	CookiesFile   string
+	UserAgent     string
+	RetryAttempts int
+	RetryBackoff  string
+}
+
 type ytDLPBackend struct {
 	binaryPath     string
-	cfg            config.YouTubeConfig
+	cfg            BackendConfig
 	retry          retryPolicy
 	lookPath       lookPathFunc
 	commandContext commandContextFunc
@@ -38,6 +49,7 @@ type ytDLPBackend struct {
 type ytDLPInfo struct {
 	ID                   string                           `json:"id"`
 	Title                string                           `json:"title"`
+	Description          string                           `json:"description"`
 	Uploader             string                           `json:"uploader"`
 	UploaderID           string                           `json:"uploader_id"`
 	Channel              string                           `json:"channel"`
@@ -67,8 +79,12 @@ type ytDLPSubtitleFormat struct {
 type ytDLPChapter struct{}
 
 type ytDLPCaptionCandidate struct {
-	Language  string
-	Automatic bool
+	Language     string
+	BaseLanguage string
+	Automatic    bool
+	Original     bool
+	Translated   bool
+	OriginalKey  bool
 }
 
 type ytDLPDownloadedAudio struct {
@@ -77,13 +93,33 @@ type ytDLPDownloadedAudio struct {
 	cleanup func()
 }
 
+// PlaylistEntry is a single raw entry resolved from a channel or playlist URL.
+// Callers apply platform-specific filtering and URL canonicalization.
+type PlaylistEntry struct {
+	ID         string
+	Title      string
+	URL        string
+	WebpageURL string
+}
+
+type ytDLPPlaylist struct {
+	Entries []ytDLPPlaylistEntry `json:"entries"`
+}
+
+type ytDLPPlaylistEntry struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	WebpageURL string `json:"webpage_url"`
+}
+
 func (audio ytDLPDownloadedAudio) Cleanup() {
 	if audio.cleanup != nil {
 		audio.cleanup()
 	}
 }
 
-func newYTDLPBackend(cfg config.YouTubeConfig, retry retryPolicy) *ytDLPBackend {
+func newYTDLPBackend(cfg BackendConfig, retry retryPolicy) *ytDLPBackend {
 	binaryPath := strings.TrimSpace(cfg.YTDLPPath)
 	if binaryPath == "" {
 		binaryPath = ytdlpDefaultBinary
@@ -99,17 +135,18 @@ func newYTDLPBackend(cfg config.YouTubeConfig, retry retryPolicy) *ytDLPBackend 
 
 func (backend *ytDLPBackend) Extract(
 	ctx context.Context,
-	parsed parsedVideoURL,
+	parsed ParsedURL,
 	preferredLanguages []string,
 ) (*Result, error) {
-	return backend.ExtractCaptions(ctx, parsed, preferredLanguages, true)
+	return backend.ExtractCaptions(ctx, parsed, preferredLanguages, true, false)
 }
 
 func (backend *ytDLPBackend) ExtractCaptions(
 	ctx context.Context,
-	parsed parsedVideoURL,
+	parsed ParsedURL,
 	preferredLanguages []string,
 	allowAutomatic bool,
+	allowTranslated bool,
 ) (*Result, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
@@ -123,24 +160,25 @@ func (backend *ytDLPBackend) ExtractCaptions(
 		return nil, err
 	}
 
-	return backend.extractCaptionsFromInfo(ctx, parsed, info, preferredLanguages, allowAutomatic)
+	return backend.extractCaptionsFromInfo(ctx, parsed, info, preferredLanguages, allowAutomatic, allowTranslated)
 }
 
 func (backend *ytDLPBackend) extractCaptionsFromInfo(
 	ctx context.Context,
-	parsed parsedVideoURL,
+	parsed ParsedURL,
 	info ytDLPInfo,
 	preferredLanguages []string,
 	allowAutomatic bool,
+	allowTranslated bool,
 ) (*Result, error) {
 	result := &Result{Metadata: metadataFromYTDLPInfo(parsed, info)}
-	candidate, ok := selectYTDLPCaption(info, preferredLanguages, allowAutomatic)
+	candidate, ok := selectYTDLPCaption(info, preferredLanguages, allowAutomatic, allowTranslated)
 	if !ok {
 		return result, &Error{
 			Kind:    ErrorKindTranscriptUnavailable,
 			URL:     parsed.CanonicalURL,
 			VideoID: parsed.VideoID,
-			Message: transcriptUnavailableMessage,
+			Message: ytDLPCaptionUnavailableMessage(preferredLanguages, allowTranslated),
 			Err:     errTranscriptDisabled,
 		}
 	}
@@ -171,7 +209,7 @@ func (backend *ytDLPBackend) loadInfo(ctx context.Context, rawURL string) (ytDLP
 		rawURL,
 	)...)
 	if err != nil {
-		return ytDLPInfo{}, err
+		return ytDLPInfo{}, backend.wrapMetadataFetchError(err)
 	}
 
 	var info ytDLPInfo
@@ -179,6 +217,49 @@ func (backend *ytDLPBackend) loadInfo(ctx context.Context, rawURL string) (ytDLP
 		return ytDLPInfo{}, fmt.Errorf("yt-dlp metadata: parse JSON: %w", err)
 	}
 	return info, nil
+}
+
+// ListPlaylistEntries resolves the raw entries for a channel or playlist URL. A
+// limit greater than zero caps the result to the newest uploads. Callers apply
+// platform-specific filtering and URL canonicalization on the returned entries.
+func (backend *ytDLPBackend) ListPlaylistEntries(ctx context.Context, channelURL string, limit int) ([]PlaylistEntry, error) {
+	if backend == nil {
+		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	args := append(backend.playlistArgs(),
+		"--flat-playlist",
+		"--dump-single-json",
+		"--skip-download",
+	)
+	if limit > 0 {
+		args = append(args, "--playlist-end", strconv.Itoa(limit))
+	}
+	args = append(args, channelURL)
+
+	stdout, _, err := backend.run(ctx, "channel", args...)
+	if err != nil {
+		return nil, backend.wrapMetadataFetchError(err)
+	}
+
+	var playlist ytDLPPlaylist
+	if err := json.Unmarshal([]byte(stdout), &playlist); err != nil {
+		return nil, fmt.Errorf("yt-dlp channel: parse JSON: %w", err)
+	}
+
+	entries := make([]PlaylistEntry, 0, len(playlist.Entries))
+	for _, entry := range playlist.Entries {
+		entries = append(entries, PlaylistEntry{
+			ID:         strings.TrimSpace(entry.ID),
+			Title:      strings.TrimSpace(entry.Title),
+			URL:        strings.TrimSpace(entry.URL),
+			WebpageURL: strings.TrimSpace(entry.WebpageURL),
+		})
+	}
+	return entries, nil
 }
 
 func (backend *ytDLPBackend) downloadCaption(
@@ -209,28 +290,31 @@ func (backend *ytDLPBackend) downloadCaption(
 	args = append(args, rawURL)
 
 	if _, _, err := backend.run(ctx, "captions", args...); err != nil {
-		return "", wrapYTDLPCaptionFetchError(err)
+		return "", backend.wrapCaptionFetchError(err, candidate.Language)
 	}
 
 	data, ext, err := readYTDLPSubtitleFile(tempDir)
 	if err != nil {
-		return "", wrapYTDLPCaptionFetchError(err)
+		return "", backend.wrapCaptionFetchError(err, candidate.Language)
 	}
 	switch ext {
 	case ".json3":
 		markdown, err := formatYTDLPJSON3Transcript(data)
 		if err != nil {
-			return "", wrapYTDLPCaptionFetchError(err)
+			return "", backend.wrapCaptionFetchError(err, candidate.Language)
 		}
 		return markdown, nil
 	case ".vtt":
 		markdown, err := formatYTDLPVTTTranscript(data)
 		if err != nil {
-			return "", wrapYTDLPCaptionFetchError(err)
+			return "", backend.wrapCaptionFetchError(err, candidate.Language)
 		}
 		return markdown, nil
 	default:
-		return "", wrapYTDLPCaptionFetchError(fmt.Errorf("yt-dlp captions: unsupported subtitle extension %q", ext))
+		return "", backend.wrapCaptionFetchError(
+			fmt.Errorf("yt-dlp captions: unsupported subtitle extension %q", ext),
+			candidate.Language,
+		)
 	}
 }
 
@@ -266,25 +350,45 @@ func (backend *ytDLPBackend) downloadAudio(
 	)
 	if _, _, err := backend.run(ctx, "audio", args...); err != nil {
 		cleanup()
-		return ytDLPDownloadedAudio{}, wrapYTDLPAudioFetchError(err)
+		return ytDLPDownloadedAudio{}, backend.wrapAudioFetchError(err)
 	}
 
 	path, detectedFormat, err := findYTDLPAudioFile(tempDir)
 	if err != nil {
 		cleanup()
-		return ytDLPDownloadedAudio{}, wrapYTDLPAudioFetchError(err)
+		return ytDLPDownloadedAudio{}, backend.wrapAudioFetchError(err)
 	}
 	return ytDLPDownloadedAudio{Path: path, Format: detectedFormat, cleanup: cleanup}, nil
 }
 
-func wrapYTDLPAudioFetchError(err error) error {
+// networkBlockHint renders a remediation hint that points at the right TOML
+// section for the configured platform.
+func (backend *ytDLPBackend) networkBlockHint() string {
+	platform := strings.TrimSpace(backend.cfg.Platform)
+	if platform == "" {
+		platform = "youtube"
+	}
+	return fmt.Sprintf(
+		"update yt-dlp, configure [%s].proxy or [%s].cookies_file, or run from a trusted network",
+		platform, platform,
+	)
+}
+
+func (backend *ytDLPBackend) wrapAudioFetchError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if isYTDLPRateLimitedError(err) {
+		return newRateLimitedError(
+			"",
+			"audio download was rate limited through yt-dlp; "+backend.networkBlockHint(),
+			err,
+		)
 	}
 	if isYTDLPNetworkBlockedError(err) {
 		return newNetworkBlockedError(
 			"",
-			"audio download was blocked by YouTube through yt-dlp; update yt-dlp, configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
+			"audio download was blocked through yt-dlp; "+backend.networkBlockHint(),
 			err,
 		)
 	}
@@ -312,30 +416,65 @@ func findYTDLPAudioFile(directory string) (string, string, error) {
 	return "", "", errors.New("yt-dlp audio: no audio file was produced")
 }
 
-func wrapYTDLPCaptionFetchError(err error) error {
+func (backend *ytDLPBackend) wrapMetadataFetchError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isYTDLPRateLimitedError(err) {
+		return newRateLimitedError("", "metadata request was rate limited through yt-dlp; "+backend.networkBlockHint(), err)
+	}
+	if isYTDLPNetworkBlockedError(err) {
+		return newNetworkBlockedError("", "metadata request was blocked through yt-dlp; "+backend.networkBlockHint(), err)
+	}
+	return err
+}
+
+func (backend *ytDLPBackend) wrapCaptionFetchError(err error, language string) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, errYTDLPCaptionFetchFailed) {
 		return err
 	}
+	if isYTDLPRateLimitedError(err) {
+		return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, newRateLimitedError(
+			"",
+			fmt.Sprintf("caption language %q was rate limited through yt-dlp; %s", language, backend.networkBlockHint()),
+			err,
+		))
+	}
 	if isYTDLPNetworkBlockedError(err) {
 		return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, newNetworkBlockedError(
 			"",
-			"captions request was blocked by YouTube through yt-dlp; update yt-dlp, configure [youtube].proxy or [youtube].cookies_file, or run from a trusted network",
+			"captions request was blocked through yt-dlp; "+backend.networkBlockHint(),
 			err,
 		))
 	}
 	return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, err)
 }
 
+// baseArgs returns the shared yt-dlp flags for single-video operations. It pins
+// --no-playlist so video URLs that also carry a playlist reference resolve to the
+// single video.
 func (backend *ytDLPBackend) baseArgs() []string {
-	args := []string{
-		"--ignore-config",
-		"--no-playlist",
+	return backend.commonArgs(false)
+}
+
+// playlistArgs returns the shared yt-dlp flags for channel/playlist enumeration.
+// It omits --no-playlist so the full uploads/playlist list is resolved.
+func (backend *ytDLPBackend) playlistArgs() []string {
+	return backend.commonArgs(true)
+}
+
+func (backend *ytDLPBackend) commonArgs(allowPlaylist bool) []string {
+	args := []string{"--ignore-config"}
+	if !allowPlaylist {
+		args = append(args, "--no-playlist")
+	}
+	args = append(args,
 		"--retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
 		"--fragment-retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
-	}
+	)
 	if sleep := normalizedRetrySleep(backend.retry); sleep != "" {
 		args = append(args, "--retry-sleep", sleep)
 	}
@@ -390,7 +529,7 @@ func (backend *ytDLPBackend) resolveBinary() (string, error) {
 	resolvedPath, err := backend.lookPath(binaryPath)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: install yt-dlp or configure youtube.yt_dlp_path: %w", errYTDLPUnavailable, err)
+			return "", fmt.Errorf("%w: install yt-dlp or configure yt_dlp_path: %w", errYTDLPUnavailable, err)
 		}
 		return "", fmt.Errorf("resolve yt-dlp binary %q: %w", binaryPath, err)
 	}
@@ -424,6 +563,23 @@ func cleanYTDLPDiagnostics(text string) string {
 	return strings.Join(cleaned, "; ")
 }
 
+func isYTDLPRateLimitedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"http error 429",
+		"too many requests",
+		"unexpected status code: 429",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func isYTDLPNetworkBlockedError(err error) bool {
 	if err == nil {
 		return false
@@ -432,12 +588,10 @@ func isYTDLPNetworkBlockedError(err error) bool {
 	for _, marker := range []string{
 		"http error 400",
 		"http error 403",
-		"http error 429",
 		"http error 500",
 		"http error 502",
 		"http error 503",
 		"http error 504",
-		"too many requests",
 		"bot",
 		"sign in to confirm",
 		"not a bot",
@@ -449,7 +603,7 @@ func isYTDLPNetworkBlockedError(err error) bool {
 	return false
 }
 
-func metadataFromYTDLPInfo(parsed parsedVideoURL, info ytDLPInfo) Metadata {
+func metadataFromYTDLPInfo(parsed ParsedURL, info ytDLPInfo) Metadata {
 	videoID := strings.TrimSpace(info.ID)
 	if videoID == "" {
 		videoID = parsed.VideoID
@@ -467,6 +621,7 @@ func metadataFromYTDLPInfo(parsed parsedVideoURL, info ytDLPInfo) Metadata {
 		VideoID:              videoID,
 		URL:                  videoURL,
 		Title:                strings.TrimSpace(info.Title),
+		Description:          strings.TrimSpace(info.Description),
 		Channel:              channel,
 		ChannelID:            strings.TrimSpace(info.ChannelID),
 		UploaderID:           strings.TrimSpace(info.UploaderID),
@@ -549,31 +704,35 @@ func normalizeYTDLPStringSlice(values []string) []string {
 	return normalized
 }
 
-func selectYTDLPCaption(info ytDLPInfo, preferredLanguages []string, allowAutomatic bool) (ytDLPCaptionCandidate, bool) {
+func selectYTDLPCaption(
+	info ytDLPInfo,
+	preferredLanguages []string,
+	allowAutomatic bool,
+	allowTranslated bool,
+) (ytDLPCaptionCandidate, bool) {
 	candidates := ytDLPCaptionCandidates(info, allowAutomatic)
 	if len(candidates) == 0 {
 		return ytDLPCaptionCandidate{}, false
 	}
-	preferred := normalizeLanguages(preferredLanguages)
-	sort.SliceStable(candidates, func(i int, j int) bool {
-		left := ytDLPCaptionPriority(candidates[i], preferred)
-		right := ytDLPCaptionPriority(candidates[j], preferred)
-		if left != right {
-			return left < right
+	for _, preferredLanguage := range normalizeYTDLPCaptionPreferences(preferredLanguages) {
+		matches := matchingYTDLPCaptionCandidates(candidates, preferredLanguage, allowTranslated)
+		if len(matches) == 0 {
+			continue
 		}
-		if candidates[i].Automatic != candidates[j].Automatic {
-			return !candidates[i].Automatic
-		}
-		return candidates[i].Language < candidates[j].Language
-	})
-	return candidates[0], true
+		sort.SliceStable(matches, func(i int, j int) bool {
+			return ytDLPCaptionLess(matches[i], matches[j], preferredLanguage)
+		})
+		return matches[0], true
+	}
+	return ytDLPCaptionCandidate{}, false
 }
 
 func ytDLPCaptionCandidates(info ytDLPInfo, allowAutomatic bool) []ytDLPCaptionCandidate {
+	originalLanguage := detectYTDLPOriginalLanguage(info)
 	candidates := make([]ytDLPCaptionCandidate, 0, len(info.Subtitles)+len(info.AutomaticCaptions))
 	for language, formats := range info.Subtitles {
 		if isUsableYTDLPCaption(language, formats) {
-			candidates = append(candidates, ytDLPCaptionCandidate{Language: strings.TrimSpace(language)})
+			candidates = append(candidates, newYTDLPCaptionCandidate(language, false, originalLanguage))
 		}
 	}
 	if !allowAutomatic {
@@ -581,10 +740,166 @@ func ytDLPCaptionCandidates(info ytDLPInfo, allowAutomatic bool) []ytDLPCaptionC
 	}
 	for language, formats := range info.AutomaticCaptions {
 		if isUsableYTDLPCaption(language, formats) {
-			candidates = append(candidates, ytDLPCaptionCandidate{Language: strings.TrimSpace(language), Automatic: true})
+			candidates = append(candidates, newYTDLPCaptionCandidate(language, true, originalLanguage))
 		}
 	}
 	return candidates
+}
+
+func newYTDLPCaptionCandidate(language string, automatic bool, originalLanguage string) ytDLPCaptionCandidate {
+	trimmed := strings.TrimSpace(language)
+	baseLanguage := ytDLPCaptionBaseLanguage(trimmed)
+	originalKey := isYTDLPOriginalCaptionKey(trimmed)
+	original := originalKey
+	if originalLanguage != "" && languageMatches(baseLanguage, originalLanguage) {
+		original = true
+	}
+	if originalLanguage == "" && !automatic {
+		original = true
+	}
+	return ytDLPCaptionCandidate{
+		Language:     trimmed,
+		BaseLanguage: baseLanguage,
+		Automatic:    automatic,
+		Original:     original,
+		Translated:   automatic && !original,
+		OriginalKey:  originalKey,
+	}
+}
+
+func detectYTDLPOriginalLanguage(info ytDLPInfo) string {
+	if language := normalizeYTDLPCaptionLanguage(info.Language); language != "" {
+		return language
+	}
+	languages := make([]string, 0, len(info.AutomaticCaptions))
+	for language, formats := range info.AutomaticCaptions {
+		if !isUsableYTDLPCaption(language, formats) || !isYTDLPOriginalCaptionKey(language) {
+			continue
+		}
+		if baseLanguage := ytDLPCaptionBaseLanguage(language); baseLanguage != "" {
+			languages = append(languages, baseLanguage)
+		}
+	}
+	sort.Strings(languages)
+	if len(languages) == 0 {
+		return ""
+	}
+	return languages[0]
+}
+
+func normalizeYTDLPCaptionPreferences(preferredLanguages []string) []string {
+	preferred := normalizeLanguages(preferredLanguages)
+	if len(preferred) == 0 {
+		return []string{"orig"}
+	}
+	return preferred
+}
+
+func ytDLPCaptionUnavailableMessage(preferredLanguages []string, allowTranslated bool) string {
+	preferred := normalizeYTDLPCaptionPreferences(preferredLanguages)
+	if len(preferred) == 1 && preferred[0] == "orig" {
+		return "no original-language caption available"
+	}
+	message := fmt.Sprintf("no eligible caption available for languages %s", strings.Join(preferred, ", "))
+	if !allowTranslated {
+		message += "; translated captions are disabled"
+	}
+	return message
+}
+
+func matchingYTDLPCaptionCandidates(
+	candidates []ytDLPCaptionCandidate,
+	preferredLanguage string,
+	allowTranslated bool,
+) []ytDLPCaptionCandidate {
+	matches := make([]ytDLPCaptionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if preferredLanguage == "orig" {
+			if candidate.Original {
+				matches = append(matches, candidate)
+			}
+			continue
+		}
+		if !languageMatches(candidate.Language, preferredLanguage) {
+			continue
+		}
+		if candidate.Translated && (!allowTranslated || !captionLanguageExactMatch(candidate.Language, preferredLanguage)) {
+			continue
+		}
+		matches = append(matches, candidate)
+	}
+	return matches
+}
+
+func ytDLPCaptionLess(left ytDLPCaptionCandidate, right ytDLPCaptionCandidate, preferredLanguage string) bool {
+	leftRank := ytDLPCaptionRank(left, preferredLanguage)
+	rightRank := ytDLPCaptionRank(right, preferredLanguage)
+	if leftRank != rightRank {
+		return leftRank < rightRank
+	}
+	if left.Original && right.Original {
+		leftEnglish := 1
+		if languageMatches(left.BaseLanguage, "en") {
+			leftEnglish = 0
+		}
+		rightEnglish := 1
+		if languageMatches(right.BaseLanguage, "en") {
+			rightEnglish = 0
+		}
+		if leftEnglish != rightEnglish {
+			return leftEnglish < rightEnglish
+		}
+	}
+	return left.Language < right.Language
+}
+
+func ytDLPCaptionRank(candidate ytDLPCaptionCandidate, preferredLanguage string) int {
+	if preferredLanguage == "orig" {
+		if !candidate.Automatic {
+			return 0
+		}
+		switch {
+		case candidate.OriginalKey:
+			return 1
+		case captionLanguageExactMatch(candidate.Language, candidate.BaseLanguage):
+			return 2
+		default:
+			return 3
+		}
+	}
+
+	matchRank := 2
+	switch {
+	case captionLanguageExactMatch(candidate.Language, preferredLanguage):
+		matchRank = 0
+	case candidate.BaseLanguage == preferredLanguage:
+		matchRank = 1
+	}
+	automaticRank := 0
+	if candidate.Automatic {
+		automaticRank = 1
+	}
+	translatedRank := 0
+	if candidate.Translated {
+		translatedRank = 1
+	}
+	return matchRank*10 + automaticRank*2 + translatedRank
+}
+
+func isYTDLPOriginalCaptionKey(language string) bool {
+	return strings.HasSuffix(normalizeYTDLPCaptionLanguage(language), "-orig")
+}
+
+func ytDLPCaptionBaseLanguage(language string) string {
+	return strings.TrimSuffix(normalizeYTDLPCaptionLanguage(language), "-orig")
+}
+
+func normalizeYTDLPCaptionLanguage(language string) string {
+	return strings.ToLower(strings.TrimSpace(language))
+}
+
+func captionLanguageExactMatch(trackLanguage string, preferredLanguage string) bool {
+	return normalizeYTDLPCaptionLanguage(trackLanguage) == normalizeYTDLPCaptionLanguage(preferredLanguage)
 }
 
 func isUsableYTDLPCaption(language string, formats []ytDLPSubtitleFormat) bool {
@@ -599,26 +914,6 @@ func isUsableYTDLPCaption(language string, formats []ytDLPSubtitleFormat) bool {
 		}
 	}
 	return false
-}
-
-func ytDLPCaptionPriority(candidate ytDLPCaptionCandidate, preferredLanguages []string) int {
-	preferredRank := len(preferredLanguages) + 1
-	for index, language := range preferredLanguages {
-		if languageMatches(candidate.Language, language) {
-			preferredRank = index
-			break
-		}
-	}
-
-	englishRank := 1
-	if languageMatches(candidate.Language, "en") {
-		englishRank = 0
-	}
-	automaticRank := 0
-	if candidate.Automatic {
-		automaticRank = 1
-	}
-	return preferredRank*4 + englishRank*2 + automaticRank
 }
 
 func readYTDLPSubtitleFile(dir string) ([]byte, string, error) {

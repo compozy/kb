@@ -55,6 +55,9 @@ const (
 
 	// EnvYouTubeUserAgent stores the YouTube user agent override.
 	EnvYouTubeUserAgent = "YOUTUBE_USER_AGENT"
+
+	// EnvYouTubeCaptionLanguages stores the caption language preference override.
+	EnvYouTubeCaptionLanguages = "YOUTUBE_CAPTION_LANGUAGES"
 )
 
 // ApplyEnvOverrides overlays config values that are sourced from environment
@@ -102,6 +105,22 @@ func ApplyEnvOverrides(cfg *Config) {
 	if value, ok := os.LookupEnv(EnvYouTubeUserAgent); ok && value != "" {
 		cfg.YouTube.UserAgent = value
 	}
+	if value, ok := os.LookupEnv(EnvYouTubeCaptionLanguages); ok && strings.TrimSpace(value) != "" {
+		cfg.YouTube.CaptionLanguages = splitCommaList(value)
+	}
+}
+
+func splitCommaList(value string) []string {
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		values = append(values, part)
+	}
+	return values
 }
 
 // LoadDotEnvIfPresent loads a local dotenv file without overriding env vars

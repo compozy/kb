@@ -205,7 +205,6 @@ func parseGoFile(parser *tree_sitter.Parser, file models.ScannedSourceFile) (par
 	}
 
 	for _, child := range namedChildren(root) {
-		child := child
 
 		switch child.Kind() {
 		case "package_clause":
@@ -214,7 +213,6 @@ func parseGoFile(parser *tree_sitter.Parser, file models.ScannedSourceFile) (par
 			entry.symbolMatches = append(entry.symbolMatches, goSymbolMatch{symbol: symbol})
 		case "type_declaration":
 			for _, declaredType := range namedChildren(&child) {
-				declaredType := declaredType
 				if declaredType.Kind() != "type_spec" && declaredType.Kind() != "type_alias" {
 					continue
 				}
@@ -269,7 +267,6 @@ func extractImports(
 	relations *[]models.RelationEdge,
 ) {
 	for _, importSpec := range collectNodesByKind(importDeclaration, "import_spec") {
-		importSpec := importSpec
 
 		pathNode := importSpec.ChildByFieldName("path")
 		importPath := stripQuotes(textOf(pathNode, source))
@@ -558,7 +555,6 @@ func walkNamed(node *tree_sitter.Node, visit func(*tree_sitter.Node) bool) {
 	}
 
 	for _, child := range namedChildren(node) {
-		child := child
 		walkNamed(&child, visit)
 	}
 }

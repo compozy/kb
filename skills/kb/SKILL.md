@@ -1,6 +1,6 @@
 ---
 name: kb
-description: Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube, bookmarks, codebases), wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, or the ingest-compile-query-lint cycle. Do not use for general code review, linting, formatting, building Go projects, or writing application code.
+description: Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube videos and channels, Instagram reels, bookmarks, codebases), wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, or the ingest-compile-query-lint cycle. Do not use for general code review, linting, formatting, building Go projects, or writing application code.
 ---
 
 # kb CLI and Knowledge Base Pattern
@@ -64,7 +64,9 @@ kb topic info <topic-id>                  # topic metadata (counts, last log ent
 ```bash
 kb ingest url <url> --topic <topic-id>        # scrape a web URL via Firecrawl
 kb ingest file <path> --topic <topic-id>      # convert local file (PDF, DOCX, EPUB, HTML, images w/OCR, etc.)
-kb ingest youtube <url> --topic <topic-id>    # extract YouTube transcript
+kb ingest youtube <url> --topic <topic-id>    # extract a single YouTube transcript -> raw/youtube/
+kb ingest channel <url> --topic <topic-id>    # bulk-extract a YouTube channel/playlist -> raw/youtube/
+kb ingest instagram <url> --topic <topic-id>  # Instagram reel/video (caption + transcript) -> raw/instagram/
 kb ingest bookmarks <path> --topic <topic-id> # ingest a bookmark-cluster markdown file
 kb ingest codebase <path> --topic <topic-id>  # analyze a codebase into raw/codebase/
 ```
@@ -89,6 +91,27 @@ Use `kb ingest youtube <url> --topic <topic-id> --transcribe auto` to use manual
 YouTube transcript frontmatter includes video metadata from `yt-dlp` for filtering and ordering, including `view_count`, `like_count`, `comment_count`, `upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`, `categories`, `youtube_tags`, `language`, `live_status`, `was_live`, and `chapter_count`. Use `youtube_tags` for video keywords because `tags` is KB taxonomy; see `references/frontmatter-schemas.md` for null, list, and count behavior.
 
 `YOUTUBE_YT_DLP_PATH`, `YOUTUBE_PROXY`, `YOUTUBE_COOKIES_FILE`, and `YOUTUBE_USER_AGENT` override the matching TOML values for local runs. The CLI reports blocked caption/audio requests as `network_blocked`; after confirming `yt-dlp` is installed and current, treat that as a network or auth configuration issue, not a missing-transcript issue.
+
+#### YouTube channels and playlists
+
+`kb ingest channel <url> --topic <topic-id>` bulk-extracts a YouTube channel or playlist into `raw/youtube/`, writing one document per upload with the same `youtube-transcript` frontmatter as single videos. Flags: `--limit <n>` (newest n; `0` = all), `--all` (every upload, overrides `--limit`), `--concurrency <n>`, `--throttle <dur>`, `--dry-run` (resolve and list videos without ingesting), and `--transcribe captions|auto|stt`. The worker-pool size, inter-request throttle, adaptive-backoff ceiling, and per-video retries default from `[youtube].bulk_concurrency`, `[youtube].bulk_throttle`, `[youtube].bulk_backoff_max`, and `[youtube].bulk_retries`. Single-video URLs are rejected — use `kb ingest youtube` for those.
+
+### Instagram ingestion
+
+`kb ingest instagram <url> --topic <topic-id>` ingests Instagram reels, video posts (`/p/`), and IGTV (`/tv/`) into `raw/instagram/` using the same `yt-dlp` + STT engine as YouTube. The document **body** is the post caption under a `## Caption` heading followed by the spoken transcript under `## Transcript`. When the audio yields no transcript (e.g. a music-only reel) it degrades to a caption-only document with `transcript_source: none` and no `## Transcript` section.
+
+```toml
+[instagram]
+yt_dlp_path = "yt-dlp"
+proxy = ""
+cookies_file = "/path/to/instagram-cookies.txt" # separate from YouTube — Instagram needs its own session
+user_agent = ""
+transcription = "auto" # captions | auto | stt (default auto: reels rarely carry caption tracks)
+retry_attempts = 3
+retry_backoff = "1s"
+```
+
+`[instagram]` mirrors the `[youtube]` yt-dlp knobs but keeps **cookies separate** because the two platforms need distinct authenticated sessions. Public reels often work without cookies, but Instagram rate-limits aggressively — set `cookies_file` (and optionally `proxy`) for reliable access. The default `--transcribe` is `auto` (manual caption when present, otherwise Whisper STT). Whole-profile bulk ingestion is out of scope because yt-dlp's `instagram:user` extractor is currently broken. Blocked requests are reported as `network_blocked`; remediate with `[instagram].cookies_file` / `[instagram].proxy` or a trusted network.
 
 ### Layout migrations
 
@@ -139,6 +162,8 @@ Map the user's intent to the correct command:
 | Scrape a web URL | `kb ingest url <url> --topic <topic-id>` |
 | Ingest a local file (PDF, DOCX, etc.) | `kb ingest file <path> --topic <topic-id>` |
 | Extract a YouTube transcript | `kb ingest youtube <url> --topic <topic-id>` |
+| Bulk-ingest a YouTube channel/playlist | `kb ingest channel <url> --topic <topic-id>` |
+| Extract an Instagram reel/video | `kb ingest instagram <url> --topic <topic-id>` |
 | Migrate legacy transcripts | `kb migrate transcripts --topic <topic-id>` |
 | Ingest bookmark clusters | `kb ingest bookmarks <path> --topic <topic-id>` |
 | Analyze a codebase | `kb ingest codebase <path> --topic <topic-id> --progress never` |

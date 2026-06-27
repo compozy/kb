@@ -27,7 +27,6 @@ func TestXLSXConverterAcceptsExtensionsAndMIMETypes(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.ext+tc.mimeType, func(t *testing.T) {
 			t.Parallel()
 

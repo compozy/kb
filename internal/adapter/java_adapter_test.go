@@ -1071,61 +1071,69 @@ func TestSortJavaDiagnosticsDeterministicOrder(t *testing.T) {
 func TestCreateJavaResolutionFallbackDiagnosticTruncatesHighVolumeDetailsDeterministically(t *testing.T) {
 	t.Parallel()
 
-	unresolved := make([]javaUnresolvedRef, 0, javaFallbackDiagnosticMaxEntries+25)
-	for index := 0; index < javaFallbackDiagnosticMaxEntries+25; index++ {
-		unresolved = append(unresolved, javaUnresolvedRef{
-			relationType: models.RelCalls,
-			targetHint:   fmt.Sprintf("target-%03d", index),
-			reason:       "missing-qualified-method",
-		})
-	}
+	t.Run("Should truncate high-volume details deterministically", func(t *testing.T) {
+		t.Parallel()
 
-	diagnostic := createJavaResolutionFallbackDiagnostic(models.GraphFile{
-		FilePath: "src/com/example/Runner.java",
-		Language: models.LangJava,
-	}, unresolved)
-	if diagnostic.Code != javaResolutionFallbackCode {
-		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, javaResolutionFallbackCode)
-	}
-	if !strings.Contains(diagnostic.Detail, "calls:target-000 (missing-qualified-method)") {
-		t.Fatalf("expected deterministic first fallback segment, got %q", diagnostic.Detail)
-	}
-	if strings.Contains(diagnostic.Detail, "calls:target-224 (missing-qualified-method)") {
-		t.Fatalf("expected capped fallback diagnostic detail, got %q", diagnostic.Detail)
-	}
+		unresolved := make([]javaUnresolvedRef, 0, javaFallbackDiagnosticMaxEntries+25)
+		for index := range javaFallbackDiagnosticMaxEntries + 25 {
+			unresolved = append(unresolved, javaUnresolvedRef{
+				relationType: models.RelCalls,
+				targetHint:   fmt.Sprintf("target-%03d", index),
+				reason:       "missing-qualified-method",
+			})
+		}
 
-	truncationSegment := fmt.Sprintf("%s (25 entries omitted)", javaDiagnosticTruncationPrefixKey)
-	if !strings.Contains(diagnostic.Detail, truncationSegment) {
-		t.Fatalf("expected truncation metadata %q, got %q", truncationSegment, diagnostic.Detail)
-	}
+		diagnostic := createJavaResolutionFallbackDiagnostic(models.GraphFile{
+			FilePath: "src/com/example/Runner.java",
+			Language: models.LangJava,
+		}, unresolved)
+		if diagnostic.Code != javaResolutionFallbackCode {
+			t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, javaResolutionFallbackCode)
+		}
+		if !strings.Contains(diagnostic.Detail, "calls:target-000 (missing-qualified-method)") {
+			t.Fatalf("expected deterministic first fallback segment, got %q", diagnostic.Detail)
+		}
+		if strings.Contains(diagnostic.Detail, "calls:target-224 (missing-qualified-method)") {
+			t.Fatalf("expected capped fallback diagnostic detail, got %q", diagnostic.Detail)
+		}
+
+		truncationSegment := fmt.Sprintf("%s (25 entries omitted)", javaDiagnosticTruncationPrefixKey)
+		if !strings.Contains(diagnostic.Detail, truncationSegment) {
+			t.Fatalf("expected truncation metadata %q, got %q", truncationSegment, diagnostic.Detail)
+		}
+	})
 }
 
 func TestCreateJavaModuleHintDiagnosticTruncatesWarningPayloadDeterministically(t *testing.T) {
 	t.Parallel()
 
-	warnings := make([]string, 0, javaModuleHintWarningMaxEntries+7)
-	for index := 0; index < javaModuleHintWarningMaxEntries+7; index++ {
-		warnings = append(warnings, fmt.Sprintf("warning-%03d", index))
-	}
+	t.Run("Should truncate warning payload deterministically", func(t *testing.T) {
+		t.Parallel()
 
-	diagnostic := createJavaModuleHintDiagnostic(models.GraphFile{
-		FilePath: "src/com/example/Runner.java",
-		Language: models.LangJava,
-	}, warnings)
-	if diagnostic.Code != javaModuleHintWarningCode {
-		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, javaModuleHintWarningCode)
-	}
-	if !strings.Contains(diagnostic.Detail, "warning-000") {
-		t.Fatalf("expected warning payload to include first warning, got %q", diagnostic.Detail)
-	}
-	if strings.Contains(diagnostic.Detail, fmt.Sprintf("warning-%03d", javaModuleHintWarningMaxEntries+6)) {
-		t.Fatalf("expected warning payload to truncate overflow warnings, got %q", diagnostic.Detail)
-	}
+		warnings := make([]string, 0, javaModuleHintWarningMaxEntries+7)
+		for index := range javaModuleHintWarningMaxEntries + 7 {
+			warnings = append(warnings, fmt.Sprintf("warning-%03d", index))
+		}
 
-	truncationSegment := fmt.Sprintf("%s (7 warnings omitted)", javaDiagnosticTruncationPrefixKey)
-	if !strings.Contains(diagnostic.Detail, truncationSegment) {
-		t.Fatalf("expected warning truncation metadata %q, got %q", truncationSegment, diagnostic.Detail)
-	}
+		diagnostic := createJavaModuleHintDiagnostic(models.GraphFile{
+			FilePath: "src/com/example/Runner.java",
+			Language: models.LangJava,
+		}, warnings)
+		if diagnostic.Code != javaModuleHintWarningCode {
+			t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code, javaModuleHintWarningCode)
+		}
+		if !strings.Contains(diagnostic.Detail, "warning-000") {
+			t.Fatalf("expected warning payload to include first warning, got %q", diagnostic.Detail)
+		}
+		if strings.Contains(diagnostic.Detail, fmt.Sprintf("warning-%03d", javaModuleHintWarningMaxEntries+6)) {
+			t.Fatalf("expected warning payload to truncate overflow warnings, got %q", diagnostic.Detail)
+		}
+
+		truncationSegment := fmt.Sprintf("%s (7 warnings omitted)", javaDiagnosticTruncationPrefixKey)
+		if !strings.Contains(diagnostic.Detail, truncationSegment) {
+			t.Fatalf("expected warning truncation metadata %q, got %q", truncationSegment, diagnostic.Detail)
+		}
+	})
 }
 
 func TestJavaHelperResolutionUtilities(t *testing.T) {

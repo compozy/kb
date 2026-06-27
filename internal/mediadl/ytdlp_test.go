@@ -1,4 +1,4 @@
-package youtube
+package mediadl
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestYTDLPBackendExtractsJSON3Captions(t *testing.T) {
 			`]}`,
 		}, ""),
 	})
-	backend := newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{
 		YTDLPPath:   "custom-yt-dlp",
 		Proxy:       "http://proxy.internal:8080",
 		CookiesFile: "/tmp/youtube-cookies.txt",
@@ -180,12 +181,58 @@ func TestMetadataFromYTDLPInfoHandlesMissingOptionalMetrics(t *testing.T) {
 	}
 }
 
+func TestMetadataFromYTDLPInfoCapturesDescription(t *testing.T) {
+	t.Parallel()
+
+	var info ytDLPInfo
+	if err := json.Unmarshal([]byte(`{"id":"abc","title":"Reel","description":"  Caption body  ","duration":12}`), &info); err != nil {
+		t.Fatalf("unmarshal yt-dlp info: %v", err)
+	}
+	metadata := metadataFromYTDLPInfo(ParsedURL{CanonicalURL: "https://www.instagram.com/reel/abc/", VideoID: "abc"}, info)
+	if metadata.Description != "Caption body" {
+		t.Fatalf("description = %q, want trimmed caption body", metadata.Description)
+	}
+}
+
+func TestYTDLPBackendListsPlaylistEntries(t *testing.T) {
+	t.Parallel()
+
+	playlist := `{"entries":[
+  {"id":"aaaaaaaaaaa","title":"First","url":"https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+  {"id":"bbbbbbbbbbb","title":"Second"}
+]}`
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{metadataJSON: playlist})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{}, retryPolicy{Attempts: 1})
+
+	entries, err := backend.ListPlaylistEntries(context.Background(), "https://www.youtube.com/@chan/videos", 5)
+	if err != nil {
+		t.Fatalf("ListPlaylistEntries returned error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entries, got %d: %+v", len(entries), entries)
+	}
+	if entries[0].ID != "aaaaaaaaaaa" || entries[0].Title != "First" {
+		t.Fatalf("unexpected first entry: %+v", entries[0])
+	}
+	if entries[0].URL != "https://www.youtube.com/watch?v=aaaaaaaaaaa" {
+		t.Fatalf("first entry url = %q", entries[0].URL)
+	}
+
+	args := readYTDLPInvocationLog(t, logPath)[0]
+	assertArgsContain(t, args, "--flat-playlist")
+	assertArgsContain(t, args, "--playlist-end", "5")
+	if containsArg(args, "--no-playlist") {
+		t.Fatalf("--no-playlist must be absent for channel enumeration: %#v", args)
+	}
+}
+
 func TestYTDLPBackendExtractsVTTFallback(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
 		metadataJSON: strings.Join([]string{
 			`{"id":"dQw4w9WgXcQ","title":"VTT Video",`,
+			`"language":"en",`,
 			`"subtitles":{"en":[{"ext":"vtt"}]},"automatic_captions":{}}`,
 		}, ""),
 		captionExt: "vtt",
@@ -200,7 +247,7 @@ func TestYTDLPBackendExtractsVTTFallback(t *testing.T) {
 			"",
 		}, "\n"),
 	})
-	backend := newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
 
 	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
 	if err != nil {
@@ -213,19 +260,103 @@ func TestYTDLPBackendExtractsVTTFallback(t *testing.T) {
 	}
 }
 
+func TestYTDLPBackendDefaultsToOriginalAutomaticCaption(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
+			`"language":"pt",`,
+			`"subtitles":{},`,
+			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"pt":[{"ext":"json3"}],"en":[{"ext":"json3"}],"es":[{"ext":"json3"}],"fr":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExt:  "json3",
+		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Ola mundo"}]}]}`,
+	})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
+
+	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Language != "pt-orig" {
+		t.Fatalf("language = %q, want pt-orig", result.Language)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	assertArgsContain(t, invocations[1], "--write-auto-subs")
+	assertArgsContain(t, invocations[1], "--sub-langs", "pt-orig")
+	if containsArgSequence(invocations[1], "--sub-langs", "en") {
+		t.Fatalf("default selection must not request translated English: %#v", invocations[1])
+	}
+}
+
+func TestYTDLPBackendPrefersManualOriginalCaption(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"Manual Portuguese",`,
+			`"language":"pt",`,
+			`"subtitles":{"pt":[{"ext":"json3"}]},`,
+			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"en":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExt:  "json3",
+		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Manual"}]}]}`,
+	})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
+
+	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Language != "pt" {
+		t.Fatalf("language = %q, want pt", result.Language)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	assertArgsContain(t, invocations[1], "--write-subs")
+	assertArgsContain(t, invocations[1], "--sub-langs", "pt")
+}
+
+func TestYTDLPBackendDefaultsToOriginalEnglishCaption(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"English",`,
+			`"language":"en",`,
+			`"subtitles":{},`,
+			`"automatic_captions":{"en-orig":[{"ext":"json3"}],"en":[{"ext":"json3"}],"pt":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExt:  "json3",
+		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Hello"}]}]}`,
+	})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
+
+	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Language != "en-orig" {
+		t.Fatalf("language = %q, want en-orig", result.Language)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	assertArgsContain(t, invocations[1], "--sub-langs", "en-orig")
+}
+
 func TestYTDLPBackendSelectsPreferredAutomaticCaption(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
 		metadataJSON: strings.Join([]string{
 			`{"id":"dQw4w9WgXcQ","title":"Preferred",`,
+			`"language":"pt-BR",`,
 			`"subtitles":{"en":[{"ext":"json3"}]},`,
 			`"automatic_captions":{"pt-BR":[{"ext":"json3"}]}}`,
 		}, ""),
 		captionExt:  "json3",
 		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Preferido"}]}]}`,
 	})
-	backend := newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
 
 	result, err := backend.Extract(context.Background(), parsedRickRollURL(), []string{"pt"})
 	if err != nil {
@@ -237,6 +368,93 @@ func TestYTDLPBackendSelectsPreferredAutomaticCaption(t *testing.T) {
 	invocations := readYTDLPInvocationLog(t, logPath)
 	assertArgsContain(t, invocations[1], "--write-auto-subs")
 	assertArgsContain(t, invocations[1], "--sub-langs", "pt-BR")
+}
+
+func TestExtractorRejectsTranslatedCaptionWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
+			`"language":"pt",`,
+			`"subtitles":{},`,
+			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExit: 1,
+		captionErr:  "translated caption should not be downloaded",
+	})
+	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
+
+	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
+		PreferredLanguages: []string{"es"},
+	})
+	if err == nil {
+		t.Fatal("expected translated caption selection to fail")
+	}
+	var mediaErr *Error
+	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindTranscriptUnavailable {
+		t.Fatalf("error = %v, want transcript_unavailable", err)
+	}
+	if !strings.Contains(err.Error(), "translated captions are disabled") {
+		t.Fatalf("error = %v, want translated captions diagnostic", err)
+	}
+}
+
+func TestExtractorAllowsExplicitTranslatedCaptionWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
+			`"language":"pt",`,
+			`"subtitles":{},`,
+			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExt:  "json3",
+		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Hola"}]}]}`,
+	})
+	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
+
+	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
+		PreferredLanguages:      []string{"es"},
+		AllowTranslatedCaptions: true,
+	})
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+	if result.Language != "es" {
+		t.Fatalf("language = %q, want es", result.Language)
+	}
+	invocations := readYTDLPInvocationLog(t, logPath)
+	assertArgsContain(t, invocations[1], "--sub-langs", "es")
+}
+
+func TestExtractorFailsWhenNoOriginalCaptionAvailable(t *testing.T) {
+	t.Parallel()
+
+	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
+		metadataJSON: strings.Join([]string{
+			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
+			`"language":"pt",`,
+			`"subtitles":{},`,
+			`"automatic_captions":{"en":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
+		}, ""),
+		captionExit: 1,
+		captionErr:  "caption download should not run",
+	})
+	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
+
+	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
+	if err == nil {
+		t.Fatal("expected missing original caption to fail")
+	}
+	var mediaErr *Error
+	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindTranscriptUnavailable {
+		t.Fatalf("error = %v, want transcript_unavailable", err)
+	}
+	if !strings.Contains(err.Error(), "no original-language caption available") {
+		t.Fatalf("error = %v, want original-language diagnostic", err)
+	}
 }
 
 func TestExtractorFailsWhenYTDLPIsUnavailable(t *testing.T) {
@@ -252,7 +470,7 @@ func TestExtractorFailsWhenYTDLPIsUnavailable(t *testing.T) {
 		},
 	}
 
-	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
 	if err == nil {
 		t.Fatal("expected Extract to fail")
 	}
@@ -265,15 +483,15 @@ func TestExtractorUsesYTDLPWhenAvailable(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
-		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Primary","subtitles":{"en":[{"ext":"json3"}]}}`,
+		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Primary","language":"en","subtitles":{"en":[{"ext":"json3"}]}}`,
 		captionExt:   "json3",
 		captionBody:  `{"events":[{"tStartMs":0,"segs":[{"utf8":"Primary transcript"}]}]}`,
 	})
 	extractor := &Extractor{
-		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
 	if err != nil {
 		t.Fatalf("Extract returned error: %v", err)
 	}
@@ -292,12 +510,12 @@ func TestExtractorUsesSTTWhenYTDLPProvesCaptionsUnavailable(t *testing.T) {
 	})
 	stt := &stubSTTClient{transcript: "Fallback transcript"}
 	extractor := &Extractor{
-		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 		stt:       stt,
 		sttConfig: config.Default().STT,
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
 		TranscriptionPolicy: TranscriptionPolicyAuto,
 	})
 	if err != nil {
@@ -326,12 +544,12 @@ func TestExtractorAutoPolicyUsesSTTWhenOnlyAutomaticCaptionsExist(t *testing.T) 
 	})
 	stt := &stubSTTClient{transcript: "STT transcript"}
 	extractor := &Extractor{
-		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 		stt:       stt,
 		sttConfig: config.Default().STT,
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
 		TranscriptionPolicy: TranscriptionPolicyAuto,
 	})
 	if err != nil {
@@ -356,7 +574,7 @@ func TestExtractorSTTPolicyIgnoresYTDLPCaptions(t *testing.T) {
 	t.Parallel()
 
 	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
-		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
+		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","language":"en","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
 		audioExt:     "mp3",
 		audioBody:    "audio-from-ytdlp",
 		captionExit:  1,
@@ -364,12 +582,12 @@ func TestExtractorSTTPolicyIgnoresYTDLPCaptions(t *testing.T) {
 	})
 	stt := &stubSTTClient{transcript: "Forced STT transcript"}
 	extractor := &Extractor{
-		ytDLP:     newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 		stt:       stt,
 		sttConfig: config.Default().STT,
 	}
 
-	result, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{
+	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
 		TranscriptionPolicy: TranscriptionPolicySTT,
 	})
 	if err != nil {
@@ -394,26 +612,29 @@ func TestExtractorDoesNotUseSTTWhenYTDLPSeesCaptionsButFetchFails(t *testing.T) 
 	t.Parallel()
 
 	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
-		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
+		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","language":"en","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
 		captionExit:  1,
 		captionErr:   "HTTP Error 429: Too Many Requests",
 	})
 	stt := &stubSTTClient{transcript: "should not run"}
 	extractor := &Extractor{
-		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 		stt:   stt,
 	}
 
-	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
 	if err == nil {
 		t.Fatal("expected Extract to fail")
 	}
 	if !errors.Is(err, errYTDLPCaptionFetchFailed) {
 		t.Fatalf("error = %v, want yt-dlp caption fetch failure", err)
 	}
-	var youtubeErr *Error
-	if !errors.As(err, &youtubeErr) || youtubeErr.Kind != ErrorKindNetworkBlocked {
-		t.Fatalf("error = %v, want network_blocked detail", err)
+	var mediaErr *Error
+	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindRateLimited {
+		t.Fatalf("error = %v, want rate_limited detail", err)
+	}
+	if !strings.Contains(err.Error(), `caption language "en"`) {
+		t.Fatalf("error = %v, want requested caption language", err)
 	}
 	if stt.called {
 		t.Fatal("STT should not run when yt-dlp already observed captions")
@@ -427,7 +648,7 @@ func TestYTDLPBackendDownloadsAudioWithConfiguredNetworkArgs(t *testing.T) {
 		audioExt:  "mp3",
 		audioBody: "audio-bytes",
 	})
-	backend := newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{
+	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{
 		YTDLPPath:   "custom-yt-dlp",
 		Proxy:       "http://proxy.internal:8080",
 		CookiesFile: "/tmp/youtube-cookies.txt",
@@ -488,10 +709,10 @@ func TestExtractorReportsYTDLPMetadataFailure(t *testing.T) {
 		metadataErr:  "yt-dlp protocol failed",
 	})
 	extractor := &Extractor{
-		ytDLP: newFakeYTDLPBackend(scriptPath, config.YouTubeConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
+		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
 	}
 
-	_, err := extractor.Extract(context.Background(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ", ExtractOptions{})
+	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
 	if err == nil {
 		t.Fatal("expected Extract to fail")
 	}
@@ -598,7 +819,7 @@ func writeFakeYTDLP(t *testing.T, options fakeYTDLPOptions) (string, string) {
 	return scriptPath, logPath
 }
 
-func newFakeYTDLPBackend(scriptPath string, cfg config.YouTubeConfig, retry retryPolicy) *ytDLPBackend {
+func newFakeYTDLPBackend(scriptPath string, cfg BackendConfig, retry retryPolicy) *ytDLPBackend {
 	backend := newYTDLPBackend(cfg, retry)
 	backend.lookPath = func(string) (string, error) {
 		return scriptPath, nil
@@ -630,8 +851,8 @@ func readYTDLPInvocationLog(t *testing.T, path string) [][]string {
 	return invocations
 }
 
-func parsedRickRollURL() parsedVideoURL {
-	return parsedVideoURL{
+func parsedRickRollURL() ParsedURL {
+	return ParsedURL{
 		CanonicalURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 		VideoID:      "dQw4w9WgXcQ",
 	}
@@ -655,8 +876,12 @@ func assertArgsContain(t *testing.T, args []string, want ...string) {
 }
 
 func containsArg(args []string, want string) bool {
-	for _, arg := range args {
-		if arg == want {
+	return slices.Contains(args, want)
+}
+
+func containsArgSequence(args []string, want ...string) bool {
+	for index := 0; index <= len(args)-len(want); index++ {
+		if reflect.DeepEqual(args[index:index+len(want)], want) {
 			return true
 		}
 	}

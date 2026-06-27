@@ -349,7 +349,6 @@ func parseTSFile(
 	}
 
 	for _, child := range namedChildren(root) {
-		child := child
 
 		switch child.Kind() {
 		case "function_declaration":
@@ -432,7 +431,6 @@ func extractTSImports(
 	}
 
 	for _, clauseChild := range namedChildren(importClause) {
-		clauseChild := clauseChild
 
 		switch clauseChild.Kind() {
 		case "identifier":
@@ -455,7 +453,6 @@ func extractTSImports(
 			})
 		case "named_imports":
 			for _, importSpecifier := range namedChildren(&clauseChild) {
-				importSpecifier := importSpecifier
 				if importSpecifier.Kind() != "import_specifier" {
 					continue
 				}
@@ -549,7 +546,6 @@ func extractTSExports(
 	}
 
 	for _, exportSpecifier := range namedChildren(exportClause) {
-		exportSpecifier := exportSpecifier
 		if exportSpecifier.Kind() != "export_specifier" {
 			continue
 		}
@@ -649,7 +645,6 @@ func extractRequireBindings(
 	fileByAbsolutePath map[string]models.ScannedSourceFile,
 ) {
 	for _, declarator := range collectNodesByKind(node, "variable_declarator") {
-		declarator := declarator
 		valueNode := declarator.ChildByFieldName("value")
 		if valueNode == nil || valueNode.Kind() != "call_expression" {
 			continue
@@ -664,7 +659,6 @@ func extractRequireBindings(
 		argumentsNode := valueNode.ChildByFieldName("arguments")
 		if argumentsNode != nil {
 			for _, argumentChild := range namedChildren(argumentsNode) {
-				argumentChild := argumentChild
 				if argumentChild.Kind() == "string" {
 					moduleSpecifier = stripQuotes(textOf(&argumentChild, source))
 					break
@@ -729,7 +723,6 @@ func extractRequireBindings(
 			)
 		case "object_pattern":
 			for _, patternChild := range namedChildren(nameNode) {
-				patternChild := patternChild
 
 				switch patternChild.Kind() {
 				case "pair_pattern":
@@ -791,7 +784,6 @@ func extractClassMethodSymbols(
 
 	methods := []tsSymbolMatch{}
 	for _, child := range namedChildren(body) {
-		child := child
 		if child.Kind() != "method_definition" {
 			continue
 		}
@@ -812,7 +804,6 @@ func extractVariableSymbols(
 	symbols := []tsSymbolMatch{}
 
 	for _, declarator := range collectNodesByKind(declarationNode, "variable_declarator") {
-		declarator := declarator
 		if variableName := resolveTSVariableName(&declarator, source); variableName == "" {
 			continue
 		}
@@ -972,7 +963,6 @@ func formatTSReturnType(node *tree_sitter.Node, source []byte) string {
 	}
 	if typeNode == nil {
 		for _, child := range namedChildren(node) {
-			child := child
 			if child.Kind() == "type_annotation" {
 				return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(textOf(&child, source)), ":"))
 			}
@@ -990,7 +980,6 @@ func formatTSVariableTypeSuffix(node *tree_sitter.Node, source []byte) string {
 	}
 
 	for _, child := range namedChildren(nameNode) {
-		child := child
 		if child.Kind() != "type_annotation" {
 			continue
 		}
@@ -1267,7 +1256,6 @@ func declarationExportNames(node *tree_sitter.Node, source []byte) []string {
 	case "lexical_declaration", "variable_declaration":
 		names := []string{}
 		for _, declarator := range collectNodesByKind(node, "variable_declarator") {
-			declarator := declarator
 			if name := resolveTSVariableName(&declarator, source); name != "" {
 				names = append(names, name)
 			}
@@ -1336,7 +1324,6 @@ func findChildByKind(node *tree_sitter.Node, kind string) *tree_sitter.Node {
 	}
 
 	for _, child := range namedChildren(node) {
-		child := child
 		if child.Kind() == kind {
 			return &child
 		}

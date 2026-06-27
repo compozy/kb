@@ -341,7 +341,6 @@ func parseJavaFile(parser *tree_sitter.Parser, file models.ScannedSourceFile) (p
 	}
 
 	for _, declaration := range namedChildren(root) {
-		declaration := declaration
 		switch declaration.Kind() {
 		case "class_declaration":
 			entry.symbolMatches = append(entry.symbolMatches, parseJavaTypeDeclaration(file, &declaration, source, javaSymbolKindClass, nil)...)
@@ -404,7 +403,6 @@ func parseJavaTypeDeclaration(
 
 	nestedOwnerTypePath := append(append([]string(nil), ownerTypePath...), typeSimpleName)
 	for _, member := range namedChildren(bodyNode) {
-		member := member
 		switch member.Kind() {
 		case "method_declaration", "constructor_declaration":
 			methodSymbol := createJavaSymbol(file, &member, source, javaSymbolKindMethod, "", "")
@@ -477,7 +475,6 @@ func resolveJavaSymbolName(node *tree_sitter.Node, source []byte, symbolKind str
 	}
 
 	for _, child := range namedChildren(node) {
-		child := child
 		if child.Kind() == "identifier" {
 			if identifier := textOf(&child, source); identifier != "" {
 				return identifier
@@ -515,7 +512,6 @@ func isJavaExported(node *tree_sitter.Node, source []byte, symbolKind string) bo
 	}
 
 	for _, child := range namedChildren(node) {
-		child := child
 		if child.Kind() != "modifiers" {
 			continue
 		}
@@ -530,7 +526,6 @@ func isJavaExported(node *tree_sitter.Node, source []byte, symbolKind string) bo
 func collectJavaCallTargets(node *tree_sitter.Node, source []byte) []javaCallTarget {
 	targets := []javaCallTarget{}
 	for _, methodInvocation := range collectNodesByKind(node, "method_invocation") {
-		methodInvocation := methodInvocation
 
 		methodName := textOf(methodInvocation.ChildByFieldName("name"), source)
 		qualifier := textOf(methodInvocation.ChildByFieldName("object"), source)
@@ -562,11 +557,11 @@ func resolveJavaMethodInvocationName(node *tree_sitter.Node, source []byte) stri
 	}
 
 	text := strings.TrimSpace(textOf(node, source))
-	openParen := strings.IndexByte(text, '(')
-	if openParen < 0 {
+	before, _, ok := strings.Cut(text, "(")
+	if !ok {
 		return ""
 	}
-	prefix := strings.TrimSpace(text[:openParen])
+	prefix := strings.TrimSpace(before)
 	if prefix == "" {
 		return ""
 	}
@@ -581,11 +576,11 @@ func resolveJavaMethodInvocationQualifier(node *tree_sitter.Node, source []byte)
 	}
 
 	text := strings.TrimSpace(textOf(node, source))
-	openParen := strings.IndexByte(text, '(')
-	if openParen < 0 {
+	before, _, ok := strings.Cut(text, "(")
+	if !ok {
 		return ""
 	}
-	prefix := strings.TrimSpace(text[:openParen])
+	prefix := strings.TrimSpace(before)
 	lastDot := strings.LastIndex(prefix, ".")
 	if lastDot <= 0 {
 		return ""
@@ -605,7 +600,7 @@ func javaLastIdentifierSegment(value string) string {
 		return ""
 	}
 
-	for _, segment := range strings.Split(trimmed, ".") {
+	for segment := range strings.SplitSeq(trimmed, ".") {
 		segment = strings.TrimSpace(segment)
 		if segment == "" {
 			continue
@@ -1036,7 +1031,6 @@ func (javaDeepResolver) Resolve(
 
 	relationKeys := map[string]struct{}{}
 	for _, importRef := range entry.imports {
-		importRef := importRef
 		resolvedRelations, targetHint, reason, ok := resolveJavaDeepImport(
 			entry.file.ID,
 			importRef,
@@ -1067,7 +1061,6 @@ func (javaDeepResolver) Resolve(
 
 		ownerClassFQN := ctx.ownerClassFQNByMethod[symbolMatch.symbol.ID]
 		for _, callTarget := range symbolMatch.callTargets {
-			callTarget := callTarget
 			targetID, reason := resolveJavaDeepCallTarget(
 				callTarget,
 				ownerClassFQN,
