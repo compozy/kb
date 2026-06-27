@@ -94,10 +94,20 @@ type templateFile struct {
 	outputPath string
 }
 
+// TopicRef is a validated vault-relative topic reference.
+type TopicRef struct {
+	Path     string
+	Category string
+	Leaf     string
+}
+
 type topicMetadataFile struct {
-	Slug   string `yaml:"slug"`
-	Title  string `yaml:"title"`
-	Domain string `yaml:"domain"`
+	Slug          string `yaml:"slug"`
+	Title         string `yaml:"title"`
+	Domain        string `yaml:"domain"`
+	Category      string `yaml:"category,omitempty"`
+	Path          string `yaml:"path,omitempty"`
+	QMDCollection string `yaml:"qmd_collection,omitempty"`
 }
 
 // New scaffolds a new topic underneath the provided vault root.
@@ -179,18 +189,14 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
 	}
 
-	cleanSlug := strings.TrimSpace(slug)
+	topicRef, err := ParseTopicRef(slug)
+	if err != nil {
+		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
+	}
 	cleanTitle := strings.TrimSpace(title)
 	cleanDomain := strings.TrimSpace(domain)
 
 	switch {
-	case cleanSlug == "":
-		return models.TopicInfo{}, fmt.Errorf("new topic: topic slug is required")
-	case !topicSlugPattern.MatchString(cleanSlug):
-		return models.TopicInfo{}, fmt.Errorf(
-			"new topic: topic slug must use lowercase alphanumerics separated by single hyphens: %q",
-			cleanSlug,
-		)
 	case cleanTitle == "":
 		return models.TopicInfo{}, fmt.Errorf("new topic: topic title is required")
 	case cleanDomain == "":
@@ -201,7 +207,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 		return models.TopicInfo{}, fmt.Errorf("new topic: ensure vault path: %w", err)
 	}
 
-	topicPath := filepath.Join(cleanVaultPath, cleanSlug)
+	topicPath := filepath.Join(cleanVaultPath, filepath.FromSlash(topicRef.Path))
 	if _, err := os.Lstat(topicPath); err == nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: topic directory %q already exists", topicPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -214,7 +220,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 
 	context := templateContext{
 		Domain: cleanDomain,
-		Slug:   cleanSlug,
+		Slug:   topicRef.Path,
 		Title:  cleanTitle,
 		Today:  now.Format(frontmatter.DateLayout),
 	}
@@ -222,7 +228,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 	if err := installTemplates(topicPath, context); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: install templates: %w", err)
 	}
-	if err := WriteMetadataFile(topicPath, cleanSlug, cleanTitle, cleanDomain); err != nil {
+	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain)); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: write topic metadata: %w", err)
 	}
 	if err := ensureAgentsSymlink(topicPath); err != nil {
@@ -235,7 +241,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 		return models.TopicInfo{}, fmt.Errorf("new topic: append scaffold log entry: %w", err)
 	}
 
-	info, err := infoAtPath(topicPath, cleanSlug)
+	info, err := infoAtPath(topicPath, topicRef.Path)
 	if err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
 	}
@@ -252,24 +258,53 @@ func normalizeVaultPath(vaultPath string) (string, error) {
 	return filepath.Clean(trimmed), nil
 }
 
-func cleanTopicRef(topicRef string) (string, error) {
+// ParseTopicRef validates and normalizes a topic reference relative to a vault.
+func ParseTopicRef(topicRef string) (TopicRef, error) {
 	trimmed := strings.TrimSpace(topicRef)
 	if trimmed == "" {
-		return "", fmt.Errorf("topic slug is required")
+		return TopicRef{}, fmt.Errorf("topic slug is required")
 	}
 	if filepath.IsAbs(trimmed) {
-		return "", fmt.Errorf("topic slug must be relative: %q", topicRef)
+		return TopicRef{}, fmt.Errorf("topic slug must be relative: %q", topicRef)
 	}
 
-	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(trimmed)))
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("topic slug cannot escape the vault root: %q", topicRef)
-	}
-	if strings.HasPrefix(cleaned, ".") || strings.Contains(cleaned, "/.") {
-		return "", fmt.Errorf("topic slug cannot reference hidden paths: %q", topicRef)
+	input := filepath.ToSlash(trimmed)
+	segments := strings.Split(input, "/")
+	for _, segment := range segments {
+		switch {
+		case segment == "":
+			return TopicRef{}, fmt.Errorf("topic slug cannot contain empty path segments: %q", topicRef)
+		case segment == "..":
+			return TopicRef{}, fmt.Errorf("topic slug cannot contain parent path segments: %q", topicRef)
+		case segment == ".":
+			return TopicRef{}, fmt.Errorf("topic slug cannot contain current path segments: %q", topicRef)
+		case strings.HasPrefix(segment, "."):
+			return TopicRef{}, fmt.Errorf("topic slug cannot reference hidden paths: %q", topicRef)
+		case !topicSlugPattern.MatchString(segment):
+			return TopicRef{}, fmt.Errorf(
+				"topic slug must use lowercase alphanumerics separated by single hyphens: invalid segment %q in %q",
+				segment,
+				topicRef,
+			)
+		}
 	}
 
-	return cleaned, nil
+	ref := strings.Join(segments, "/")
+	leaf := segments[len(segments)-1]
+	category := strings.Join(segments[:len(segments)-1], "/")
+	return TopicRef{
+		Path:     ref,
+		Category: category,
+		Leaf:     leaf,
+	}, nil
+}
+
+func cleanTopicRef(topicRef string) (string, error) {
+	ref, err := ParseTopicRef(topicRef)
+	if err != nil {
+		return "", err
+	}
+	return ref.Path, nil
 }
 
 func listTopicSlugs(vaultPath string) ([]string, error) {
@@ -467,11 +502,28 @@ func installTemplates(topicPath string, context templateContext) error {
 
 // WriteMetadataFile writes the structured topic.yaml metadata file.
 func WriteMetadataFile(topicPath, slug, title, domain string) error {
+	topicRef, err := ParseTopicRef(slug)
+	if err != nil {
+		return fmt.Errorf("validate topic metadata slug: %w", err)
+	}
+	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain))
+}
+
+func topicMetadataForRef(topicRef TopicRef, title, domain string) topicMetadataFile {
 	metadata := topicMetadataFile{
-		Slug:   strings.TrimSpace(slug),
+		Slug:   topicRef.Leaf,
 		Title:  strings.TrimSpace(title),
 		Domain: strings.TrimSpace(domain),
 	}
+	if topicRef.Category != "" {
+		metadata.Category = topicRef.Category
+		metadata.Path = topicRef.Path
+		metadata.QMDCollection = topicRef.Leaf
+	}
+	return metadata
+}
+
+func writeMetadataFile(topicPath string, metadata topicMetadataFile) error {
 	encoded, err := yaml.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("marshal topic metadata: %w", err)

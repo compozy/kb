@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 var runIngest = kingest.Ingest
 var runIngestTopicInfo = ktopic.Info
+var runIngestTopicNew = ktopic.New
 var ingestGetwd = os.Getwd
 var loadIngestConfig = loadCLIConfig
 var existingYouTubeVideoIDs = kingest.ExistingYouTubeVideoIDs
@@ -64,6 +66,35 @@ func resolveIngestTarget(cmd *cobra.Command, action string, topicSlug string) (i
 		TopicInfo: topicInfo,
 		VaultPath: vaultPath,
 	}, nil
+}
+
+func resolveIngestTargetWithMissingTopicHint(
+	cmd *cobra.Command,
+	action string,
+	topicSlug string,
+	title string,
+	domain string,
+) (ingestTarget, error) {
+	target, err := resolveIngestTarget(cmd, action, topicSlug)
+	if err == nil {
+		return target, nil
+	}
+	if errors.Is(err, ktopic.ErrTopicNotFound) {
+		return ingestTarget{}, fmt.Errorf("%w; create it with: %s", err, missingTopicCreateCommand(topicSlug, title, domain))
+	}
+	return ingestTarget{}, err
+}
+
+func missingTopicCreateCommand(topicSlug string, title string, domain string) string {
+	cleanTitle := strings.TrimSpace(title)
+	if cleanTitle == "" {
+		cleanTitle = "<title>"
+	}
+	cleanDomain := strings.TrimSpace(domain)
+	if cleanDomain == "" {
+		cleanDomain = "<domain>"
+	}
+	return fmt.Sprintf("kb topic new %s %q %s", strings.TrimSpace(topicSlug), cleanTitle, cleanDomain)
 }
 
 func requireTopicFlag(command *cobra.Command, topic *string) {

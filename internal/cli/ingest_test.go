@@ -962,6 +962,7 @@ func restoreIngestGlobals(t *testing.T) {
 
 	originalRunIngest := runIngest
 	originalRunIngestTopicInfo := runIngestTopicInfo
+	originalRunIngestTopicNew := runIngestTopicNew
 	originalIngestGetwd := ingestGetwd
 	originalLoadIngestConfig := loadIngestConfig
 	originalFirecrawlScraper := newFirecrawlScraper
@@ -975,6 +976,7 @@ func restoreIngestGlobals(t *testing.T) {
 	t.Cleanup(func() {
 		runIngest = originalRunIngest
 		runIngestTopicInfo = originalRunIngestTopicInfo
+		runIngestTopicNew = originalRunIngestTopicNew
 		ingestGetwd = originalIngestGetwd
 		loadIngestConfig = originalLoadIngestConfig
 		newFirecrawlScraper = originalFirecrawlScraper
@@ -1036,10 +1038,13 @@ func TestIngestChannelCommand(t *testing.T) {
 		}
 		newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
 			return fakeYouTubeChannelExtractor{
-				list: func(_ context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
+				list: func(_ context.Context, normalizedURL string, limit int) (youtube.ChannelListing, error) {
 					gotListURL = normalizedURL
 					gotLimit = limit
-					return []youtube.ChannelVideo{video1, video2, video3}, nil
+					return youtube.ChannelListing{
+						Channel: "AI Engineer",
+						Videos:  []youtube.ChannelVideo{video1, video2, video3},
+					}, nil
 				},
 				bulk: func(_ context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
 					gotBulkVideos = videos
@@ -1137,7 +1142,8 @@ func TestIngestChannelCommand(t *testing.T) {
 			return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
 		}
 		runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
-			return models.TopicInfo{Slug: slug}, nil
+			t.Fatalf("runIngestTopicInfo must not run during a dry run; got slug %q", slug)
+			return models.TopicInfo{}, nil
 		}
 		existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
 			t.Fatal("existingYouTubeVideoIDs must not run during a dry run")
@@ -1145,8 +1151,13 @@ func TestIngestChannelCommand(t *testing.T) {
 		}
 		newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
 			return fakeYouTubeChannelExtractor{
-				list: func(context.Context, string, int) ([]youtube.ChannelVideo, error) {
-					return []youtube.ChannelVideo{{VideoID: "vid00000001", Title: "One", URL: "https://www.youtube.com/watch?v=vid00000001"}}, nil
+				list: func(context.Context, string, int) (youtube.ChannelListing, error) {
+					return youtube.ChannelListing{
+						Channel: "Channel Name",
+						Videos: []youtube.ChannelVideo{
+							{VideoID: "vid00000001", Title: "One", URL: "https://www.youtube.com/watch?v=vid00000001"},
+						},
+					}, nil
 				},
 			}
 		}
@@ -1178,6 +1189,209 @@ func TestIngestChannelCommand(t *testing.T) {
 		if !summary.DryRun || summary.Resolved != 1 {
 			t.Fatalf("dry-run summary = %+v, want DryRun=true resolved=1", summary)
 		}
+		if _, err := os.Stat(filepath.Join(vaultPath, "yt-channels", "chan")); !os.IsNotExist(err) {
+			t.Fatalf("dry-run must not create topic directory, stat err = %v", err)
+		}
+	})
+
+	t.Run("Should preserve existing topic metadata", func(t *testing.T) {
+		restoreIngestGlobals(t)
+
+		loadIngestConfig = func() (kconfig.Config, error) {
+			return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+		}
+		runIngestTopicNew = func(_, slug, _, _ string) (models.TopicInfo, error) {
+			t.Fatalf("runIngestTopicNew must not run for existing topic %q", slug)
+			return models.TopicInfo{}, nil
+		}
+		newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+			return fakeYouTubeChannelExtractor{
+				list: func(context.Context, string, int) (youtube.ChannelListing, error) {
+					return youtube.ChannelListing{
+						Channel: "Updated Channel Name",
+						Videos: []youtube.ChannelVideo{
+							{VideoID: "vid00000006", Title: "Fresh Existing", URL: "https://www.youtube.com/watch?v=vid00000006"},
+						},
+					}, nil
+				},
+				bulk: func(_ context.Context, videos []youtube.ChannelVideo, _ youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
+					for _, video := range videos {
+						sink(youtube.VideoOutcome{Video: video, Result: &youtube.Result{
+							Metadata: youtube.Metadata{VideoID: video.VideoID, URL: video.URL, Title: video.Title, Channel: "Updated Channel Name"},
+							Markdown: "transcript",
+						}})
+					}
+					return nil
+				},
+			}
+		}
+
+		vaultPath := t.TempDir()
+		if _, err := ktopic.New(vaultPath, "yt-channels/existing", "Original Title", "original-domain"); err != nil {
+			t.Fatalf("create existing topic: %v", err)
+		}
+		metadataPath := filepath.Join(vaultPath, "yt-channels", "existing", "topic.yaml")
+		before, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatalf("read topic metadata before ingest: %v", err)
+		}
+
+		command := newRootCommand()
+		command.SetOut(new(bytes.Buffer))
+		command.SetErr(new(bytes.Buffer))
+		command.SetArgs([]string{
+			"ingest", "channel", "https://www.youtube.com/@existing",
+			"--topic", "yt-channels/existing",
+			"--vault", vaultPath,
+			"--limit", "1",
+		})
+
+		if err := command.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("ExecuteContext returned error: %v", err)
+		}
+
+		after, err := os.ReadFile(metadataPath)
+		if err != nil {
+			t.Fatalf("read topic metadata after ingest: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatalf("existing topic metadata changed:\nbefore:\n%s\nafter:\n%s", string(before), string(after))
+		}
+	})
+
+	t.Run("Should auto-create missing topic before real channel ingest", func(t *testing.T) {
+		restoreIngestGlobals(t)
+
+		loadIngestConfig = func() (kconfig.Config, error) {
+			return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+		}
+		newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+			return fakeYouTubeChannelExtractor{
+				list: func(context.Context, string, int) (youtube.ChannelListing, error) {
+					return youtube.ChannelListing{
+						Channel: "Asimov Academy",
+						Videos: []youtube.ChannelVideo{
+							{VideoID: "vid00000004", Title: "Lesson One", URL: "https://www.youtube.com/watch?v=vid00000004"},
+						},
+					}, nil
+				},
+				bulk: func(_ context.Context, videos []youtube.ChannelVideo, _ youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
+					for _, video := range videos {
+						sink(youtube.VideoOutcome{Video: video, Result: &youtube.Result{
+							Metadata: youtube.Metadata{VideoID: video.VideoID, URL: video.URL, Title: video.Title, Channel: "Asimov Academy"},
+							Markdown: "transcript",
+						}})
+					}
+					return nil
+				},
+			}
+		}
+
+		vaultPath := t.TempDir()
+		command := newRootCommand()
+		var stdout bytes.Buffer
+		command.SetOut(&stdout)
+		command.SetErr(new(bytes.Buffer))
+		command.SetArgs([]string{
+			"ingest", "channel", "https://www.youtube.com/@asimovacademy",
+			"--topic", "yt-channels/asimov-academy",
+			"--vault", vaultPath,
+			"--limit", "1",
+		})
+
+		if err := command.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("ExecuteContext returned error: %v", err)
+		}
+
+		topicPath := filepath.Join(vaultPath, "yt-channels", "asimov-academy")
+		metadataContent, err := os.ReadFile(filepath.Join(topicPath, "topic.yaml"))
+		if err != nil {
+			t.Fatalf("read topic metadata: %v", err)
+		}
+		for _, fragment := range []string{
+			"slug: asimov-academy",
+			"title: Asimov Academy",
+			"domain: youtube-channel",
+			"category: yt-channels",
+			"path: yt-channels/asimov-academy",
+			"qmd_collection: asimov-academy",
+		} {
+			if !strings.Contains(string(metadataContent), fragment) {
+				t.Fatalf("topic.yaml missing %q:\n%s", fragment, string(metadataContent))
+			}
+		}
+		rawEntries, err := os.ReadDir(filepath.Join(topicPath, "raw", "youtube"))
+		if err != nil {
+			t.Fatalf("read raw/youtube: %v", err)
+		}
+		var rawMarkdown []byte
+		for _, entry := range rawEntries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
+				rawMarkdown, err = os.ReadFile(filepath.Join(topicPath, "raw", "youtube", entry.Name()))
+				if err != nil {
+					t.Fatalf("read raw markdown: %v", err)
+				}
+				break
+			}
+		}
+		if !strings.Contains(string(rawMarkdown), "video_id: vid00000004") {
+			t.Fatalf("raw youtube file missing ingested video id:\n%s", string(rawMarkdown))
+		}
+
+		var summary channelIngestSummary
+		if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+			t.Fatalf("decode summary: %v\n%s", err, stdout.String())
+		}
+		if summary.Topic != "yt-channels/asimov-academy" || len(summary.Ingested) != 1 {
+			t.Fatalf("summary = %+v, want categorized topic with one ingested video", summary)
+		}
+	})
+
+	t.Run("Should keep missing topic error actionable when auto-create is disabled", func(t *testing.T) {
+		restoreIngestGlobals(t)
+
+		loadIngestConfig = func() (kconfig.Config, error) {
+			return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+		}
+		newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+			return fakeYouTubeChannelExtractor{
+				list: func(context.Context, string, int) (youtube.ChannelListing, error) {
+					return youtube.ChannelListing{
+						Channel: "Asimov Academy",
+						Videos: []youtube.ChannelVideo{
+							{VideoID: "vid00000005", Title: "Lesson Two", URL: "https://www.youtube.com/watch?v=vid00000005"},
+						},
+					}, nil
+				},
+				bulk: func(context.Context, []youtube.ChannelVideo, youtube.BulkOptions, func(youtube.VideoOutcome)) error {
+					t.Fatal("BulkExtract must not run when topic creation is disabled and topic is missing")
+					return nil
+				},
+			}
+		}
+
+		vaultPath := t.TempDir()
+		command := newRootCommand()
+		command.SetOut(new(bytes.Buffer))
+		command.SetErr(new(bytes.Buffer))
+		command.SetArgs([]string{
+			"ingest", "channel", "https://www.youtube.com/@asimovacademy",
+			"--topic", "yt-channels/asimov-academy",
+			"--vault", vaultPath,
+			"--create-topic=false",
+		})
+
+		err := command.ExecuteContext(context.Background())
+		if err == nil {
+			t.Fatal("expected missing topic error")
+		}
+		want := `kb topic new yt-channels/asimov-academy "Asimov Academy" youtube-channel`
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want actionable command %q", err.Error(), want)
+		}
+		if _, statErr := os.Stat(filepath.Join(vaultPath, "yt-channels", "asimov-academy")); !os.IsNotExist(statErr) {
+			t.Fatalf("disabled auto-create must not create topic directory, stat err = %v", statErr)
+		}
 	})
 
 	t.Run("Should reject single-video URL", func(t *testing.T) {
@@ -1208,14 +1422,48 @@ func TestIngestChannelCommand(t *testing.T) {
 	})
 }
 
+func TestIngestYouTubeMissingTopicErrorIsActionable(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	loadIngestConfig = func() (kconfig.Config, error) {
+		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+	}
+	newYouTubeTranscriptExtractor = func(kconfig.Config) youtubeTranscriptExtractor {
+		return fakeYouTubeExtractor{
+			extract: func(context.Context, string, youtube.ExtractOptions) (*youtube.Result, error) {
+				t.Fatal("YouTube extraction must not run when the target topic is missing")
+				return nil, nil
+			},
+		}
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "youtube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		"--topic", "yt-channels/rick",
+		"--vault", t.TempDir(),
+	})
+
+	err := command.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected missing topic error")
+	}
+	want := `kb topic new yt-channels/rick "<title>" youtube-channel`
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want actionable command %q", err.Error(), want)
+	}
+}
+
 type fakeYouTubeChannelExtractor struct {
-	list func(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error)
+	list func(ctx context.Context, normalizedURL string, limit int) (youtube.ChannelListing, error)
 	bulk func(ctx context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error
 }
 
-func (extractor fakeYouTubeChannelExtractor) ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
+func (extractor fakeYouTubeChannelExtractor) ListChannel(ctx context.Context, normalizedURL string, limit int) (youtube.ChannelListing, error) {
 	if extractor.list == nil {
-		return nil, errors.New("unexpected list call")
+		return youtube.ChannelListing{}, errors.New("unexpected list call")
 	}
 	return extractor.list(ctx, normalizedURL, limit)
 }

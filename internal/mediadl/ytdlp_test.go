@@ -197,17 +197,21 @@ func TestMetadataFromYTDLPInfoCapturesDescription(t *testing.T) {
 func TestYTDLPBackendListsPlaylistEntries(t *testing.T) {
 	t.Parallel()
 
-	playlist := `{"entries":[
+	playlist := `{"title":"Asimov Academy Videos","channel":"Asimov Academy","uploader":"Asimov","entries":[
   {"id":"aaaaaaaaaaa","title":"First","url":"https://www.youtube.com/watch?v=aaaaaaaaaaa"},
   {"id":"bbbbbbbbbbb","title":"Second"}
 ]}`
 	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{metadataJSON: playlist})
 	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{}, retryPolicy{Attempts: 1})
 
-	entries, err := backend.ListPlaylistEntries(context.Background(), "https://www.youtube.com/@chan/videos", 5)
+	listing, err := backend.ListPlaylist(context.Background(), "https://www.youtube.com/@chan/videos", 5)
 	if err != nil {
-		t.Fatalf("ListPlaylistEntries returned error: %v", err)
+		t.Fatalf("ListPlaylist returned error: %v", err)
 	}
+	if listing.Title != "Asimov Academy Videos" || listing.Channel != "Asimov Academy" || listing.Uploader != "Asimov" {
+		t.Fatalf("listing metadata = %+v, want title/channel/uploader from yt-dlp JSON", listing)
+	}
+	entries := listing.Entries
 	if len(entries) != 2 {
 		t.Fatalf("want 2 entries, got %d: %+v", len(entries), entries)
 	}

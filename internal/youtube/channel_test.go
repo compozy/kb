@@ -128,6 +128,30 @@ func TestChannelVideosFromEntries(t *testing.T) {
 	})
 }
 
+func TestChannelListingFromPlaylist(t *testing.T) {
+	t.Parallel()
+
+	listing := channelListingFromPlaylist(mediadl.PlaylistListing{
+		Title:    "Asimov Academy Videos",
+		Channel:  "Asimov Academy",
+		Uploader: "Asimov",
+		Entries: []mediadl.PlaylistEntry{
+			{ID: "aaaaaaaaaaa", Title: "First", URL: "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+			{ID: "bbbbbbbbbbb", Title: "Second"},
+		},
+	})
+
+	if listing.Title != "Asimov Academy Videos" || listing.Channel != "Asimov Academy" || listing.Uploader != "Asimov" {
+		t.Fatalf("listing metadata = %+v, want playlist metadata preserved", listing)
+	}
+	if len(listing.Videos) != 2 {
+		t.Fatalf("videos length = %d, want 2", len(listing.Videos))
+	}
+	if listing.Videos[1].URL != "https://www.youtube.com/watch?v=bbbbbbbbbbb" {
+		t.Fatalf("second video url = %q, want synthesized watch URL", listing.Videos[1].URL)
+	}
+}
+
 func bulkVideos(ids ...string) []ChannelVideo {
 	videos := make([]ChannelVideo, 0, len(ids))
 	for _, id := range ids {

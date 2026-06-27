@@ -20,6 +20,14 @@ type ChannelVideo struct {
 	URL     string
 }
 
+// ChannelListing is a normalized channel or playlist listing plus its videos.
+type ChannelListing struct {
+	Title    string
+	Channel  string
+	Uploader string
+	Videos   []ChannelVideo
+}
+
 // BulkOptions controls channel/playlist bulk transcript extraction. Concurrency,
 // Throttle, BackoffMax, and MaxRetries form the rate-limit defense: a small worker
 // pool, an inter-request throttle with jitter, and adaptive exponential backoff
@@ -118,24 +126,33 @@ func schemeOrHTTPS(scheme string) string {
 	return scheme
 }
 
-// ListChannelVideos resolves the videos for an already-normalized channel or
-// playlist URL. A limit greater than zero caps the result to the newest uploads.
-func (extractor *Extractor) ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]ChannelVideo, error) {
+// ListChannel resolves the videos and top-level metadata for an already-normalized
+// channel or playlist URL. A limit greater than zero caps the result to the newest uploads.
+func (extractor *Extractor) ListChannel(ctx context.Context, normalizedURL string, limit int) (ChannelListing, error) {
 	if extractor == nil || extractor.core == nil {
-		return nil, errors.New("youtube channel: extractor is not configured")
+		return ChannelListing{}, errors.New("youtube channel: extractor is not configured")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	entries, err := extractor.core.ListPlaylistEntries(ctx, normalizedURL, limit)
+	playlist, err := extractor.core.ListPlaylist(ctx, normalizedURL, limit)
 	if err != nil {
-		return nil, err
+		return ChannelListing{}, err
 	}
-	videos := channelVideosFromEntries(entries)
-	if len(videos) == 0 {
-		return nil, fmt.Errorf("yt-dlp channel: no videos resolved for %q", normalizedURL)
+	listing := channelListingFromPlaylist(playlist)
+	if len(listing.Videos) == 0 {
+		return ChannelListing{}, fmt.Errorf("yt-dlp channel: no videos resolved for %q", normalizedURL)
 	}
-	return videos, nil
+	return listing, nil
+}
+
+func channelListingFromPlaylist(playlist mediadl.PlaylistListing) ChannelListing {
+	return ChannelListing{
+		Title:    strings.TrimSpace(playlist.Title),
+		Channel:  strings.TrimSpace(playlist.Channel),
+		Uploader: strings.TrimSpace(playlist.Uploader),
+		Videos:   channelVideosFromEntries(playlist.Entries),
+	}
 }
 
 // channelVideosFromEntries filters raw playlist entries down to valid YouTube

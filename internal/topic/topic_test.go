@@ -126,6 +126,54 @@ func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {
 	}
 }
 
+func TestNewCreatesCategorizedTopic(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+
+	info, err := newWithDate(
+		vaultPath,
+		"yt-channels/asimov-academy",
+		"Asimov Academy",
+		"youtube-channel",
+		time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("newWithDate returned error: %v", err)
+	}
+
+	topicPath := filepath.Join(vaultPath, "yt-channels", "asimov-academy")
+	if info.Slug != "yt-channels/asimov-academy" {
+		t.Fatalf("slug = %q, want yt-channels/asimov-academy", info.Slug)
+	}
+	if info.RootPath != topicPath {
+		t.Fatalf("root path = %q, want %q", info.RootPath, topicPath)
+	}
+	assertFileExists(t, filepath.Join(topicPath, "CLAUDE.md"))
+
+	metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+	for _, fragment := range []string{
+		"slug: asimov-academy",
+		"title: Asimov Academy",
+		"domain: youtube-channel",
+		"category: yt-channels",
+		"path: yt-channels/asimov-academy",
+		"qmd_collection: asimov-academy",
+	} {
+		if !strings.Contains(metadataContent, fragment) {
+			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+		}
+	}
+
+	resolved, err := Info(vaultPath, "yt-channels/asimov-academy")
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if resolved.Slug != "yt-channels/asimov-academy" || resolved.Title != "Asimov Academy" {
+		t.Fatalf("resolved topic = %+v, want categorized Asimov Academy topic", resolved)
+	}
+}
+
 func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +210,11 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 	} {
 		if !strings.Contains(metadataContent, fragment) {
 			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+		}
+	}
+	for _, unexpected := range []string{"category:", "path:", "qmd_collection:"} {
+		if strings.Contains(metadataContent, unexpected) {
+			t.Fatalf("bare topic.yaml unexpectedly contains %q:\n%s", unexpected, metadataContent)
 		}
 	}
 
@@ -276,6 +329,70 @@ func TestNewValidatesInputs(t *testing.T) {
 			name:     "invalid slug",
 			vault:    t.TempDir(),
 			slug:     "Invalid Topic",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug must use lowercase alphanumerics",
+		},
+		{
+			name:     "absolute topic ref",
+			vault:    t.TempDir(),
+			slug:     "/abs",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug must be relative",
+		},
+		{
+			name:     "parent traversal",
+			vault:    t.TempDir(),
+			slug:     "../x",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug cannot contain parent path segments",
+		},
+		{
+			name:     "normalized parent traversal",
+			vault:    t.TempDir(),
+			slug:     "yt-channels/../foo",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug cannot contain parent path segments",
+		},
+		{
+			name:     "empty segment",
+			vault:    t.TempDir(),
+			slug:     "yt-channels//foo",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug cannot contain empty path segments",
+		},
+		{
+			name:     "trailing slash",
+			vault:    t.TempDir(),
+			slug:     "yt-channels/",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug cannot contain empty path segments",
+		},
+		{
+			name:     "hidden segment",
+			vault:    t.TempDir(),
+			slug:     ".hidden/foo",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug cannot reference hidden paths",
+		},
+		{
+			name:     "underscore segment",
+			vault:    t.TempDir(),
+			slug:     "yt_channels/foo",
+			title:    "Valid Topic",
+			domain:   "valid",
+			contains: "topic slug must use lowercase alphanumerics",
+		},
+		{
+			name:     "bad hyphen segment",
+			vault:    t.TempDir(),
+			slug:     "yt-channels/bad--slug",
 			title:    "Valid Topic",
 			domain:   "valid",
 			contains: "topic slug must use lowercase alphanumerics",

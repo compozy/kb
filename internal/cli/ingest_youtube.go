@@ -34,7 +34,13 @@ func newIngestYouTubeCommand() *cobra.Command {
 		Short: "Extract a YouTube transcript and ingest it into a topic",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target, err := resolveIngestTarget(cmd, "ingest youtube", topic)
+			target, err := resolveIngestTargetWithMissingTopicHint(
+				cmd,
+				"ingest youtube",
+				topic,
+				"<title>",
+				"youtube-channel",
+			)
 			if err != nil {
 				return err
 			}

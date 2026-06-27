@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,11 +12,13 @@ import (
 	kconfig "github.com/compozy/kb/internal/config"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
+	ktopic "github.com/compozy/kb/internal/topic"
+	"github.com/compozy/kb/internal/vault"
 	"github.com/compozy/kb/internal/youtube"
 )
 
 type youtubeChannelExtractor interface {
-	ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error)
+	ListChannel(ctx context.Context, normalizedURL string, limit int) (youtube.ChannelListing, error)
 	BulkExtract(
 		ctx context.Context,
 		videos []youtube.ChannelVideo,
@@ -59,6 +62,7 @@ type ingestChannelCommandOptions struct {
 	concurrency int
 	throttle    time.Duration
 	dryRun      bool
+	createTopic bool
 	subLangs    string
 	lang        string
 }
@@ -71,6 +75,7 @@ func newIngestChannelCommand() *cobra.Command {
 	var concurrency int
 	var throttle time.Duration
 	var dryRun bool
+	var createTopic bool
 	var subLangs string
 	var lang string
 
@@ -87,6 +92,7 @@ func newIngestChannelCommand() *cobra.Command {
 				concurrency: concurrency,
 				throttle:    throttle,
 				dryRun:      dryRun,
+				createTopic: createTopic,
 				subLangs:    subLangs,
 				lang:        lang,
 			})
@@ -102,18 +108,21 @@ func newIngestChannelCommand() *cobra.Command {
 	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
 	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and list videos without ingesting")
+	command.Flags().BoolVar(&createTopic, "create-topic", true, "Create the target topic when it does not exist")
 
 	return command
 }
 
 func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options ingestChannelCommandOptions) error {
-	target, err := resolveIngestTarget(cmd, "ingest channel", options.topicSlug)
+	const action = "ingest channel"
+
+	vaultPath, err := resolveCommandVaultPath(cmd, ingestGetwd, action)
 	if err != nil {
 		return err
 	}
 	cfg, err := loadIngestConfig()
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 
 	policyValue := strings.TrimSpace(cfg.YouTube.Transcription)
@@ -122,16 +131,20 @@ func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options inge
 	}
 	policy, err := youtube.ParseTranscriptionPolicy(policyValue)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 	captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, options.subLangs, options.lang)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	topicRef, err := ktopic.ParseTopicRef(options.topicSlug)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
 	}
 
 	normalizedURL, err := youtube.NormalizeChannelURL(channelURL)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 
 	resolvedLimit := options.limit
@@ -141,25 +154,50 @@ func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options inge
 
 	ctx := commandContext(cmd)
 	extractor := newYouTubeChannelExtractor(cfg)
-	videos, err := extractor.ListChannelVideos(ctx, normalizedURL, resolvedLimit)
+	listing, err := extractor.ListChannel(ctx, normalizedURL, resolvedLimit)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 
-	summary := newChannelIngestSummary(target, channelURL, normalizedURL, policy, captionLanguages, resolvedLimit, options.dryRun, videos)
+	summaryTarget := ingestTarget{
+		TopicInfo: models.TopicInfo{Slug: topicRef.Path},
+		VaultPath: vaultPath,
+	}
+	summary := newChannelIngestSummary(
+		summaryTarget,
+		channelURL,
+		normalizedURL,
+		policy,
+		captionLanguages,
+		resolvedLimit,
+		options.dryRun,
+		listing.Videos,
+	)
 	if options.dryRun {
 		return writeJSON(cmd, summary)
 	}
 
+	target, err := resolveChannelIngestTarget(
+		action,
+		vaultPath,
+		topicRef,
+		deriveChannelTopicTitle(listing, topicRef),
+		options.createTopic,
+	)
+	if err != nil {
+		return err
+	}
+	summary.Topic = target.TopicInfo.Slug
+
 	existing, err := existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
-	toFetch := newChannelVideosToFetch(videos, existing, &summary)
+	toFetch := newChannelVideosToFetch(listing.Videos, existing, &summary)
 
 	bulkOptions, err := resolveChannelBulkOptions(cmd, cfg.YouTube, policy, captionLanguages, options.concurrency, options.throttle)
 	if err != nil {
-		return fmt.Errorf("ingest channel: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 
 	bulkErr := extractor.BulkExtract(ctx, toFetch, bulkOptions, func(outcome youtube.VideoOutcome) {
@@ -169,9 +207,48 @@ func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options inge
 		return writeErr
 	}
 	if bulkErr != nil {
-		return fmt.Errorf("ingest channel: %w", bulkErr)
+		return fmt.Errorf("%s: %w", action, bulkErr)
 	}
 	return nil
+}
+
+func resolveChannelIngestTarget(
+	action string,
+	vaultPath string,
+	topicRef ktopic.TopicRef,
+	title string,
+	createTopic bool,
+) (ingestTarget, error) {
+	topicInfo, err := runIngestTopicInfo(vaultPath, topicRef.Path)
+	if err == nil {
+		return ingestTarget{TopicInfo: topicInfo, VaultPath: vaultPath}, nil
+	}
+	if !errors.Is(err, ktopic.ErrTopicNotFound) {
+		return ingestTarget{}, fmt.Errorf("%s: %w", action, err)
+	}
+	if !createTopic {
+		return ingestTarget{}, fmt.Errorf(
+			"%s: %w; create it with: %s",
+			action,
+			err,
+			missingTopicCreateCommand(topicRef.Path, title, "youtube-channel"),
+		)
+	}
+
+	topicInfo, err = runIngestTopicNew(vaultPath, topicRef.Path, title, "youtube-channel")
+	if err != nil {
+		return ingestTarget{}, fmt.Errorf("%s: create topic: %w", action, err)
+	}
+	return ingestTarget{TopicInfo: topicInfo, VaultPath: vaultPath}, nil
+}
+
+func deriveChannelTopicTitle(listing youtube.ChannelListing, topicRef ktopic.TopicRef) string {
+	for _, candidate := range []string{listing.Channel, listing.Uploader, listing.Title} {
+		if title := strings.TrimSpace(candidate); title != "" {
+			return title
+		}
+	}
+	return vault.DeriveTopicTitle(topicRef.Leaf)
 }
 
 func newChannelVideosToFetch(

@@ -102,8 +102,19 @@ type PlaylistEntry struct {
 	WebpageURL string
 }
 
+// PlaylistListing is the top-level yt-dlp playlist/channel response plus entries.
+type PlaylistListing struct {
+	Title    string
+	Channel  string
+	Uploader string
+	Entries  []PlaylistEntry
+}
+
 type ytDLPPlaylist struct {
-	Entries []ytDLPPlaylistEntry `json:"entries"`
+	Title    string               `json:"title"`
+	Channel  string               `json:"channel"`
+	Uploader string               `json:"uploader"`
+	Entries  []ytDLPPlaylistEntry `json:"entries"`
 }
 
 type ytDLPPlaylistEntry struct {
@@ -219,12 +230,12 @@ func (backend *ytDLPBackend) loadInfo(ctx context.Context, rawURL string) (ytDLP
 	return info, nil
 }
 
-// ListPlaylistEntries resolves the raw entries for a channel or playlist URL. A
-// limit greater than zero caps the result to the newest uploads. Callers apply
-// platform-specific filtering and URL canonicalization on the returned entries.
-func (backend *ytDLPBackend) ListPlaylistEntries(ctx context.Context, channelURL string, limit int) ([]PlaylistEntry, error) {
+// ListPlaylist resolves a channel or playlist URL. A limit greater than zero caps
+// the result to the newest uploads. Callers apply platform-specific filtering and
+// URL canonicalization on the returned entries.
+func (backend *ytDLPBackend) ListPlaylist(ctx context.Context, channelURL string, limit int) (PlaylistListing, error) {
 	if backend == nil {
-		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
+		return PlaylistListing{}, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -242,12 +253,12 @@ func (backend *ytDLPBackend) ListPlaylistEntries(ctx context.Context, channelURL
 
 	stdout, _, err := backend.run(ctx, "channel", args...)
 	if err != nil {
-		return nil, backend.wrapMetadataFetchError(err)
+		return PlaylistListing{}, backend.wrapMetadataFetchError(err)
 	}
 
 	var playlist ytDLPPlaylist
 	if err := json.Unmarshal([]byte(stdout), &playlist); err != nil {
-		return nil, fmt.Errorf("yt-dlp channel: parse JSON: %w", err)
+		return PlaylistListing{}, fmt.Errorf("yt-dlp channel: parse JSON: %w", err)
 	}
 
 	entries := make([]PlaylistEntry, 0, len(playlist.Entries))
@@ -259,7 +270,12 @@ func (backend *ytDLPBackend) ListPlaylistEntries(ctx context.Context, channelURL
 			WebpageURL: strings.TrimSpace(entry.WebpageURL),
 		})
 	}
-	return entries, nil
+	return PlaylistListing{
+		Title:    strings.TrimSpace(playlist.Title),
+		Channel:  strings.TrimSpace(playlist.Channel),
+		Uploader: strings.TrimSpace(playlist.Uploader),
+		Entries:  entries,
+	}, nil
 }
 
 func (backend *ytDLPBackend) downloadCaption(

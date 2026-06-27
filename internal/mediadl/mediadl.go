@@ -263,19 +263,18 @@ func (extractor *Extractor) Extract(ctx context.Context, parsed ParsedURL, optio
 	return extractor.extractWithYTDLPBackend(ctx, parsed, options)
 }
 
-// ListPlaylistEntries resolves the raw entries for a channel or playlist URL.
-// Callers apply platform-specific filtering and URL canonicalization.
-func (extractor *Extractor) ListPlaylistEntries(ctx context.Context, channelURL string, limit int) ([]PlaylistEntry, error) {
+// ListPlaylist resolves a channel or playlist URL with top-level metadata.
+func (extractor *Extractor) ListPlaylist(ctx context.Context, channelURL string, limit int) (PlaylistListing, error) {
 	if extractor == nil || extractor.ytDLP == nil {
-		return nil, errors.New("media channel: yt-dlp backend is required")
+		return PlaylistListing{}, errors.New("media channel: yt-dlp backend is required")
 	}
 	if extractor.setupErr != nil {
-		return nil, fmt.Errorf("media channel: configure yt-dlp backend: %w", extractor.setupErr)
+		return PlaylistListing{}, fmt.Errorf("media channel: configure yt-dlp backend: %w", extractor.setupErr)
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return extractor.ytDLP.ListPlaylistEntries(ctx, channelURL, limit)
+	return extractor.ytDLP.ListPlaylist(ctx, channelURL, limit)
 }
 
 func (extractor *Extractor) extractWithYTDLPBackend(
