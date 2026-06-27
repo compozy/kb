@@ -16,10 +16,10 @@ func TestNormalizeChannelURL(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
+		name            string
+		input           string
+		want            string
+		wantErrContains string
 	}{
 		{name: "handle gets videos tab", input: "https://www.youtube.com/@aiDotEngineer", want: "https://www.youtube.com/@aiDotEngineer/videos"},
 		{name: "videos tab unchanged", input: "https://www.youtube.com/@chan/videos", want: "https://www.youtube.com/@chan/videos"},
@@ -29,22 +29,56 @@ func TestNormalizeChannelURL(t *testing.T) {
 		{name: "scheme inferred", input: "www.youtube.com/@chan", want: "https://www.youtube.com/@chan/videos"},
 		{name: "channel id path", input: "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", want: "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos"},
 		{name: "playlist preserved", input: "https://www.youtube.com/playlist?list=PLabc123", want: "https://www.youtube.com/playlist?list=PLabc123"},
-		{name: "watch url rejected", input: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", wantErr: true},
-		{name: "watch url with list rejected", input: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc", wantErr: true},
-		{name: "youtu.be rejected", input: "https://youtu.be/dQw4w9WgXcQ", wantErr: true},
-		{name: "non youtube host rejected", input: "https://example.com/@chan", wantErr: true},
-		{name: "youtube lookalike host rejected", input: "https://notyoutube.com/@chan", wantErr: true},
-		{name: "youtube suffix lookalike host rejected", input: "https://youtube.com.evil.test/@chan", wantErr: true},
-		{name: "empty rejected", input: "   ", wantErr: true},
+		{
+			name:            "watch url rejected",
+			input:           "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+			wantErrContains: "expected a channel or playlist URL, not a video URL",
+		},
+		{
+			name:            "watch url with list rejected",
+			input:           "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc",
+			wantErrContains: "expected a channel or playlist URL, not a video URL",
+		},
+		{
+			name:            "youtu.be rejected",
+			input:           "https://youtu.be/dQw4w9WgXcQ",
+			wantErrContains: "expected a channel or playlist URL, not a video URL",
+		},
+		{
+			name:            "non youtube host rejected",
+			input:           "https://example.com/@chan",
+			wantErrContains: "expected a youtube.com channel or playlist URL",
+		},
+		{
+			name:            "youtube lookalike host rejected",
+			input:           "https://notyoutube.com/@chan",
+			wantErrContains: "expected a youtube.com channel or playlist URL",
+		},
+		{
+			name:            "youtube suffix lookalike host rejected",
+			input:           "https://youtube.com.evil.test/@chan",
+			wantErrContains: "expected a youtube.com channel or playlist URL",
+		},
+		{name: "empty rejected", input: "   ", wantErrContains: "channel url is required"},
 	}
 
 	for _, testCase := range cases {
 		t.Run("Should normalize "+testCase.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := NormalizeChannelURL(testCase.input)
-			if testCase.wantErr {
+			if testCase.wantErrContains != "" {
 				if err == nil {
 					t.Fatalf("expected error for %q, got %q", testCase.input, got)
+				}
+				var youtubeErr *Error
+				if !errors.As(err, &youtubeErr) {
+					t.Fatalf("expected structured error for %q, got %T", testCase.input, err)
+				}
+				if youtubeErr.Kind != ErrorKindInvalidURL {
+					t.Fatalf("kind = %q, want %q for %q", youtubeErr.Kind, ErrorKindInvalidURL, testCase.input)
+				}
+				if !strings.Contains(err.Error(), testCase.wantErrContains) {
+					t.Fatalf("error = %q, want it to contain %q", err.Error(), testCase.wantErrContains)
 				}
 				return
 			}
