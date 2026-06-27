@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,10 +95,7 @@ func (PDFConverter) Convert(ctx context.Context, input models.ConvertInput) (*mo
 }
 
 func looksLikePDF(data []byte) bool {
-	limit := len(data)
-	if limit > 1024 {
-		limit = 1024
-	}
+	limit := min(len(data), 1024)
 
 	return bytes.Contains(data[:limit], []byte("%PDF-"))
 }
@@ -666,9 +664,9 @@ func isPDFOperator(word string) bool {
 }
 
 func lastPDFFloat(tokens []pdfToken) (float64, bool) {
-	for i := len(tokens) - 1; i >= 0; i-- {
-		if tokens[i].kind == pdfTokenNumber {
-			return tokens[i].num, true
+	for _, token := range slices.Backward(tokens) {
+		if token.kind == pdfTokenNumber {
+			return token.num, true
 		}
 	}
 
@@ -676,10 +674,10 @@ func lastPDFFloat(tokens []pdfToken) (float64, bool) {
 }
 
 func lastPDFText(tokens []pdfToken) (string, bool) {
-	for i := len(tokens) - 1; i >= 0; i-- {
-		switch tokens[i].kind {
+	for _, token := range slices.Backward(tokens) {
+		switch token.kind {
 		case pdfTokenString, pdfTokenHexString:
-			return tokens[i].text, true
+			return token.text, true
 		}
 	}
 
@@ -687,13 +685,13 @@ func lastPDFText(tokens []pdfToken) (string, bool) {
 }
 
 func lastPDFArrayText(tokens []pdfToken) (string, bool) {
-	for i := len(tokens) - 1; i >= 0; i-- {
-		if tokens[i].kind != pdfTokenArray {
+	for _, token := range slices.Backward(tokens) {
+		if token.kind != pdfTokenArray {
 			continue
 		}
 
 		var builder strings.Builder
-		for _, item := range tokens[i].array {
+		for _, item := range token.array {
 			switch item.kind {
 			case pdfTokenString, pdfTokenHexString:
 				builder.WriteString(item.text)

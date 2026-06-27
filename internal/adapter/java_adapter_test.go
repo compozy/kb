@@ -1072,7 +1072,7 @@ func TestCreateJavaResolutionFallbackDiagnosticTruncatesHighVolumeDetailsDetermi
 	t.Parallel()
 
 	unresolved := make([]javaUnresolvedRef, 0, javaFallbackDiagnosticMaxEntries+25)
-	for index := 0; index < javaFallbackDiagnosticMaxEntries+25; index++ {
+	for index := range javaFallbackDiagnosticMaxEntries + 25 {
 		unresolved = append(unresolved, javaUnresolvedRef{
 			relationType: models.RelCalls,
 			targetHint:   fmt.Sprintf("target-%03d", index),
@@ -1104,7 +1104,7 @@ func TestCreateJavaModuleHintDiagnosticTruncatesWarningPayloadDeterministically(
 	t.Parallel()
 
 	warnings := make([]string, 0, javaModuleHintWarningMaxEntries+7)
-	for index := 0; index < javaModuleHintWarningMaxEntries+7; index++ {
+	for index := range javaModuleHintWarningMaxEntries + 7 {
 		warnings = append(warnings, fmt.Sprintf("warning-%03d", index))
 	}
 

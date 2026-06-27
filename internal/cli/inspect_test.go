@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -659,7 +660,6 @@ func TestInspectSubcommandsRespondToHelp(t *testing.T) {
 
 	subcommands := []string{"smells", "dead-code", "complexity", "blast-radius", "coupling", "symbol", "file", "backlinks", "deps", "circular-deps"}
 	for _, subcommand := range subcommands {
-		subcommand := subcommand
 		t.Run(subcommand, func(t *testing.T) {
 			t.Parallel()
 
@@ -901,9 +901,7 @@ func testFileDocumentForCycle(relativePath, sourcePath string, frontmatter map[s
 	}
 
 	mergedFrontmatter := map[string]any{"source_path": sourcePath}
-	for key, value := range frontmatter {
-		mergedFrontmatter[key] = value
-	}
+	maps.Copy(mergedFrontmatter, frontmatter)
 
 	return vault.VaultDocument{
 		RelativePath:      relativePath,

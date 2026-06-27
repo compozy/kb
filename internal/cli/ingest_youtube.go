@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -25,6 +26,8 @@ var newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptEx
 func newIngestYouTubeCommand() *cobra.Command {
 	var topic string
 	var transcribe string
+	var subLangs string
+	var lang string
 
 	command := &cobra.Command{
 		Use:   "youtube <url>",
@@ -48,12 +51,18 @@ func newIngestYouTubeCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("ingest youtube: %w", err)
 			}
+			captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, subLangs, lang)
+			if err != nil {
+				return fmt.Errorf("ingest youtube: %w", err)
+			}
 
 			extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
 				commandContext(cmd),
 				args[0],
 				youtube.ExtractOptions{
-					TranscriptionPolicy: policy,
+					TranscriptionPolicy:     policy,
+					PreferredLanguages:      captionLanguages,
+					AllowTranslatedCaptions: cfg.YouTube.AllowTranslatedCaptions,
 				},
 			)
 			if err != nil {
@@ -84,8 +93,74 @@ func newIngestYouTubeCommand() *cobra.Command {
 
 	requireTopicFlag(command, &topic)
 	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
+	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
+	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
 
 	return command
+}
+
+func resolveYouTubeCaptionLanguages(
+	cmd *cobra.Command,
+	youtubeConfig kconfig.YouTubeConfig,
+	subLangs string,
+	lang string,
+) ([]string, error) {
+	configured := normalizeYouTubeCaptionLanguages(youtubeConfig.CaptionLanguages)
+	if len(configured) == 0 {
+		configured = []string{"orig"}
+	}
+
+	subLangsChanged := cmd.Flags().Changed("sub-langs")
+	langChanged := cmd.Flags().Changed("lang")
+	switch {
+	case subLangsChanged && langChanged:
+		left, err := parseYouTubeCaptionLanguages(subLangs)
+		if err != nil {
+			return nil, err
+		}
+		right, err := parseYouTubeCaptionLanguages(lang)
+		if err != nil {
+			return nil, err
+		}
+		if !reflect.DeepEqual(left, right) {
+			return nil, fmt.Errorf("--sub-langs and --lang must not disagree")
+		}
+		return left, nil
+	case subLangsChanged:
+		return parseYouTubeCaptionLanguages(subLangs)
+	case langChanged:
+		return parseYouTubeCaptionLanguages(lang)
+	default:
+		return configured, nil
+	}
+}
+
+func parseYouTubeCaptionLanguages(value string) ([]string, error) {
+	languages := normalizeYouTubeCaptionLanguages(strings.Split(value, ","))
+	if len(languages) == 0 {
+		return nil, fmt.Errorf("caption language list must contain at least one language or orig")
+	}
+	return languages, nil
+}
+
+func normalizeYouTubeCaptionLanguages(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
 }
 
 func youtubeFrontmatter(result *youtube.Result) map[string]any {
@@ -94,6 +169,7 @@ func youtubeFrontmatter(result *youtube.Result) map[string]any {
 	}
 	metadata := result.Metadata
 	values := map[string]any{
+		"video_id":               optionalString(metadata.VideoID),
 		"view_count":             optionalInt64(metadata.ViewCount),
 		"like_count":             optionalInt64(metadata.LikeCount),
 		"comment_count":          optionalInt64(metadata.CommentCount),

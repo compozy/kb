@@ -71,8 +71,8 @@ func windowsPathViolation(path string) (string, bool) {
 		return "path is empty", true
 	}
 
-	components := strings.Split(path, "/")
-	for _, component := range components {
+	components := strings.SplitSeq(path, "/")
+	for component := range components {
 		if component == "" {
 			return "path contains an empty component", true
 		}

@@ -6,10 +6,40 @@
       "sourceType": "github",
       "computedHash": "4456756ff2cf096cc7c6d2fc9d6771e2a1ea0084868f28b69f68157757ee50c8"
     },
+    "grilling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grilling/SKILL.md",
+      "computedHash": "ef685a6fa0bbe73b05bbd8dc1ec97258191587f07c6aa7dbc9006675ceb8f90f"
+    },
+    "handoff": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/handoff/SKILL.md",
+      "computedHash": "5d0f81e38abe6b984e1feaa731927de5291d040982106ac513cf54ec240e00ec"
+    },
+    "impl-peer-review": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/impl-peer-review/SKILL.md",
+      "computedHash": "cf550086267cce22a730e001b02197b5f1266e3f771e63cdd1a8d53bfccd5701"
+    },
     "karpathy-kb": {
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "8bc7a75020275e4ad1813cb4b616dc9e0c7624a6e71178f98341e69c39bd65f4"
+    },
+    "kb-yt-channel": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/kb-yt-channel/SKILL.md",
+      "computedHash": "8ca6019b124d027d20c767e83dc5a2f5cc719acd0a837bb041d56c222e37f85e"
+    },
+    "spec-peer-review": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/spec-peer-review/SKILL.md",
+      "computedHash": "06d874ffec2314a86dfdc3c826d68e5d6b070d0d55e65123f5183fde0f12b78f"
     },
     "systematic-qa": {
       "source": "pedronauck/skills",

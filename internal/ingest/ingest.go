@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -262,6 +263,8 @@ func rawDirectoryForSourceKind(sourceKind models.SourceKind) (string, error) {
 		return "github", nil
 	case models.SourceKindYouTubeTranscript:
 		return "youtube", nil
+	case models.SourceKindInstagramVideo:
+		return "instagram", nil
 	case models.SourceKindBookmarkCluster:
 		return "bookmarks", nil
 	case models.SourceKindCodebaseFile:
@@ -388,9 +391,7 @@ func cloneMap(values map[string]any) map[string]any {
 	}
 
 	cloned := make(map[string]any, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, values)
 
 	return cloned
 }

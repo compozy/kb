@@ -1,0 +1,94 @@
+ M CLAUDE.md
+ M README.md
+ M config.example.toml
+ M internal/adapter/go_adapter.go
+ M internal/adapter/java_adapter.go
+ M internal/adapter/java_adapter_test.go
+ M internal/adapter/rust_adapter.go
+ M internal/adapter/treesitter_test.go
+ M internal/adapter/ts_adapter.go
+ M internal/cli/ingest.go
+ M internal/cli/ingest_test.go
+ M internal/cli/ingest_youtube.go
+ M internal/cli/inspect_helpers_test.go
+ M internal/cli/inspect_test.go
+ M internal/cli/lint_test.go
+ M internal/cli/workflow_test_helpers_test.go
+ M internal/config/config.go
+ M internal/config/config_test.go
+ M internal/config/env.go
+ M internal/convert/csv.go
+ M internal/convert/docx_test.go
+ M internal/convert/epub_test.go
+ M internal/convert/html_test.go
+ M internal/convert/image_common.go
+ M internal/convert/image_test.go
+ M internal/convert/pdf.go
+ M internal/convert/pdf_test.go
+ M internal/convert/pptx_test.go
+ M internal/convert/registry.go
+ M internal/convert/registry_test.go
+ M internal/convert/xlsx_test.go
+ M internal/firecrawl/client_test.go
+ M internal/frontmatter/frontmatter_test.go
+ M internal/generate/benchmark_policy.go
+ M internal/generate/benchmark_policy_test.go
+ M internal/generate/generate_test.go
+ M internal/ingest/ingest.go
+ M internal/ingest/ingest_test.go
+ M internal/lint/lint.go
+ M internal/logger/logger_test.go
+ M internal/metrics/compute.go
+ M internal/metrics/compute_test.go
+ M internal/models/kb_models.go
+ M internal/models/kb_models_test.go
+ M internal/models/models.go
+ M internal/output/formatter_test.go
+ M internal/repohealth/portable_paths.go
+ M internal/repohealth/portable_paths_test.go
+ M internal/scanner/scanner_test.go
+ M internal/topic/topic.go
+ M internal/topic/topic_test.go
+ M internal/vault/pathutils_test.go
+ M internal/vault/reader.go
+ M internal/vault/render.go
+ M internal/vault/render_base.go
+ M internal/vault/render_test.go
+ M internal/vault/render_wiki.go
+ M internal/vault/textutils_test.go
+ M internal/vault/writer.go
+ M internal/vault/writer_test.go
+ D internal/youtube/openai.go
+ D internal/youtube/openai_test.go
+ D internal/youtube/openrouter.go
+ D internal/youtube/openrouter_test.go
+ D internal/youtube/transcription.go
+ D internal/youtube/transcription_test.go
+ M internal/youtube/youtube.go
+ M internal/youtube/youtube_test.go
+ D internal/youtube/ytdlp.go
+ D internal/youtube/ytdlp_test.go
+ M magefile.go
+ M skills-lock.json
+ M skills/kb/SKILL.md
+ M skills/kb/references/architecture.md
+ M skills/kb/references/error-handling.md
+ M skills/kb/references/frontmatter-schemas.md
+ M test/release_config_test.go
+?? .agents/skills/grilling/
+?? .agents/skills/handoff/
+?? .agents/skills/impl-peer-review/
+?? .agents/skills/kb-yt-channel/
+?? .agents/skills/spec-peer-review/
+?? .claude/
+?? .codex/plans/20260626221122-youtube-caption-language.md
+?? .peer-reviews/
+?? internal/cli/ingest_channel.go
+?? internal/cli/ingest_instagram.go
+?? internal/cli/ingest_instagram_integration_test.go
+?? internal/cli/ingest_instagram_test.go
+?? internal/ingest/youtube.go
+?? internal/instagram/
+?? internal/mediadl/
+?? internal/youtube/channel.go
+?? internal/youtube/channel_test.go

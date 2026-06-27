@@ -193,7 +193,7 @@ Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` r
 ```bash
 kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
 kb ingest file <path> --topic <slug>              # Convert and ingest a local file
-kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt]
+kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt] [--sub-langs orig,pt]
 kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
 kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster markdown file
 ```
@@ -204,7 +204,7 @@ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster ma
 | --- | --- | --- |
 | `url` | required | -- |
 | `file` | required | -- |
-| `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`) |
+| `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`), `--sub-langs`/`--lang` (caption languages; default: `orig`) |
 | `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
 | `bookmarks` | required | -- |
 
@@ -422,9 +422,12 @@ The scanner:
 | `YOUTUBE_PROXY` | env / TOML | Proxy URL passed to `yt-dlp` |
 | `YOUTUBE_COOKIES_FILE` | env / TOML | Netscape cookies file passed to `yt-dlp` |
 | `YOUTUBE_USER_AGENT` | env / TOML | User-Agent passed to `yt-dlp` |
+| `YOUTUBE_CAPTION_LANGUAGES` | env / TOML | Comma-separated caption language preference list, for example `orig,pt,en` |
 
 `ingest youtube` supports three transcription policies:
 `captions` uses YouTube captions only, `stt` forces audio transcription, and `auto` uses manual captions when present and falls back to STT when only automatic captions exist or captions are unavailable. STT writes provenance frontmatter such as `transcript_source`, `stt_provider`, and `stt_model`.
+
+Caption selection defaults to `caption_languages = ["orig"]`, so non-English videos use their native/original caption track instead of YouTube's machine-translated English. `orig` resolves per video from yt-dlp metadata, with `<lang>-orig` automatic tracks preferred when manual original-language captions are unavailable. Override per command with `--sub-langs` or `--lang`; CLI values override `YOUTUBE_CAPTION_LANGUAGES`, which overrides `[youtube].caption_languages`. Automatic translated captions are disabled unless `[youtube].allow_translated_captions = true`, because translated tracks use YouTube's translation endpoint and are more aggressively rate-limited.
 
 YouTube ingests also persist video metadata from `yt-dlp` in the transcript frontmatter for sorting and filtering: engagement counts (`view_count`, `like_count`, `comment_count`), publication context (`upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`), and classification fields (`categories`, `youtube_tags`, `language`, `live_status`, `was_live`, `chapter_count`). Hidden or omitted scalar fields are written as `null`; `categories` and `youtube_tags` are empty lists when absent; `chapter_count` is `0` when no chapter metadata is returned. Video keywords use `youtube_tags` because `tags` remains the KB taxonomy field, and only the chapter count is stored, not full chapter content.
 

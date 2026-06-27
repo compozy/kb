@@ -4,6 +4,7 @@ package metrics
 import (
 	"math"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -158,10 +159,7 @@ func ComputeMetrics(graph models.GraphSnapshot) models.MetricsResult {
 			}
 		}
 
-		loc := symbol.EndLine - symbol.StartLine + 1
-		if loc < 0 {
-			loc = 0
-		}
+		loc := max(symbol.EndLine-symbol.StartLine+1, 0)
 
 		isLongFunction := isFunctionLike(symbol.SymbolKind) && (loc > 50 || symbol.CyclomaticComplexity > 10)
 		isDeadExport := symbol.Exported &&
@@ -315,7 +313,7 @@ func computeApproxCentrality(
 		scores[index] = initialScore
 	}
 
-	for iteration := 0; iteration < centralityIterations; iteration++ {
+	for range centralityIterations {
 		nextScores := make([]float64, len(symbolIDs))
 		danglingMass := 0.0
 
@@ -539,10 +537,8 @@ func getDirectoryPath(filePath string) string {
 }
 
 func isEntryPointFile(file models.GraphFile, symbols []models.SymbolNode) bool {
-	for _, segment := range strings.Split(file.FilePath, "/") {
-		if segment == "commands" {
-			return true
-		}
+	if slices.Contains(strings.Split(file.FilePath, "/"), "commands") {
+		return true
 	}
 
 	for _, symbol := range symbols {

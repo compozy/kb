@@ -1,4 +1,4 @@
-package youtube
+package mediadl
 
 import (
 	"bytes"
@@ -112,7 +112,7 @@ func openRouterConfigForSTT(sttConfig config.STTConfig, openRouterConfig config.
 
 func (extractor *Extractor) extractSTTFromYTDLP(
 	ctx context.Context,
-	parsed parsedVideoURL,
+	parsed ParsedURL,
 	info ytDLPInfo,
 	result *Result,
 	transcriptErr error,
@@ -124,22 +124,31 @@ func (extractor *Extractor) extractSTTFromYTDLP(
 		return result, transcriptErr
 	}
 	if extractor.ytDLP == nil {
-		return result, errors.Join(transcriptErr, errors.New("youtube stt: yt-dlp backend is nil"))
+		return result, errors.Join(transcriptErr, errors.New("media stt: yt-dlp backend is nil"))
 	}
 	if extractor.stt == nil {
-		return result, errors.Join(transcriptErr, errors.New("youtube stt: transcriber is nil"))
+		return result, errors.Join(transcriptErr, errors.New("media stt: transcriber is nil"))
 	}
 
 	sttConfig := normalizeSTTConfig(extractor.sttConfig)
 	audio, audioErr := extractor.ytDLP.downloadAudio(ctx, parsed.CanonicalURL, sttConfig.AudioFormat)
 	if audioErr != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt: %w", audioErr))
+		return result, errors.Join(transcriptErr, fmt.Errorf("media stt: %w", audioErr))
 	}
 	defer audio.Cleanup()
 
 	markdown, sttErr := extractor.transcribeAudioPath(ctx, audio.Path, audio.Format, result.Metadata.Duration)
 	if sttErr != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("youtube stt: %w", sttErr))
+		if isEmptyTranscriptionError(sttErr) {
+			return result, errors.Join(transcriptErr, &Error{
+				Kind:    ErrorKindTranscriptUnavailable,
+				URL:     parsed.CanonicalURL,
+				VideoID: parsed.VideoID,
+				Message: "speech-to-text produced no transcript",
+				Err:     sttErr,
+			})
+		}
+		return result, errors.Join(transcriptErr, fmt.Errorf("media stt: %w", sttErr))
 	}
 	result.Markdown = markdown
 	result.Source = TranscriptSourceSTT
@@ -148,6 +157,10 @@ func (extractor *Extractor) extractSTTFromYTDLP(
 	result.STTProvider = extractor.stt.Provider()
 	result.STTModel = extractor.stt.Model()
 	return result, nil
+}
+
+func isEmptyTranscriptionError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "empty transcription response")
 }
 
 func (extractor *Extractor) transcribeAudioPath(ctx context.Context, audioPath string, format string, duration time.Duration) (string, error) {
@@ -312,7 +325,6 @@ func (extractor *Extractor) transcribeChunks(ctx context.Context, chunks []audio
 	}
 
 	for index, chunk := range chunks {
-		index, chunk := index, chunk
 		select {
 		case <-ctx.Done():
 			setErr(ctx.Err())

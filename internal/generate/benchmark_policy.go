@@ -2,7 +2,7 @@ package generate
 
 import (
 	"errors"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/compozy/kb/internal/models"
@@ -71,9 +71,7 @@ func medianDurationFromSamples(samples []time.Duration) (time.Duration, error) {
 	}
 
 	ordered := append([]time.Duration(nil), samples...)
-	sort.Slice(ordered, func(left int, right int) bool {
-		return ordered[left] < ordered[right]
-	})
+	slices.Sort(ordered)
 
 	middle := len(ordered) / 2
 	if len(ordered)%2 == 1 {

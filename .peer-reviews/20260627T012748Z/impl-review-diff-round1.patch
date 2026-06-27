@@ -1,0 +1,4877 @@
+diff --git a/README.md b/README.md
+index 5a416cd..29464f9 100644
+--- a/README.md
++++ b/README.md
+@@ -193,7 +193,7 @@ Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` r
+ ```bash
+ kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
+ kb ingest file <path> --topic <slug>              # Convert and ingest a local file
+-kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt]
++kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt] [--sub-langs orig,pt]
+ kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
+ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster markdown file
+ ```
+@@ -204,7 +204,7 @@ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster ma
+ | --- | --- | --- |
+ | `url` | required | -- |
+ | `file` | required | -- |
+-| `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`) |
++| `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`), `--sub-langs`/`--lang` (caption languages; default: `orig`) |
+ | `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
+ | `bookmarks` | required | -- |
+ 
+@@ -422,10 +422,13 @@ The scanner:
+ | `YOUTUBE_PROXY` | env / TOML | Proxy URL passed to `yt-dlp` |
+ | `YOUTUBE_COOKIES_FILE` | env / TOML | Netscape cookies file passed to `yt-dlp` |
+ | `YOUTUBE_USER_AGENT` | env / TOML | User-Agent passed to `yt-dlp` |
++| `YOUTUBE_CAPTION_LANGUAGES` | env / TOML | Comma-separated caption language preference list, for example `orig,pt,en` |
+ 
+ `ingest youtube` supports three transcription policies:
+ `captions` uses YouTube captions only, `stt` forces audio transcription, and `auto` uses manual captions when present and falls back to STT when only automatic captions exist or captions are unavailable. STT writes provenance frontmatter such as `transcript_source`, `stt_provider`, and `stt_model`.
+ 
++Caption selection defaults to `caption_languages = ["orig"]`, so non-English videos use their native/original caption track instead of YouTube's machine-translated English. `orig` resolves per video from yt-dlp metadata, with `<lang>-orig` automatic tracks preferred when manual original-language captions are unavailable. Override per command with `--sub-langs` or `--lang`; CLI values override `YOUTUBE_CAPTION_LANGUAGES`, which overrides `[youtube].caption_languages`. Automatic translated captions are disabled unless `[youtube].allow_translated_captions = true`, because translated tracks use YouTube's translation endpoint and are more aggressively rate-limited.
++
+ YouTube ingests also persist video metadata from `yt-dlp` in the transcript frontmatter for sorting and filtering: engagement counts (`view_count`, `like_count`, `comment_count`), publication context (`upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`), and classification fields (`categories`, `youtube_tags`, `language`, `live_status`, `was_live`, `chapter_count`). Hidden or omitted scalar fields are written as `null`; `categories` and `youtube_tags` are empty lists when absent; `chapter_count` is `0` when no chapter metadata is returned. Video keywords use `youtube_tags` because `tags` remains the KB taxonomy field, and only the chapter count is stored, not full chapter content.
+ 
+ STT has real cost and latency. Prefer `captions` for normal ingestion, and use `auto` or `stt` when YouTube captions are unavailable or unsuitable.
+diff --git a/config.example.toml b/config.example.toml
+index 5220005..a9ea428 100644
+--- a/config.example.toml
++++ b/config.example.toml
+@@ -9,10 +9,11 @@
+ # - `[openrouter]`
+ # - `[stt]`
+ # - `[youtube]`
++# - `[instagram]`
+ #
+ # Primary CLI surface is configured through commands and flags:
+ # - `kb topic {new,list,info}`
+-# - `kb ingest {url,file,youtube,codebase,bookmarks}`
++# - `kb ingest {url,file,youtube,channel,instagram,codebase,bookmarks}`
+ # - `kb lint`
+ # - `kb inspect ...`
+ # - `kb index`
+@@ -32,6 +33,7 @@
+ # - YOUTUBE_PROXY
+ # - YOUTUBE_COOKIES_FILE
+ # - YOUTUBE_USER_AGENT
++# - YOUTUBE_CAPTION_LANGUAGES
+ #
+ # `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
+ 
+@@ -74,5 +76,34 @@ proxy = ""
+ cookies_file = ""
+ user_agent = ""
+ transcription = "captions"
++# Caption language preference order. "orig" means the video's original language
++# from yt-dlp metadata. Translated automatic captions are disabled by default
++# because YouTube serves them through a more aggressively rate-limited endpoint.
++caption_languages = ["orig"]
++allow_translated_captions = false
++retry_attempts = 3
++retry_backoff = "1s"
++# Bulk channel/playlist ingestion (kb ingest channel): worker pool size, the
++# inter-request throttle, the adaptive-backoff ceiling on YouTube rate limits,
++# and per-video retries on a block. Keep concurrency low to avoid rate limiting.
++bulk_concurrency = 2
++bulk_throttle = "2s"
++bulk_backoff_max = "60s"
++bulk_retries = 3
++
++[instagram]
++# Controls `kb ingest instagram <url>` (reels, video posts, IGTV). Uses yt-dlp +
++# STT, the same engine as YouTube. Cookies/proxy are kept separate from [youtube]
++# because Instagram requires its own authenticated session. Public reels often
++# work without cookies but Instagram rate-limits aggressively; set cookies_file
++# (and optionally proxy) for reliable access.
++yt_dlp_path = "yt-dlp"
++proxy = ""
++cookies_file = ""
++user_agent = ""
++# Reels rarely carry manual caption tracks, so the default policy is "auto":
++# manual captions when present, otherwise Whisper STT. Use "stt" to always
++# transcribe audio, or "captions" to require a caption track.
++transcription = "auto"
+ retry_attempts = 3
+ retry_backoff = "1s"
+diff --git a/internal/cli/ingest_test.go b/internal/cli/ingest_test.go
+index a544825..a2c07af 100644
+--- a/internal/cli/ingest_test.go
++++ b/internal/cli/ingest_test.go
+@@ -295,12 +295,15 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
+ 	channelFollowers := int64(20000)
+ 	wasLive := false
+ 	wantYouTubeConfig := kconfig.YouTubeConfig{
+-		YTDLPPath:     "custom-yt-dlp",
+-		Proxy:         "http://proxy.internal:8080",
+-		CookiesFile:   "/tmp/youtube-cookies.txt",
+-		UserAgent:     "kb-test-agent",
+-		RetryAttempts: 4,
+-		RetryBackoff:  "250ms",
++		YTDLPPath:               "custom-yt-dlp",
++		Proxy:                   "http://proxy.internal:8080",
++		CookiesFile:             "/tmp/youtube-cookies.txt",
++		UserAgent:               "kb-test-agent",
++		Transcription:           "captions",
++		RetryAttempts:           4,
++		RetryBackoff:            "250ms",
++		CaptionLanguages:        []string{"orig"},
++		AllowTranslatedCaptions: true,
+ 	}
+ 
+ 	loadIngestConfig = func() (kconfig.Config, error) {
+@@ -372,6 +375,7 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
+ 		"--topic", "systems-design",
+ 		"--vault", "/tmp/vault",
+ 		"--transcribe", "auto",
++		"--sub-langs", "pt, es",
+ 	})
+ 
+ 	if err := command.ExecuteContext(context.Background()); err != nil {
+@@ -384,6 +388,12 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
+ 	if gotExtractOptions.TranscriptionPolicy != youtube.TranscriptionPolicyAuto {
+ 		t.Fatalf("transcription policy = %q, want auto", gotExtractOptions.TranscriptionPolicy)
+ 	}
++	if !reflect.DeepEqual(gotExtractOptions.PreferredLanguages, []string{"pt", "es"}) {
++		t.Fatalf("preferred languages = %#v, want [pt es]", gotExtractOptions.PreferredLanguages)
++	}
++	if !gotExtractOptions.AllowTranslatedCaptions {
++		t.Fatal("expected allow_translated_captions to pass through")
++	}
+ 	if gotIngest.SourceKind != models.SourceKindYouTubeTranscript {
+ 		t.Fatalf("ingest source kind = %q, want %q", gotIngest.SourceKind, models.SourceKindYouTubeTranscript)
+ 	}
+@@ -441,6 +451,7 @@ func TestYouTubeFrontmatterIncludesVideoMetricsAndTranscriptProvenance(t *testin
+ 	wasLive := false
+ 	values := youtubeFrontmatter(&youtube.Result{
+ 		Metadata: youtube.Metadata{
++			VideoID:              "abcdefghijk",
+ 			Channel:              "Changelog",
+ 			ChannelID:            "UCZbTest",
+ 			UploaderID:           "@Changelog",
+@@ -466,6 +477,7 @@ func TestYouTubeFrontmatterIncludesVideoMetricsAndTranscriptProvenance(t *testin
+ 		STTModel:            "gpt-4o-transcribe",
+ 	})
+ 	want := map[string]any{
++		"video_id":               "abcdefghijk",
+ 		"view_count":             viewCount,
+ 		"like_count":             likeCount,
+ 		"comment_count":          commentCount,
+@@ -954,6 +966,9 @@ func restoreIngestGlobals(t *testing.T) {
+ 	originalLoadIngestConfig := loadIngestConfig
+ 	originalFirecrawlScraper := newFirecrawlScraper
+ 	originalYouTubeExtractor := newYouTubeTranscriptExtractor
++	originalYouTubeChannelExtractor := newYouTubeChannelExtractor
++	originalInstagramExtractor := newInstagramTranscriptExtractor
++	originalExistingYouTubeVideoIDs := existingYouTubeVideoIDs
+ 	originalRegistry := newIngestRegistry
+ 	originalRunGenerate := runGenerate
+ 
+@@ -964,6 +979,9 @@ func restoreIngestGlobals(t *testing.T) {
+ 		loadIngestConfig = originalLoadIngestConfig
+ 		newFirecrawlScraper = originalFirecrawlScraper
+ 		newYouTubeTranscriptExtractor = originalYouTubeExtractor
++		newYouTubeChannelExtractor = originalYouTubeChannelExtractor
++		newInstagramTranscriptExtractor = originalInstagramExtractor
++		existingYouTubeVideoIDs = originalExistingYouTubeVideoIDs
+ 		newIngestRegistry = originalRegistry
+ 		runGenerate = originalRunGenerate
+ 	})
+@@ -990,3 +1008,219 @@ func (extractor fakeYouTubeExtractor) Extract(ctx context.Context, rawURL string
+ 	}
+ 	return extractor.extract(ctx, rawURL, options)
+ }
++
++func TestIngestChannelCommandBulkIngestsWithResume(t *testing.T) {
++	restoreIngestGlobals(t)
++
++	video1 := youtube.ChannelVideo{VideoID: "vid00000001", Title: "Already Done", URL: "https://www.youtube.com/watch?v=vid00000001"}
++	video2 := youtube.ChannelVideo{VideoID: "vid00000002", Title: "Fresh One", URL: "https://www.youtube.com/watch?v=vid00000002"}
++	video3 := youtube.ChannelVideo{VideoID: "vid00000003", Title: "No Captions", URL: "https://www.youtube.com/watch?v=vid00000003"}
++
++	var gotListURL string
++	var gotLimit int
++	var gotBulkVideos []youtube.ChannelVideo
++	var gotBulkPolicy youtube.TranscriptionPolicy
++	var gotBulkLanguages []string
++	var gotBulkAllowTranslated bool
++	var ingestCalls int
++
++	loadIngestConfig = func() (kconfig.Config, error) {
++		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
++	}
++	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
++		return models.TopicInfo{Slug: slug, Title: "AI Engineer", Domain: "youtube-channel"}, nil
++	}
++	existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
++		return map[string]struct{}{"vid00000001": {}}, nil
++	}
++	newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
++		return fakeYouTubeChannelExtractor{
++			list: func(_ context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
++				gotListURL = normalizedURL
++				gotLimit = limit
++				return []youtube.ChannelVideo{video1, video2, video3}, nil
++			},
++			bulk: func(_ context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
++				gotBulkVideos = videos
++				gotBulkPolicy = options.TranscriptionPolicy
++				gotBulkLanguages = append([]string(nil), options.PreferredLanguages...)
++				gotBulkAllowTranslated = options.AllowTranslatedCaptions
++				for _, video := range videos {
++					if video.VideoID == "vid00000003" {
++						sink(youtube.VideoOutcome{Video: video, Err: errors.New("captions unavailable")})
++						continue
++					}
++					sink(youtube.VideoOutcome{Video: video, Result: &youtube.Result{
++						Metadata: youtube.Metadata{VideoID: video.VideoID, URL: video.URL, Title: video.Title},
++						Markdown: "transcript",
++					}})
++				}
++				return nil
++			},
++		}
++	}
++	runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
++		ingestCalls++
++		return models.IngestResult{
++			Topic:      options.Topic,
++			SourceType: options.SourceKind,
++			FilePath:   "yt-channels/ai/raw/youtube/" + options.Title + ".md",
++			Title:      options.Title,
++		}, nil
++	}
++
++	command := newRootCommand()
++	var stdout bytes.Buffer
++	command.SetOut(&stdout)
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{
++		"ingest", "channel", "https://www.youtube.com/@aiDotEngineer",
++		"--topic", "yt-channels/ai",
++		"--vault", "/tmp/vault",
++		"--limit", "10",
++		"--sub-langs", "pt",
++	})
++
++	if err := command.ExecuteContext(context.Background()); err != nil {
++		t.Fatalf("ExecuteContext returned error: %v", err)
++	}
++
++	if gotListURL != "https://www.youtube.com/@aiDotEngineer/videos" {
++		t.Fatalf("list URL = %q, want normalized /videos URL", gotListURL)
++	}
++	if gotLimit != 10 {
++		t.Fatalf("limit = %d, want 10", gotLimit)
++	}
++	if len(gotBulkVideos) != 2 {
++		t.Fatalf("bulk received %d videos, want 2 (resume skips the existing one)", len(gotBulkVideos))
++	}
++	if gotBulkPolicy != youtube.TranscriptionPolicyCaptions {
++		t.Fatalf("bulk policy = %q, want captions", gotBulkPolicy)
++	}
++	if !reflect.DeepEqual(gotBulkLanguages, []string{"pt"}) {
++		t.Fatalf("bulk preferred languages = %#v, want [pt]", gotBulkLanguages)
++	}
++	if gotBulkAllowTranslated {
++		t.Fatal("expected channel bulk to default translated captions off")
++	}
++	if ingestCalls != 1 {
++		t.Fatalf("runIngest calls = %d, want 1 (only the successful fresh video)", ingestCalls)
++	}
++
++	var summary channelIngestSummary
++	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
++		t.Fatalf("decode summary: %v\n%s", err, stdout.String())
++	}
++	if summary.Resolved != 3 {
++		t.Fatalf("resolved = %d, want 3", summary.Resolved)
++	}
++	if len(summary.Skipped) != 1 || summary.Skipped[0].VideoID != "vid00000001" {
++		t.Fatalf("skipped = %+v, want only vid00000001", summary.Skipped)
++	}
++	if len(summary.Ingested) != 1 || summary.Ingested[0].VideoID != "vid00000002" {
++		t.Fatalf("ingested = %+v, want only vid00000002", summary.Ingested)
++	}
++	if summary.Ingested[0].FilePath == "" {
++		t.Fatalf("ingested entry is missing a file path: %+v", summary.Ingested[0])
++	}
++	if len(summary.Failures) != 1 || summary.Failures[0].VideoID != "vid00000003" {
++		t.Fatalf("failures = %+v, want only vid00000003", summary.Failures)
++	}
++}
++
++func TestIngestChannelCommandDryRunSkipsIngest(t *testing.T) {
++	restoreIngestGlobals(t)
++
++	loadIngestConfig = func() (kconfig.Config, error) {
++		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
++	}
++	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
++		return models.TopicInfo{Slug: slug}, nil
++	}
++	existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
++		t.Fatal("existingYouTubeVideoIDs must not run during a dry run")
++		return nil, nil
++	}
++	newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
++		return fakeYouTubeChannelExtractor{
++			list: func(context.Context, string, int) ([]youtube.ChannelVideo, error) {
++				return []youtube.ChannelVideo{{VideoID: "vid00000001", Title: "One", URL: "https://www.youtube.com/watch?v=vid00000001"}}, nil
++			},
++		}
++	}
++	runIngest = func(context.Context, kingest.Options) (models.IngestResult, error) {
++		t.Fatal("runIngest must not run during a dry run")
++		return models.IngestResult{}, nil
++	}
++
++	command := newRootCommand()
++	var stdout bytes.Buffer
++	command.SetOut(&stdout)
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{
++		"ingest", "channel", "https://www.youtube.com/@chan",
++		"--topic", "yt-channels/chan",
++		"--vault", "/tmp/vault",
++		"--dry-run",
++	})
++
++	if err := command.ExecuteContext(context.Background()); err != nil {
++		t.Fatalf("ExecuteContext returned error: %v", err)
++	}
++
++	var summary channelIngestSummary
++	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
++		t.Fatalf("decode summary: %v\n%s", err, stdout.String())
++	}
++	if !summary.DryRun || summary.Resolved != 1 {
++		t.Fatalf("dry-run summary = %+v, want DryRun=true resolved=1", summary)
++	}
++}
++
++func TestIngestChannelCommandRejectsVideoURL(t *testing.T) {
++	restoreIngestGlobals(t)
++
++	loadIngestConfig = func() (kconfig.Config, error) {
++		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
++	}
++	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
++		return models.TopicInfo{Slug: slug}, nil
++	}
++
++	command := newRootCommand()
++	command.SetOut(new(bytes.Buffer))
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{
++		"ingest", "channel", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
++		"--topic", "yt-channels/chan",
++		"--vault", "/tmp/vault",
++	})
++
++	if err := command.ExecuteContext(context.Background()); err == nil {
++		t.Fatal("expected an error when a single-video URL is passed to ingest channel")
++	}
++}
++
++type fakeYouTubeChannelExtractor struct {
++	list func(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error)
++	bulk func(ctx context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error
++}
++
++func (extractor fakeYouTubeChannelExtractor) ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
++	if extractor.list == nil {
++		return nil, errors.New("unexpected list call")
++	}
++	return extractor.list(ctx, normalizedURL, limit)
++}
++
++func (extractor fakeYouTubeChannelExtractor) BulkExtract(
++	ctx context.Context,
++	videos []youtube.ChannelVideo,
++	options youtube.BulkOptions,
++	sink func(youtube.VideoOutcome),
++) error {
++	if extractor.bulk == nil {
++		return errors.New("unexpected bulk call")
++	}
++	return extractor.bulk(ctx, videos, options, sink)
++}
+diff --git a/internal/cli/ingest_youtube.go b/internal/cli/ingest_youtube.go
+index e16b95c..811452e 100644
+--- a/internal/cli/ingest_youtube.go
++++ b/internal/cli/ingest_youtube.go
+@@ -3,6 +3,7 @@ package cli
+ import (
+ 	"context"
+ 	"fmt"
++	"reflect"
+ 	"strings"
+ 	"time"
+ 
+@@ -25,6 +26,8 @@ var newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptEx
+ func newIngestYouTubeCommand() *cobra.Command {
+ 	var topic string
+ 	var transcribe string
++	var subLangs string
++	var lang string
+ 
+ 	command := &cobra.Command{
+ 		Use:   "youtube <url>",
+@@ -48,12 +51,18 @@ func newIngestYouTubeCommand() *cobra.Command {
+ 			if err != nil {
+ 				return fmt.Errorf("ingest youtube: %w", err)
+ 			}
++			captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, subLangs, lang)
++			if err != nil {
++				return fmt.Errorf("ingest youtube: %w", err)
++			}
+ 
+ 			extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
+ 				commandContext(cmd),
+ 				args[0],
+ 				youtube.ExtractOptions{
+-					TranscriptionPolicy: policy,
++					TranscriptionPolicy:     policy,
++					PreferredLanguages:      captionLanguages,
++					AllowTranslatedCaptions: cfg.YouTube.AllowTranslatedCaptions,
+ 				},
+ 			)
+ 			if err != nil {
+@@ -84,16 +93,83 @@ func newIngestYouTubeCommand() *cobra.Command {
+ 
+ 	requireTopicFlag(command, &topic)
+ 	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
++	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
++	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
+ 
+ 	return command
+ }
+ 
++func resolveYouTubeCaptionLanguages(
++	cmd *cobra.Command,
++	youtubeConfig kconfig.YouTubeConfig,
++	subLangs string,
++	lang string,
++) ([]string, error) {
++	configured := normalizeYouTubeCaptionLanguages(youtubeConfig.CaptionLanguages)
++	if len(configured) == 0 {
++		configured = []string{"orig"}
++	}
++
++	subLangsChanged := cmd.Flags().Changed("sub-langs")
++	langChanged := cmd.Flags().Changed("lang")
++	switch {
++	case subLangsChanged && langChanged:
++		left, err := parseYouTubeCaptionLanguages(subLangs)
++		if err != nil {
++			return nil, err
++		}
++		right, err := parseYouTubeCaptionLanguages(lang)
++		if err != nil {
++			return nil, err
++		}
++		if !reflect.DeepEqual(left, right) {
++			return nil, fmt.Errorf("--sub-langs and --lang must not disagree")
++		}
++		return left, nil
++	case subLangsChanged:
++		return parseYouTubeCaptionLanguages(subLangs)
++	case langChanged:
++		return parseYouTubeCaptionLanguages(lang)
++	default:
++		return configured, nil
++	}
++}
++
++func parseYouTubeCaptionLanguages(value string) ([]string, error) {
++	languages := normalizeYouTubeCaptionLanguages(strings.Split(value, ","))
++	if len(languages) == 0 {
++		return nil, fmt.Errorf("caption language list must contain at least one language or orig")
++	}
++	return languages, nil
++}
++
++func normalizeYouTubeCaptionLanguages(values []string) []string {
++	if len(values) == 0 {
++		return nil
++	}
++	normalized := make([]string, 0, len(values))
++	seen := make(map[string]struct{}, len(values))
++	for _, value := range values {
++		value = strings.ToLower(strings.TrimSpace(value))
++		if value == "" {
++			continue
++		}
++		if _, ok := seen[value]; ok {
++			continue
++		}
++		seen[value] = struct{}{}
++		normalized = append(normalized, value)
++	}
++	return normalized
++}
++
+ func youtubeFrontmatter(result *youtube.Result) map[string]any {
+ 	if result == nil {
+ 		return nil
+ 	}
+ 	metadata := result.Metadata
+ 	values := map[string]any{
++		"video_id":               optionalString(metadata.VideoID),
+ 		"view_count":             optionalInt64(metadata.ViewCount),
+ 		"like_count":             optionalInt64(metadata.LikeCount),
+ 		"comment_count":          optionalInt64(metadata.CommentCount),
+diff --git a/internal/config/config.go b/internal/config/config.go
+index eebc5d6..eead2b3 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -13,24 +13,33 @@ import (
+ )
+ 
+ const (
+-	defaultFirecrawlAPIURL      = "https://api.firecrawl.dev"
+-	defaultOpenAIAPIURL         = "https://api.openai.com"
+-	defaultOpenRouterAPIURL     = "https://openrouter.ai/api"
+-	defaultOpenRouterSTTModel   = "google/gemini-2.5-flash"
+-	defaultSTTProvider          = "openai"
+-	defaultSTTModel             = "gpt-4o-transcribe"
+-	defaultSTTLanguage          = "auto"
+-	defaultSTTAudioFormat       = "mp3"
+-	defaultSTTChunkDuration     = "10m"
+-	defaultSTTMaxChunkBytes     = 24_000_000
+-	defaultSTTConcurrency       = 2
+-	defaultSTTFFmpegPath        = "ffmpeg"
+-	defaultVaultRoot            = "."
+-	defaultTopicGlob            = "*"
+-	defaultYouTubeYTDLPPath     = "yt-dlp"
+-	defaultYouTubeTranscription = "captions"
+-	defaultYouTubeRetryBackoff  = "1s"
+-	defaultYouTubeRetryAttempts = 3
++	defaultFirecrawlAPIURL        = "https://api.firecrawl.dev"
++	defaultOpenAIAPIURL           = "https://api.openai.com"
++	defaultOpenRouterAPIURL       = "https://openrouter.ai/api"
++	defaultOpenRouterSTTModel     = "google/gemini-2.5-flash"
++	defaultSTTProvider            = "openai"
++	defaultSTTModel               = "gpt-4o-transcribe"
++	defaultSTTLanguage            = "auto"
++	defaultSTTAudioFormat         = "mp3"
++	defaultSTTChunkDuration       = "10m"
++	defaultSTTMaxChunkBytes       = 24_000_000
++	defaultSTTConcurrency         = 2
++	defaultSTTFFmpegPath          = "ffmpeg"
++	defaultVaultRoot              = "."
++	defaultTopicGlob              = "*"
++	defaultYouTubeYTDLPPath       = "yt-dlp"
++	defaultYouTubeTranscription   = "captions"
++	defaultYouTubeRetryBackoff    = "1s"
++	defaultYouTubeRetryAttempts   = 3
++	defaultYouTubeCaptionLanguage = "orig"
++	defaultYouTubeBulkConcurrency = 2
++	defaultYouTubeBulkThrottle    = "2s"
++	defaultYouTubeBulkBackoffMax  = "60s"
++	defaultYouTubeBulkRetries     = 3
++	defaultInstagramYTDLPPath     = "yt-dlp"
++	defaultInstagramTranscription = "auto"
++	defaultInstagramRetryBackoff  = "1s"
++	defaultInstagramRetryAttempts = 3
+ )
+ 
+ // Config contains the complete TOML-backed runtime configuration.
+@@ -42,6 +51,7 @@ type Config struct {
+ 	OpenRouter OpenRouterConfig `toml:"openrouter"`
+ 	STT        STTConfig        `toml:"stt"`
+ 	YouTube    YouTubeConfig    `toml:"youtube"`
++	Instagram  InstagramConfig  `toml:"instagram"`
+ }
+ 
+ // AppConfig contains the application identity and environment.
+@@ -98,6 +108,29 @@ type YouTubeConfig struct {
+ 	Transcription string `toml:"transcription"`
+ 	RetryAttempts int    `toml:"retry_attempts"`
+ 	RetryBackoff  string `toml:"retry_backoff"`
++	// CaptionLanguages controls caption track selection. "orig" means the
++	// video's original language as reported by yt-dlp metadata.
++	CaptionLanguages        []string `toml:"caption_languages"`
++	AllowTranslatedCaptions bool     `toml:"allow_translated_captions"`
++	// Bulk* control the kb ingest channel worker pool, inter-request throttle,
++	// and adaptive backoff used when ingesting an entire channel or playlist.
++	BulkConcurrency int    `toml:"bulk_concurrency"`
++	BulkThrottle    string `toml:"bulk_throttle"`
++	BulkBackoffMax  string `toml:"bulk_backoff_max"`
++	BulkRetries     int    `toml:"bulk_retries"`
++}
++
++// InstagramConfig controls Instagram network access and retry behavior for
++// `kb ingest instagram`. Cookies are kept separate from YouTube because the two
++// platforms require distinct authenticated sessions.
++type InstagramConfig struct {
++	YTDLPPath     string `toml:"yt_dlp_path"`
++	Proxy         string `toml:"proxy"`
++	CookiesFile   string `toml:"cookies_file"`
++	UserAgent     string `toml:"user_agent"`
++	Transcription string `toml:"transcription"`
++	RetryAttempts int    `toml:"retry_attempts"`
++	RetryBackoff  string `toml:"retry_backoff"`
+ }
+ 
+ // Default returns a sane starting configuration.
+@@ -137,6 +170,19 @@ func Default() Config {
+ 			Transcription: defaultYouTubeTranscription,
+ 			RetryAttempts: defaultYouTubeRetryAttempts,
+ 			RetryBackoff:  defaultYouTubeRetryBackoff,
++			CaptionLanguages: []string{
++				defaultYouTubeCaptionLanguage,
++			},
++			BulkConcurrency: defaultYouTubeBulkConcurrency,
++			BulkThrottle:    defaultYouTubeBulkThrottle,
++			BulkBackoffMax:  defaultYouTubeBulkBackoffMax,
++			BulkRetries:     defaultYouTubeBulkRetries,
++		},
++		Instagram: InstagramConfig{
++			YTDLPPath:     defaultInstagramYTDLPPath,
++			Transcription: defaultInstagramTranscription,
++			RetryAttempts: defaultInstagramRetryAttempts,
++			RetryBackoff:  defaultInstagramRetryBackoff,
+ 		},
+ 	}
+ }
+@@ -171,6 +217,9 @@ func (c *Config) applyDefaults() {
+ 	if strings.TrimSpace(c.YouTube.Transcription) == "" {
+ 		c.YouTube.Transcription = defaultYouTubeTranscription
+ 	}
++	if len(c.YouTube.CaptionLanguages) == 0 {
++		c.YouTube.CaptionLanguages = []string{defaultYouTubeCaptionLanguage}
++	}
+ 	if strings.TrimSpace(c.STT.Provider) == "" {
+ 		c.STT.Provider = defaultSTTProvider
+ 	}
+@@ -204,6 +253,30 @@ func (c *Config) applyDefaults() {
+ 	if strings.TrimSpace(c.YouTube.RetryBackoff) == "" {
+ 		c.YouTube.RetryBackoff = defaultYouTubeRetryBackoff
+ 	}
++	if c.YouTube.BulkConcurrency == 0 {
++		c.YouTube.BulkConcurrency = defaultYouTubeBulkConcurrency
++	}
++	if strings.TrimSpace(c.YouTube.BulkThrottle) == "" {
++		c.YouTube.BulkThrottle = defaultYouTubeBulkThrottle
++	}
++	if strings.TrimSpace(c.YouTube.BulkBackoffMax) == "" {
++		c.YouTube.BulkBackoffMax = defaultYouTubeBulkBackoffMax
++	}
++	if c.YouTube.BulkRetries == 0 {
++		c.YouTube.BulkRetries = defaultYouTubeBulkRetries
++	}
++	if strings.TrimSpace(c.Instagram.YTDLPPath) == "" {
++		c.Instagram.YTDLPPath = defaultInstagramYTDLPPath
++	}
++	if strings.TrimSpace(c.Instagram.Transcription) == "" {
++		c.Instagram.Transcription = defaultInstagramTranscription
++	}
++	if c.Instagram.RetryAttempts == 0 {
++		c.Instagram.RetryAttempts = defaultInstagramRetryAttempts
++	}
++	if strings.TrimSpace(c.Instagram.RetryBackoff) == "" {
++		c.Instagram.RetryBackoff = defaultInstagramRetryBackoff
++	}
+ }
+ 
+ func decodeFile(path string, cfg *Config) error {
+@@ -245,6 +318,9 @@ func (c Config) Validate() error {
+ 	if err := c.YouTube.Validate(); err != nil {
+ 		return err
+ 	}
++	if err := c.Instagram.Validate(); err != nil {
++		return err
++	}
+ 	return nil
+ }
+ 
+@@ -361,6 +437,21 @@ func (c YouTubeConfig) Validate() error {
+ 	if _, err := c.RetryBackoffDuration(); err != nil {
+ 		return err
+ 	}
++	if len(normalizeConfigStringList(c.CaptionLanguages)) == 0 {
++		return errors.New("youtube.caption_languages must contain at least one language or orig")
++	}
++	if c.BulkConcurrency < 1 {
++		return fmt.Errorf("youtube.bulk_concurrency must be at least 1: %d", c.BulkConcurrency)
++	}
++	if c.BulkRetries < 1 {
++		return fmt.Errorf("youtube.bulk_retries must be at least 1: %d", c.BulkRetries)
++	}
++	if _, err := c.BulkThrottleDuration(); err != nil {
++		return err
++	}
++	if _, err := c.BulkBackoffMaxDuration(); err != nil {
++		return err
++	}
+ 	return nil
+ }
+ 
+@@ -379,3 +470,84 @@ func (c YouTubeConfig) RetryBackoffDuration() (time.Duration, error) {
+ 	}
+ 	return duration, nil
+ }
++
++func normalizeConfigStringList(values []string) []string {
++	normalized := make([]string, 0, len(values))
++	for _, value := range values {
++		value = strings.TrimSpace(value)
++		if value == "" {
++			continue
++		}
++		normalized = append(normalized, value)
++	}
++	return normalized
++}
++
++// BulkThrottleDuration parses the configured inter-request throttle for bulk
++// channel ingestion.
++func (c YouTubeConfig) BulkThrottleDuration() (time.Duration, error) {
++	value := strings.TrimSpace(c.BulkThrottle)
++	if value == "" {
++		value = defaultYouTubeBulkThrottle
++	}
++	duration, err := time.ParseDuration(value)
++	if err != nil {
++		return 0, fmt.Errorf("youtube.bulk_throttle must be a Go duration: %q", c.BulkThrottle)
++	}
++	if duration < 0 {
++		return 0, fmt.Errorf("youtube.bulk_throttle cannot be negative: %q", c.BulkThrottle)
++	}
++	return duration, nil
++}
++
++// BulkBackoffMaxDuration parses the configured adaptive backoff ceiling for bulk
++// channel ingestion.
++func (c YouTubeConfig) BulkBackoffMaxDuration() (time.Duration, error) {
++	value := strings.TrimSpace(c.BulkBackoffMax)
++	if value == "" {
++		value = defaultYouTubeBulkBackoffMax
++	}
++	duration, err := time.ParseDuration(value)
++	if err != nil {
++		return 0, fmt.Errorf("youtube.bulk_backoff_max must be a Go duration: %q", c.BulkBackoffMax)
++	}
++	if duration <= 0 {
++		return 0, fmt.Errorf("youtube.bulk_backoff_max must be positive: %q", c.BulkBackoffMax)
++	}
++	return duration, nil
++}
++
++// Validate ensures Instagram runtime settings are usable.
++func (c InstagramConfig) Validate() error {
++	if strings.TrimSpace(c.YTDLPPath) == "" {
++		return errors.New("instagram.yt_dlp_path is required")
++	}
++	switch strings.ToLower(strings.TrimSpace(c.Transcription)) {
++	case "captions", "auto", "stt":
++	default:
++		return fmt.Errorf("instagram.transcription must be captions, auto, or stt: %q", c.Transcription)
++	}
++	if c.RetryAttempts < 1 {
++		return fmt.Errorf("instagram.retry_attempts must be at least 1: %d", c.RetryAttempts)
++	}
++	if _, err := c.RetryBackoffDuration(); err != nil {
++		return err
++	}
++	return nil
++}
++
++// RetryBackoffDuration parses the configured Instagram retry backoff.
++func (c InstagramConfig) RetryBackoffDuration() (time.Duration, error) {
++	backoff := strings.TrimSpace(c.RetryBackoff)
++	if backoff == "" {
++		backoff = defaultInstagramRetryBackoff
++	}
++	duration, err := time.ParseDuration(backoff)
++	if err != nil {
++		return 0, fmt.Errorf("instagram.retry_backoff must be a Go duration: %q", c.RetryBackoff)
++	}
++	if duration < 0 {
++		return 0, fmt.Errorf("instagram.retry_backoff cannot be negative: %q", c.RetryBackoff)
++	}
++	return duration, nil
++}
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index dcb37cb..3401350 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -3,6 +3,7 @@ package config
+ import (
+ 	"os"
+ 	"path/filepath"
++	"reflect"
+ 	"testing"
+ )
+ 
+@@ -32,6 +33,7 @@ func clearServiceEnv(t *testing.T) {
+ 	t.Setenv(EnvYouTubeProxy, "")
+ 	t.Setenv(EnvYouTubeCookiesFile, "")
+ 	t.Setenv(EnvYouTubeUserAgent, "")
++	t.Setenv(EnvYouTubeCaptionLanguages, "")
+ }
+ 
+ func TestDefaultConfigHasValidDefaults(t *testing.T) {
+@@ -92,6 +94,12 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
+ 	if cfg.YouTube.RetryBackoff != defaultYouTubeRetryBackoff {
+ 		t.Errorf("expected default youtube.retry_backoff %q, got %q", defaultYouTubeRetryBackoff, cfg.YouTube.RetryBackoff)
+ 	}
++	if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig"}) {
++		t.Errorf("expected default youtube.caption_languages [orig], got %#v", cfg.YouTube.CaptionLanguages)
++	}
++	if cfg.YouTube.AllowTranslatedCaptions {
++		t.Error("expected youtube.allow_translated_captions to default false")
++	}
+ }
+ 
+ func TestLoadConfigRoundTrip(t *testing.T) {
+@@ -139,6 +147,8 @@ ffmpeg_path = "/opt/bin/ffmpeg"
+ transcription = "auto"
+ retry_attempts = 5
+ retry_backoff = "250ms"
++caption_languages = ["orig", "pt"]
++allow_translated_captions = true
+ `
+ 	path := writeConfigFile(t, content)
+ 
+@@ -212,6 +222,12 @@ retry_backoff = "250ms"
+ 	if cfg.YouTube.RetryAttempts != 5 {
+ 		t.Errorf("expected youtube.retry_attempts 5, got %d", cfg.YouTube.RetryAttempts)
+ 	}
++	if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig", "pt"}) {
++		t.Errorf("expected youtube.caption_languages, got %#v", cfg.YouTube.CaptionLanguages)
++	}
++	if !cfg.YouTube.AllowTranslatedCaptions {
++		t.Error("expected youtube.allow_translated_captions true")
++	}
+ }
+ 
+ func TestLoadEmptyPathUsesDefaults(t *testing.T) {
+@@ -306,6 +322,10 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
+ 			name:   "invalid youtube transcription",
+ 			mutate: func(c *Config) { c.YouTube.Transcription = "maybe" },
+ 		},
++		{
++			name:   "empty youtube caption languages",
++			mutate: func(c *Config) { c.YouTube.CaptionLanguages = []string{" "} },
++		},
+ 	}
+ 
+ 	for _, tc := range testCases {
+@@ -514,6 +534,17 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
+ 				}
+ 			},
+ 		},
++		{
++			name:     "youtube caption languages override toml",
++			envKey:   EnvYouTubeCaptionLanguages,
++			envValue: "orig, pt , es",
++			assert: func(t *testing.T, cfg Config) {
++				t.Helper()
++				if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig", "pt", "es"}) {
++					t.Fatalf("expected youtube.caption_languages to be overridden, got %#v", cfg.YouTube.CaptionLanguages)
++				}
++			},
++		},
+ 	}
+ 
+ 	for _, tc := range testCases {
+@@ -543,9 +574,10 @@ model = "gpt-4o-transcribe"
+ 	[youtube]
+ 	yt_dlp_path = "/toml/bin/yt-dlp"
+ 	proxy = "http://toml.proxy:8080"
+-	cookies_file = "/tmp/toml-cookies.txt"
+-	user_agent = "toml-agent"
+-`)
++		cookies_file = "/tmp/toml-cookies.txt"
++		user_agent = "toml-agent"
++		caption_languages = ["orig", "en"]
++	`)
+ 
+ 			t.Setenv(tc.envKey, tc.envValue)
+ 
+diff --git a/internal/config/env.go b/internal/config/env.go
+index 1086e51..cc9aa25 100644
+--- a/internal/config/env.go
++++ b/internal/config/env.go
+@@ -55,6 +55,9 @@ const (
+ 
+ 	// EnvYouTubeUserAgent stores the YouTube user agent override.
+ 	EnvYouTubeUserAgent = "YOUTUBE_USER_AGENT"
++
++	// EnvYouTubeCaptionLanguages stores the caption language preference override.
++	EnvYouTubeCaptionLanguages = "YOUTUBE_CAPTION_LANGUAGES"
+ )
+ 
+ // ApplyEnvOverrides overlays config values that are sourced from environment
+@@ -102,6 +105,22 @@ func ApplyEnvOverrides(cfg *Config) {
+ 	if value, ok := os.LookupEnv(EnvYouTubeUserAgent); ok && value != "" {
+ 		cfg.YouTube.UserAgent = value
+ 	}
++	if value, ok := os.LookupEnv(EnvYouTubeCaptionLanguages); ok && strings.TrimSpace(value) != "" {
++		cfg.YouTube.CaptionLanguages = splitCommaList(value)
++	}
++}
++
++func splitCommaList(value string) []string {
++	parts := strings.Split(value, ",")
++	values := make([]string, 0, len(parts))
++	for _, part := range parts {
++		part = strings.TrimSpace(part)
++		if part == "" {
++			continue
++		}
++		values = append(values, part)
++	}
++	return values
+ }
+ 
+ // LoadDotEnvIfPresent loads a local dotenv file without overriding env vars
+diff --git a/internal/youtube/youtube.go b/internal/youtube/youtube.go
+index a4b9476..a942de7 100644
+--- a/internal/youtube/youtube.go
++++ b/internal/youtube/youtube.go
+@@ -1,186 +1,64 @@
+-// Package youtube extracts transcripts and metadata from YouTube videos.
++// Package youtube extracts transcripts and metadata from YouTube videos by
++// parsing YouTube URLs and delegating extraction to the shared mediadl core.
+ package youtube
+ 
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
+-	"net/http"
+ 	"net/url"
+ 	"regexp"
+ 	"strings"
+-	"time"
+ 
+ 	"github.com/compozy/kb/internal/config"
++	"github.com/compozy/kb/internal/mediadl"
+ )
+ 
+-const (
+-	transcriptUnavailableMessage = "captions unavailable"
++// Shared types re-exported from mediadl so existing callers (CLI, channel
++// ingestion) keep compiling against the youtube package surface.
++type (
++	Result              = mediadl.Result
++	Metadata            = mediadl.Metadata
++	ExtractOptions      = mediadl.ExtractOptions
++	TranscriptionPolicy = mediadl.TranscriptionPolicy
++	TranscriptSource    = mediadl.TranscriptSource
++	CaptionKind         = mediadl.CaptionKind
++	Error               = mediadl.Error
++	ErrorKind           = mediadl.ErrorKind
+ )
+ 
+-var youtubeVideoIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
+-
+-var errTranscriptDisabled = errors.New("transcript disabled")
+-
+-// TranscriptSource identifies how the transcript was produced.
+-type TranscriptSource string
+-
+-const (
+-	// TranscriptSourceCaptions means YouTube captions were fetched directly.
+-	TranscriptSourceCaptions TranscriptSource = "captions"
+-	// TranscriptSourceSTT means audio was transcribed through an STT provider.
+-	TranscriptSourceSTT TranscriptSource = "stt"
+-)
+-
+-// CaptionKind identifies whether fetched YouTube captions were manual or ASR.
+-type CaptionKind string
+-
+-const (
+-	CaptionKindManual    CaptionKind = "manual"
+-	CaptionKindAutomatic CaptionKind = "automatic"
+-)
+-
+-// TranscriptionPolicy controls whether captions or STT are used.
+-type TranscriptionPolicy string
+-
+-const (
+-	TranscriptionPolicyCaptions TranscriptionPolicy = "captions"
+-	TranscriptionPolicyAuto     TranscriptionPolicy = "auto"
+-	TranscriptionPolicySTT      TranscriptionPolicy = "stt"
+-)
+-
+-// ErrorKind categorizes user-facing YouTube extraction failures.
+-type ErrorKind string
+-
+ const (
+-	// ErrorKindInvalidURL reports a malformed or unsupported YouTube URL.
+-	ErrorKindInvalidURL ErrorKind = "invalid_url"
+-	// ErrorKindUnavailable reports a video that cannot be accessed.
+-	ErrorKindUnavailable ErrorKind = "unavailable"
+-	// ErrorKindPrivate reports a private video.
+-	ErrorKindPrivate ErrorKind = "private"
+-	// ErrorKindAgeRestricted reports a video that requires login/age confirmation.
+-	ErrorKindAgeRestricted ErrorKind = "age_restricted"
+-	// ErrorKindTranscriptUnavailable reports missing or disabled captions.
+-	ErrorKindTranscriptUnavailable ErrorKind = "transcript_unavailable"
+-	// ErrorKindAudioUnavailable reports that no supported audio stream could be downloaded.
+-	ErrorKindAudioUnavailable ErrorKind = "audio_unavailable"
+-	// ErrorKindNetworkBlocked reports a YouTube network block or bot-detection response.
+-	ErrorKindNetworkBlocked ErrorKind = "network_blocked"
++	TranscriptionPolicyCaptions = mediadl.TranscriptionPolicyCaptions
++	TranscriptionPolicyAuto     = mediadl.TranscriptionPolicyAuto
++	TranscriptionPolicySTT      = mediadl.TranscriptionPolicySTT
++
++	TranscriptSourceCaptions = mediadl.TranscriptSourceCaptions
++	TranscriptSourceSTT      = mediadl.TranscriptSourceSTT
++
++	CaptionKindManual    = mediadl.CaptionKindManual
++	CaptionKindAutomatic = mediadl.CaptionKindAutomatic
++
++	ErrorKindInvalidURL            = mediadl.ErrorKindInvalidURL
++	ErrorKindUnavailable           = mediadl.ErrorKindUnavailable
++	ErrorKindPrivate               = mediadl.ErrorKindPrivate
++	ErrorKindAgeRestricted         = mediadl.ErrorKindAgeRestricted
++	ErrorKindTranscriptUnavailable = mediadl.ErrorKindTranscriptUnavailable
++	ErrorKindAudioUnavailable      = mediadl.ErrorKindAudioUnavailable
++	ErrorKindRateLimited           = mediadl.ErrorKindRateLimited
++	ErrorKindNetworkBlocked        = mediadl.ErrorKindNetworkBlocked
+ )
+ 
+-// Error carries structured failure details for callers that need to branch on
+-// YouTube-specific failure modes.
+-type Error struct {
+-	Kind    ErrorKind
+-	URL     string
+-	VideoID string
+-	Message string
+-	Err     error
+-}
+-
+-// Error formats a human-readable error message.
+-func (err *Error) Error() string {
+-	if err == nil {
+-		return ""
+-	}
+-
+-	target := strings.TrimSpace(err.URL)
+-	if target == "" {
+-		target = strings.TrimSpace(err.VideoID)
+-	}
+-	if target == "" {
+-		target = "video"
+-	}
+-
+-	message := strings.TrimSpace(err.Message)
+-	if message == "" {
+-		message = string(err.Kind)
+-	}
+-
+-	if err.Err != nil {
+-		return fmt.Sprintf("youtube %s for %q: %s: %v", err.Kind, target, message, err.Err)
+-	}
+-
+-	return fmt.Sprintf("youtube %s for %q: %s", err.Kind, target, message)
+-}
+-
+-// Unwrap returns the underlying cause.
+-func (err *Error) Unwrap() error {
+-	if err == nil {
+-		return nil
+-	}
+-	return err.Err
+-}
+-
+-// Metadata contains normalized video metadata.
+-type Metadata struct {
+-	VideoID              string
+-	URL                  string
+-	Title                string
+-	Channel              string
+-	ChannelID            string
+-	UploaderID           string
+-	Duration             time.Duration
+-	DurationString       string
+-	PublishDate          time.Time
+-	ViewCount            *int64
+-	LikeCount            *int64
+-	CommentCount         *int64
+-	ChannelFollowerCount *int64
+-	Categories           []string
+-	VideoTags            []string
+-	Language             string
+-	LiveStatus           string
+-	WasLive              *bool
+-	ChapterCount         int
+-}
+-
+-// Result contains the extracted metadata and transcript markdown.
+-type Result struct {
+-	Metadata            Metadata
+-	Markdown            string
+-	Source              TranscriptSource
+-	Language            string
+-	CaptionKind         CaptionKind
+-	TranscriptionPolicy TranscriptionPolicy
+-	STTProvider         string
+-	STTModel            string
+-}
+-
+-// ExtractOptions controls transcript extraction behavior.
+-type ExtractOptions struct {
+-	TranscriptionPolicy TranscriptionPolicy
+-	PreferredLanguages  []string
+-}
+-
+-type parsedVideoURL struct {
+-	CanonicalURL string
+-	VideoID      string
+-}
+-
+-type transcriptSegment struct {
+-	StartMs int
+-	Text    string
+-}
+-
+-type sttClient interface {
+-	Provider() string
+-	Model() string
+-	Transcribe(ctx context.Context, audio []byte, format string) (string, error)
+-}
++// ParseTranscriptionPolicy validates a transcription policy string.
++var ParseTranscriptionPolicy = mediadl.ParseTranscriptionPolicy
+ 
+-type retryPolicy struct {
+-	Attempts int
+-	Backoff  time.Duration
+-}
++var youtubeVideoIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
+ 
+-// Extractor orchestrates transcript extraction and optional STT fallback.
++// Extractor extracts YouTube transcripts by parsing YouTube URLs and delegating
++// to the shared mediadl core.
+ type Extractor struct {
+-	ytDLP     *ytDLPBackend
+-	stt       sttClient
+-	sttConfig config.STTConfig
+-	setupErr  error
++	core *mediadl.Extractor
++	// extractFn overrides per-video extraction during bulk runs. It is a test
++	// seam; when nil the exported Extract method is used.
++	extractFn func(context.Context, string, ExtractOptions) (*Result, error)
+ }
+ 
+ // NewExtractorWithConfig constructs an extractor with explicit STT provider
+@@ -194,122 +72,34 @@ func NewExtractorWithConfig(
+ 	if len(youtubeConfigs) > 0 {
+ 		youtubeConfig = youtubeConfigs[0]
+ 	}
+-	backoff, err := youtubeConfig.RetryBackoffDuration()
+-	attempts := youtubeConfig.RetryAttempts
+-	if attempts < 1 {
+-		attempts = 1
+-	}
+-
+-	retry := retryPolicy{
+-		Attempts: attempts,
+-		Backoff:  backoff,
+-	}
+-
+-	return &Extractor{
+-		ytDLP:     newYTDLPBackend(youtubeConfig, retry),
+-		stt:       NewTranscriber(sttConfig, openRouterConfig),
+-		sttConfig: normalizeSTTConfig(sttConfig),
+-		setupErr:  err,
++	backendConfig := mediadl.BackendConfig{
++		Platform:      "youtube",
++		YTDLPPath:     youtubeConfig.YTDLPPath,
++		Proxy:         youtubeConfig.Proxy,
++		CookiesFile:   youtubeConfig.CookiesFile,
++		UserAgent:     youtubeConfig.UserAgent,
++		RetryAttempts: youtubeConfig.RetryAttempts,
++		RetryBackoff:  youtubeConfig.RetryBackoff,
+ 	}
++	return &Extractor{core: mediadl.NewExtractor(backendConfig, sttConfig, openRouterConfig)}
+ }
+ 
+ // Extract fetches video metadata and transcript markdown from a YouTube URL.
+ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options ExtractOptions) (*Result, error) {
+-	if extractor == nil {
+-		return nil, errors.New("youtube extract: extractor is nil")
+-	}
+-	if extractor.ytDLP == nil {
+-		return nil, errors.New("youtube extract: yt-dlp backend is required")
++	if extractor == nil || extractor.core == nil {
++		return nil, errors.New("youtube extract: extractor is not configured")
+ 	}
+-	if extractor.setupErr != nil {
+-		return nil, fmt.Errorf("youtube extract: configure yt-dlp backend: %w", extractor.setupErr)
+-	}
+-	if ctx == nil {
+-		ctx = context.Background()
+-	}
+-
+ 	parsed, err := parseVideoURL(rawURL)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-
+-	return extractor.extractWithYTDLPBackend(ctx, parsed, options)
++	return extractor.core.Extract(ctx, parsed, options)
+ }
+ 
+-func (extractor *Extractor) extractWithYTDLPBackend(
+-	ctx context.Context,
+-	parsed parsedVideoURL,
+-	options ExtractOptions,
+-) (*Result, error) {
+-	policy := normalizeTranscriptionPolicy(options)
+-	info, err := extractor.ytDLP.loadInfo(ctx, parsed.CanonicalURL)
+-	if err != nil {
+-		if isContextError(err) {
+-			return nil, err
+-		}
+-		return nil, fmt.Errorf("yt-dlp backend: %w", err)
+-	}
+-
+-	result := &Result{
+-		Metadata:            metadataFromYTDLPInfo(parsed, info),
+-		TranscriptionPolicy: policy,
+-	}
+-	if policy == TranscriptionPolicySTT {
+-		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, nil)
+-	}
+-
+-	allowAutomaticCaptions := policy == TranscriptionPolicyCaptions
+-	captionResult, err := extractor.ytDLP.extractCaptionsFromInfo(ctx, parsed, info, options.PreferredLanguages, allowAutomaticCaptions)
+-	if err == nil {
+-		captionResult.TranscriptionPolicy = policy
+-		return captionResult, nil
+-	}
+-	if captionResult != nil {
+-		result = captionResult
+-		result.TranscriptionPolicy = policy
+-	}
+-	if isContextError(err) {
+-		return result, err
+-	}
+-	if isTranscriptUnavailable(err) && policy == TranscriptionPolicyAuto {
+-		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, err)
+-	}
+-	return result, err
+-}
+-
+-func (extractor *Extractor) shouldAttemptSTT(policy TranscriptionPolicy) bool {
+-	if extractor.stt == nil {
+-		return false
+-	}
+-	return policy == TranscriptionPolicyAuto || policy == TranscriptionPolicySTT
+-}
+-
+-func normalizeTranscriptionPolicy(options ExtractOptions) TranscriptionPolicy {
+-	policy, err := ParseTranscriptionPolicy(string(options.TranscriptionPolicy))
+-	if err == nil {
+-		return policy
+-	}
+-	return TranscriptionPolicyCaptions
+-}
+-
+-// ParseTranscriptionPolicy validates a transcription policy string.
+-func ParseTranscriptionPolicy(value string) (TranscriptionPolicy, error) {
+-	switch strings.ToLower(strings.TrimSpace(value)) {
+-	case string(TranscriptionPolicyAuto):
+-		return TranscriptionPolicyAuto, nil
+-	case string(TranscriptionPolicySTT):
+-		return TranscriptionPolicySTT, nil
+-	case "", string(TranscriptionPolicyCaptions):
+-		return TranscriptionPolicyCaptions, nil
+-	default:
+-		return "", fmt.Errorf("transcription policy must be captions, auto, or stt: %q", value)
+-	}
+-}
+-
+-func parseVideoURL(rawURL string) (parsedVideoURL, error) {
++func parseVideoURL(rawURL string) (mediadl.ParsedURL, error) {
+ 	rawURL = strings.TrimSpace(rawURL)
+ 	if rawURL == "" {
+-		return parsedVideoURL{}, &Error{
++		return mediadl.ParsedURL{}, &Error{
+ 			Kind:    ErrorKindInvalidURL,
+ 			URL:     rawURL,
+ 			Message: "youtube url is required",
+@@ -318,7 +108,7 @@ func parseVideoURL(rawURL string) (parsedVideoURL, error) {
+ 
+ 	parsedURL, err := url.Parse(rawURL)
+ 	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+-		return parsedVideoURL{}, &Error{
++		return mediadl.ParsedURL{}, &Error{
+ 			Kind:    ErrorKindInvalidURL,
+ 			URL:     rawURL,
+ 			Message: "invalid YouTube URL",
+@@ -342,7 +132,7 @@ func parseVideoURL(rawURL string) (parsedVideoURL, error) {
+ 			}
+ 		}
+ 	default:
+-		return parsedVideoURL{}, &Error{
++		return mediadl.ParsedURL{}, &Error{
+ 			Kind:    ErrorKindInvalidURL,
+ 			URL:     rawURL,
+ 			Message: "unsupported YouTube host",
+@@ -350,150 +140,19 @@ func parseVideoURL(rawURL string) (parsedVideoURL, error) {
+ 	}
+ 
+ 	if !youtubeVideoIDPattern.MatchString(videoID) {
+-		return parsedVideoURL{}, &Error{
++		return mediadl.ParsedURL{}, &Error{
+ 			Kind:    ErrorKindInvalidURL,
+ 			URL:     rawURL,
+ 			Message: "invalid YouTube video identifier",
+ 		}
+ 	}
+ 
+-	return parsedVideoURL{
++	return mediadl.ParsedURL{
+ 		CanonicalURL: "https://www.youtube.com/watch?v=" + videoID,
+ 		VideoID:      videoID,
+ 	}, nil
+ }
+ 
+-func newNetworkBlockedError(videoID string, message string, err error) error {
+-	return &Error{
+-		Kind:    ErrorKindNetworkBlocked,
+-		VideoID: videoID,
+-		Message: message,
+-		Err:     err,
+-	}
+-}
+-
+-func isTranscriptUnavailable(err error) bool {
+-	var youtubeErr *Error
+-	return errors.As(err, &youtubeErr) && youtubeErr.Kind == ErrorKindTranscriptUnavailable
+-}
+-
+-func isYouTubeNetworkBlocked(err error) bool {
+-	status, ok := unexpectedStatusCode(err)
+-	if !ok {
+-		return false
+-	}
+-	return status == http.StatusBadRequest ||
+-		status == http.StatusForbidden ||
+-		status == http.StatusTooManyRequests ||
+-		status >= http.StatusInternalServerError
+-}
+-
+-func unexpectedStatusCode(err error) (int, bool) {
+-	if err == nil {
+-		return 0, false
+-	}
+-	message := err.Error()
+-	for _, status := range []int{
+-		http.StatusBadRequest,
+-		http.StatusForbidden,
+-		http.StatusTooManyRequests,
+-		http.StatusInternalServerError,
+-		http.StatusBadGateway,
+-		http.StatusServiceUnavailable,
+-		http.StatusGatewayTimeout,
+-	} {
+-		if strings.Contains(message, fmt.Sprintf("unexpected status code: %d", status)) {
+-			return status, true
+-		}
+-	}
+-	return 0, false
+-}
+-
+-func normalizeLanguages(languages []string) []string {
+-	if len(languages) == 0 {
+-		return nil
+-	}
+-
+-	normalized := make([]string, 0, len(languages))
+-	seen := make(map[string]struct{}, len(languages))
+-
+-	for _, language := range languages {
+-		language = strings.ToLower(strings.TrimSpace(language))
+-		if language == "" {
+-			continue
+-		}
+-		if _, ok := seen[language]; ok {
+-			continue
+-		}
+-		seen[language] = struct{}{}
+-		normalized = append(normalized, language)
+-	}
+-
+-	return normalized
+-}
+-
+-func languageMatches(trackLanguage string, preferredLanguage string) bool {
+-	trackLanguage = strings.ToLower(strings.TrimSpace(trackLanguage))
+-	preferredLanguage = strings.ToLower(strings.TrimSpace(preferredLanguage))
+-
+-	if trackLanguage == preferredLanguage {
+-		return true
+-	}
+-	if strings.HasPrefix(trackLanguage, preferredLanguage+"-") {
+-		return true
+-	}
+-	if strings.HasPrefix(preferredLanguage, trackLanguage+"-") {
+-		return true
+-	}
+-
+-	return false
+-}
+-
+-func formatTranscriptMarkdown(transcript []transcriptSegment) string {
+-	var builder strings.Builder
+-	wroteSegment := false
+-
+-	for _, segment := range transcript {
+-		text := normalizeTranscriptText(segment.Text)
+-		if text == "" {
+-			continue
+-		}
+-
+-		if wroteSegment {
+-			builder.WriteString("\n\n")
+-		}
+-		builder.WriteString("## ")
+-		builder.WriteString(formatTimestamp(segment.StartMs))
+-		builder.WriteString("\n")
+-		builder.WriteString(text)
+-		wroteSegment = true
+-	}
+-
+-	return builder.String()
+-}
+-
+-func normalizeTranscriptText(text string) string {
+-	words := strings.Fields(text)
+-	return strings.TrimSpace(strings.Join(words, " "))
+-}
+-
+-func formatTimestamp(startMs int) string {
+-	if startMs < 0 {
+-		startMs = 0
+-	}
+-
+-	totalSeconds := startMs / 1000
+-	hours := totalSeconds / 3600
+-	minutes := (totalSeconds % 3600) / 60
+-	seconds := totalSeconds % 60
+-
+-	if hours > 0 {
+-		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+-	}
+-
+-	return fmt.Sprintf("%02d:%02d", minutes, seconds)
+-}
+-
+ func firstPathSegment(value string) string {
+ 	segments := pathSegments(value)
+ 	if len(segments) == 0 {
+@@ -509,7 +168,3 @@ func pathSegments(value string) []string {
+ 	}
+ 	return strings.Split(trimmed, "/")
+ }
+-
+-func isContextError(err error) bool {
+-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+-}
+diff --git a/internal/mediadl/mediadl.go b/internal/mediadl/mediadl.go
+new file mode 100644
+index 0000000..3ee1dee
+--- /dev/null
++++ b/internal/mediadl/mediadl.go
+@@ -0,0 +1,521 @@
++// Package mediadl extracts transcripts and metadata from media URLs (YouTube,
++// Instagram, and other yt-dlp supported sources) and transcribes audio through an
++// STT provider. Platform-specific URL parsing lives in the caller; this package
++// operates on an already-parsed ParsedURL.
++package mediadl
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"net/http"
++	"strings"
++	"time"
++
++	"github.com/compozy/kb/internal/config"
++)
++
++const (
++	transcriptUnavailableMessage = "captions unavailable"
++	defaultRetryBackoff          = "1s"
++)
++
++var errTranscriptDisabled = errors.New("transcript disabled")
++
++// TranscriptSource identifies how the transcript was produced.
++type TranscriptSource string
++
++const (
++	// TranscriptSourceCaptions means platform captions were fetched directly.
++	TranscriptSourceCaptions TranscriptSource = "captions"
++	// TranscriptSourceSTT means audio was transcribed through an STT provider.
++	TranscriptSourceSTT TranscriptSource = "stt"
++)
++
++// CaptionKind identifies whether fetched captions were manual or ASR.
++type CaptionKind string
++
++const (
++	CaptionKindManual    CaptionKind = "manual"
++	CaptionKindAutomatic CaptionKind = "automatic"
++)
++
++// TranscriptionPolicy controls whether captions or STT are used.
++type TranscriptionPolicy string
++
++const (
++	TranscriptionPolicyCaptions TranscriptionPolicy = "captions"
++	TranscriptionPolicyAuto     TranscriptionPolicy = "auto"
++	TranscriptionPolicySTT      TranscriptionPolicy = "stt"
++)
++
++// ParseTranscriptionPolicy validates a transcription policy string.
++func ParseTranscriptionPolicy(value string) (TranscriptionPolicy, error) {
++	switch strings.ToLower(strings.TrimSpace(value)) {
++	case string(TranscriptionPolicyAuto):
++		return TranscriptionPolicyAuto, nil
++	case string(TranscriptionPolicySTT):
++		return TranscriptionPolicySTT, nil
++	case "", string(TranscriptionPolicyCaptions):
++		return TranscriptionPolicyCaptions, nil
++	default:
++		return "", fmt.Errorf("transcription policy must be captions, auto, or stt: %q", value)
++	}
++}
++
++// ErrorKind categorizes user-facing media extraction failures.
++type ErrorKind string
++
++const (
++	// ErrorKindInvalidURL reports a malformed or unsupported media URL.
++	ErrorKindInvalidURL ErrorKind = "invalid_url"
++	// ErrorKindUnavailable reports media that cannot be accessed.
++	ErrorKindUnavailable ErrorKind = "unavailable"
++	// ErrorKindPrivate reports private media.
++	ErrorKindPrivate ErrorKind = "private"
++	// ErrorKindAgeRestricted reports media that requires login/age confirmation.
++	ErrorKindAgeRestricted ErrorKind = "age_restricted"
++	// ErrorKindTranscriptUnavailable reports missing or disabled captions/transcript.
++	ErrorKindTranscriptUnavailable ErrorKind = "transcript_unavailable"
++	// ErrorKindAudioUnavailable reports that no supported audio stream could be downloaded.
++	ErrorKindAudioUnavailable ErrorKind = "audio_unavailable"
++	// ErrorKindRateLimited reports a rate-limit response such as HTTP 429.
++	ErrorKindRateLimited ErrorKind = "rate_limited"
++	// ErrorKindNetworkBlocked reports a network block or bot-detection response.
++	ErrorKindNetworkBlocked ErrorKind = "network_blocked"
++)
++
++// Error carries structured failure details for callers that need to branch on
++// platform-specific failure modes.
++type Error struct {
++	Kind    ErrorKind
++	URL     string
++	VideoID string
++	Message string
++	Err     error
++}
++
++// Error formats a human-readable error message.
++func (err *Error) Error() string {
++	if err == nil {
++		return ""
++	}
++
++	target := strings.TrimSpace(err.URL)
++	if target == "" {
++		target = strings.TrimSpace(err.VideoID)
++	}
++	if target == "" {
++		target = "media"
++	}
++
++	message := strings.TrimSpace(err.Message)
++	if message == "" {
++		message = string(err.Kind)
++	}
++
++	if err.Err != nil {
++		return fmt.Sprintf("media %s for %q: %s: %v", err.Kind, target, message, err.Err)
++	}
++
++	return fmt.Sprintf("media %s for %q: %s", err.Kind, target, message)
++}
++
++// Unwrap returns the underlying cause.
++func (err *Error) Unwrap() error {
++	if err == nil {
++		return nil
++	}
++	return err.Err
++}
++
++// Metadata contains normalized media metadata.
++type Metadata struct {
++	VideoID              string
++	URL                  string
++	Title                string
++	Description          string
++	Channel              string
++	ChannelID            string
++	UploaderID           string
++	Duration             time.Duration
++	DurationString       string
++	PublishDate          time.Time
++	ViewCount            *int64
++	LikeCount            *int64
++	CommentCount         *int64
++	ChannelFollowerCount *int64
++	Categories           []string
++	VideoTags            []string
++	Language             string
++	LiveStatus           string
++	WasLive              *bool
++	ChapterCount         int
++}
++
++// Result contains the extracted metadata and transcript markdown.
++type Result struct {
++	Metadata            Metadata
++	Markdown            string
++	Source              TranscriptSource
++	Language            string
++	CaptionKind         CaptionKind
++	TranscriptionPolicy TranscriptionPolicy
++	STTProvider         string
++	STTModel            string
++}
++
++// ExtractOptions controls transcript extraction behavior.
++type ExtractOptions struct {
++	TranscriptionPolicy     TranscriptionPolicy
++	PreferredLanguages      []string
++	AllowTranslatedCaptions bool
++}
++
++// ParsedURL is a platform-neutral, already-validated media reference. Callers
++// (the youtube/instagram shims) parse raw URLs into this form before extraction.
++type ParsedURL struct {
++	CanonicalURL string
++	VideoID      string
++}
++
++type transcriptSegment struct {
++	StartMs int
++	Text    string
++}
++
++type sttClient interface {
++	Provider() string
++	Model() string
++	Transcribe(ctx context.Context, audio []byte, format string) (string, error)
++}
++
++type retryPolicy struct {
++	Attempts int
++	Backoff  time.Duration
++}
++
++// Extractor orchestrates transcript extraction and optional STT fallback.
++type Extractor struct {
++	ytDLP     *ytDLPBackend
++	stt       sttClient
++	sttConfig config.STTConfig
++	setupErr  error
++}
++
++// NewExtractor constructs an extractor from a platform-neutral backend config and
++// STT provider configuration.
++func NewExtractor(
++	backendConfig BackendConfig,
++	sttConfig config.STTConfig,
++	openRouterConfig config.OpenRouterConfig,
++) *Extractor {
++	backoff, err := parseRetryBackoff(backendConfig.RetryBackoff)
++	attempts := max(backendConfig.RetryAttempts, 1)
++
++	retry := retryPolicy{
++		Attempts: attempts,
++		Backoff:  backoff,
++	}
++
++	return &Extractor{
++		ytDLP:     newYTDLPBackend(backendConfig, retry),
++		stt:       NewTranscriber(sttConfig, openRouterConfig),
++		sttConfig: normalizeSTTConfig(sttConfig),
++		setupErr:  err,
++	}
++}
++
++func parseRetryBackoff(value string) (time.Duration, error) {
++	backoff := strings.TrimSpace(value)
++	if backoff == "" {
++		backoff = defaultRetryBackoff
++	}
++	duration, err := time.ParseDuration(backoff)
++	if err != nil {
++		return 0, fmt.Errorf("retry_backoff must be a Go duration: %q", value)
++	}
++	if duration < 0 {
++		return 0, fmt.Errorf("retry_backoff cannot be negative: %q", value)
++	}
++	return duration, nil
++}
++
++// Extract fetches media metadata and transcript markdown for an already-parsed
++// media reference.
++func (extractor *Extractor) Extract(ctx context.Context, parsed ParsedURL, options ExtractOptions) (*Result, error) {
++	if extractor == nil {
++		return nil, errors.New("media extract: extractor is nil")
++	}
++	if extractor.ytDLP == nil {
++		return nil, errors.New("media extract: yt-dlp backend is required")
++	}
++	if extractor.setupErr != nil {
++		return nil, fmt.Errorf("media extract: configure yt-dlp backend: %w", extractor.setupErr)
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	if strings.TrimSpace(parsed.CanonicalURL) == "" {
++		return nil, &Error{Kind: ErrorKindInvalidURL, Message: "media url is required"}
++	}
++
++	return extractor.extractWithYTDLPBackend(ctx, parsed, options)
++}
++
++// ListPlaylistEntries resolves the raw entries for a channel or playlist URL.
++// Callers apply platform-specific filtering and URL canonicalization.
++func (extractor *Extractor) ListPlaylistEntries(ctx context.Context, channelURL string, limit int) ([]PlaylistEntry, error) {
++	if extractor == nil || extractor.ytDLP == nil {
++		return nil, errors.New("media channel: yt-dlp backend is required")
++	}
++	if extractor.setupErr != nil {
++		return nil, fmt.Errorf("media channel: configure yt-dlp backend: %w", extractor.setupErr)
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	return extractor.ytDLP.ListPlaylistEntries(ctx, channelURL, limit)
++}
++
++func (extractor *Extractor) extractWithYTDLPBackend(
++	ctx context.Context,
++	parsed ParsedURL,
++	options ExtractOptions,
++) (*Result, error) {
++	policy := normalizeTranscriptionPolicy(options)
++	info, err := extractor.ytDLP.loadInfo(ctx, parsed.CanonicalURL)
++	if err != nil {
++		if isContextError(err) {
++			return nil, err
++		}
++		return nil, fmt.Errorf("yt-dlp backend: %w", err)
++	}
++
++	result := &Result{
++		Metadata:            metadataFromYTDLPInfo(parsed, info),
++		TranscriptionPolicy: policy,
++	}
++	if policy == TranscriptionPolicySTT {
++		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, nil)
++	}
++
++	allowAutomaticCaptions := policy == TranscriptionPolicyCaptions
++	captionResult, err := extractor.ytDLP.extractCaptionsFromInfo(
++		ctx,
++		parsed,
++		info,
++		options.PreferredLanguages,
++		allowAutomaticCaptions,
++		options.AllowTranslatedCaptions,
++	)
++	if err == nil {
++		captionResult.TranscriptionPolicy = policy
++		return captionResult, nil
++	}
++	if captionResult != nil {
++		result = captionResult
++		result.TranscriptionPolicy = policy
++	}
++	if isContextError(err) {
++		return result, err
++	}
++	if isTranscriptUnavailable(err) && policy == TranscriptionPolicyAuto {
++		return extractor.extractSTTFromYTDLP(ctx, parsed, info, result, err)
++	}
++	return result, err
++}
++
++func (extractor *Extractor) shouldAttemptSTT(policy TranscriptionPolicy) bool {
++	if extractor.stt == nil {
++		return false
++	}
++	return policy == TranscriptionPolicyAuto || policy == TranscriptionPolicySTT
++}
++
++func normalizeTranscriptionPolicy(options ExtractOptions) TranscriptionPolicy {
++	policy, err := ParseTranscriptionPolicy(string(options.TranscriptionPolicy))
++	if err == nil {
++		return policy
++	}
++	return TranscriptionPolicyCaptions
++}
++
++func newNetworkBlockedError(videoID string, message string, err error) error {
++	return &Error{
++		Kind:    ErrorKindNetworkBlocked,
++		VideoID: videoID,
++		Message: message,
++		Err:     err,
++	}
++}
++
++func newRateLimitedError(videoID string, message string, err error) error {
++	return &Error{
++		Kind:    ErrorKindRateLimited,
++		VideoID: videoID,
++		Message: message,
++		Err:     err,
++	}
++}
++
++// IsTranscriptUnavailable reports whether err signals that no transcript could be
++// produced (no captions and no usable STT output).
++func IsTranscriptUnavailable(err error) bool {
++	return isTranscriptUnavailable(err)
++}
++
++func isTranscriptUnavailable(err error) bool {
++	var mediaErr *Error
++	return errors.As(err, &mediaErr) && mediaErr.Kind == ErrorKindTranscriptUnavailable
++}
++
++// IsNetworkBlocked reports whether err is a structured network-blocked error or a
++// raw yt-dlp network-block diagnostic.
++func IsNetworkBlocked(err error) bool {
++	var mediaErr *Error
++	if errors.As(err, &mediaErr) && mediaErr.Kind == ErrorKindNetworkBlocked {
++		return true
++	}
++	return isYTDLPNetworkBlockedError(err)
++}
++
++// IsRateLimited reports whether err is a structured rate-limit error or a raw
++// yt-dlp rate-limit diagnostic.
++func IsRateLimited(err error) bool {
++	var mediaErr *Error
++	if errors.As(err, &mediaErr) && mediaErr.Kind == ErrorKindRateLimited {
++		return true
++	}
++	return isYTDLPRateLimitedError(err)
++}
++
++// IsContextError reports whether err is a context cancellation or deadline error.
++func IsContextError(err error) bool {
++	return isContextError(err)
++}
++
++func isStatusCodeRateLimited(err error) bool {
++	status, ok := unexpectedStatusCode(err)
++	return ok && status == http.StatusTooManyRequests
++}
++
++func isStatusCodeNetworkBlocked(err error) bool {
++	status, ok := unexpectedStatusCode(err)
++	if !ok {
++		return false
++	}
++	return status == http.StatusBadRequest ||
++		status == http.StatusForbidden ||
++		status >= http.StatusInternalServerError
++}
++
++func unexpectedStatusCode(err error) (int, bool) {
++	if err == nil {
++		return 0, false
++	}
++	message := err.Error()
++	for _, status := range []int{
++		http.StatusBadRequest,
++		http.StatusForbidden,
++		http.StatusTooManyRequests,
++		http.StatusInternalServerError,
++		http.StatusBadGateway,
++		http.StatusServiceUnavailable,
++		http.StatusGatewayTimeout,
++	} {
++		if strings.Contains(message, fmt.Sprintf("unexpected status code: %d", status)) {
++			return status, true
++		}
++	}
++	return 0, false
++}
++
++func normalizeLanguages(languages []string) []string {
++	if len(languages) == 0 {
++		return nil
++	}
++
++	normalized := make([]string, 0, len(languages))
++	seen := make(map[string]struct{}, len(languages))
++
++	for _, language := range languages {
++		language = strings.ToLower(strings.TrimSpace(language))
++		if language == "" {
++			continue
++		}
++		if _, ok := seen[language]; ok {
++			continue
++		}
++		seen[language] = struct{}{}
++		normalized = append(normalized, language)
++	}
++
++	return normalized
++}
++
++func languageMatches(trackLanguage string, preferredLanguage string) bool {
++	trackLanguage = strings.ToLower(strings.TrimSpace(trackLanguage))
++	preferredLanguage = strings.ToLower(strings.TrimSpace(preferredLanguage))
++
++	if trackLanguage == preferredLanguage {
++		return true
++	}
++	if strings.HasPrefix(trackLanguage, preferredLanguage+"-") {
++		return true
++	}
++	if strings.HasPrefix(preferredLanguage, trackLanguage+"-") {
++		return true
++	}
++
++	return false
++}
++
++func formatTranscriptMarkdown(transcript []transcriptSegment) string {
++	var builder strings.Builder
++	wroteSegment := false
++
++	for _, segment := range transcript {
++		text := normalizeTranscriptText(segment.Text)
++		if text == "" {
++			continue
++		}
++
++		if wroteSegment {
++			builder.WriteString("\n\n")
++		}
++		builder.WriteString("## ")
++		builder.WriteString(formatTimestamp(segment.StartMs))
++		builder.WriteString("\n")
++		builder.WriteString(text)
++		wroteSegment = true
++	}
++
++	return builder.String()
++}
++
++func normalizeTranscriptText(text string) string {
++	words := strings.Fields(text)
++	return strings.TrimSpace(strings.Join(words, " "))
++}
++
++func formatTimestamp(startMs int) string {
++	if startMs < 0 {
++		startMs = 0
++	}
++
++	totalSeconds := startMs / 1000
++	hours := totalSeconds / 3600
++	minutes := (totalSeconds % 3600) / 60
++	seconds := totalSeconds % 60
++
++	if hours > 0 {
++		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
++	}
++
++	return fmt.Sprintf("%02d:%02d", minutes, seconds)
++}
++
++func isContextError(err error) bool {
++	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
++}
+diff --git a/internal/mediadl/mediadl_test.go b/internal/mediadl/mediadl_test.go
+new file mode 100644
+index 0000000..98979c5
+--- /dev/null
++++ b/internal/mediadl/mediadl_test.go
+@@ -0,0 +1,206 @@
++package mediadl
++
++import (
++	"context"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/compozy/kb/internal/config"
++)
++
++func TestExtractorRequiresYTDLPBackend(t *testing.T) {
++	t.Parallel()
++
++	_, err := (&Extractor{}).Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err == nil {
++		t.Fatal("expected Extract to fail without yt-dlp backend")
++	}
++	if !strings.Contains(err.Error(), "yt-dlp backend is required") {
++		t.Fatalf("error = %q, want yt-dlp requirement", err.Error())
++	}
++}
++
++func TestFormatTranscriptMarkdownUsesTimestampHeaders(t *testing.T) {
++	t.Parallel()
++
++	transcript := []transcriptSegment{
++		{StartMs: 0, Text: " first   segment "},
++		{StartMs: 3_723_000, Text: "later segment"},
++		{StartMs: 4_000_000, Text: "   "},
++	}
++
++	got := formatTranscriptMarkdown(transcript)
++	want := strings.Join([]string{
++		"## 00:00",
++		"first segment",
++		"",
++		"## 01:02:03",
++		"later segment",
++	}, "\n")
++	if got != want {
++		t.Fatalf("markdown = %q, want %q", got, want)
++	}
++}
++
++func TestNewExtractorConstructsYTDLPAndSTT(t *testing.T) {
++	t.Parallel()
++
++	backendConfig := BackendConfig{
++		Platform:      "youtube",
++		YTDLPPath:     "/opt/bin/yt-dlp",
++		Proxy:         "http://proxy.internal:8080",
++		CookiesFile:   "/tmp/youtube-cookies.txt",
++		UserAgent:     "kb-test-agent",
++		RetryAttempts: 4,
++		RetryBackoff:  "250ms",
++	}
++	extractor := NewExtractor(backendConfig, config.STTConfig{
++		Provider:    "openai",
++		APIKey:      "openai-key",
++		APIURL:      "https://api.openai.test",
++		Model:       "gpt-4o-transcribe",
++		Language:    "auto",
++		AudioFormat: "mp3",
++	}, config.OpenRouterConfig{})
++	if extractor == nil {
++		t.Fatal("expected extractor")
++	}
++	if extractor.stt == nil {
++		t.Fatal("expected STT client")
++	}
++	if extractor.ytDLP == nil {
++		t.Fatal("expected yt-dlp backend")
++	}
++	if extractor.ytDLP.binaryPath != "/opt/bin/yt-dlp" {
++		t.Fatalf("yt-dlp path = %q, want /opt/bin/yt-dlp", extractor.ytDLP.binaryPath)
++	}
++	if extractor.ytDLP.cfg != backendConfig {
++		t.Fatalf("yt-dlp config = %#v, want %#v", extractor.ytDLP.cfg, backendConfig)
++	}
++	if extractor.ytDLP.retry.Attempts != 4 {
++		t.Fatalf("yt-dlp retry attempts = %d, want 4", extractor.ytDLP.retry.Attempts)
++	}
++	if extractor.ytDLP.retry.Backoff != 250*time.Millisecond {
++		t.Fatalf("yt-dlp retry backoff = %v, want 250ms", extractor.ytDLP.retry.Backoff)
++	}
++	if extractor.setupErr != nil {
++		t.Fatalf("setupErr = %v, want nil", extractor.setupErr)
++	}
++}
++
++func TestErrorFormattingAndUnwrap(t *testing.T) {
++	t.Parallel()
++
++	cause := errors.New("boom")
++	err := &Error{
++		Kind:    ErrorKindPrivate,
++		URL:     "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
++		Message: "video is private",
++		Err:     cause,
++	}
++
++	if !strings.Contains(err.Error(), "media private") {
++		t.Fatalf("error = %q", err.Error())
++	}
++	if !errors.Is(err, cause) {
++		t.Fatal("expected wrapped error")
++	}
++}
++
++func TestShouldAttemptSTT(t *testing.T) {
++	t.Parallel()
++
++	if (&Extractor{}).shouldAttemptSTT(TranscriptionPolicyAuto) {
++		t.Fatal("expected false when STT client is missing")
++	}
++
++	extractor := &Extractor{stt: &stubSTTClient{}}
++	if !extractor.shouldAttemptSTT(TranscriptionPolicyAuto) {
++		t.Fatal("expected auto policy to request STT when a transcriber is present")
++	}
++	if !extractor.shouldAttemptSTT(TranscriptionPolicySTT) {
++		t.Fatal("expected stt policy to request STT when a transcriber is present")
++	}
++	if extractor.shouldAttemptSTT(TranscriptionPolicyCaptions) {
++		t.Fatal("expected captions policy to avoid STT")
++	}
++}
++
++func TestParseTranscriptionPolicy(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []string{"", "captions", "auto", "stt", " STT "} {
++		if _, err := ParseTranscriptionPolicy(value); err != nil {
++			t.Fatalf("ParseTranscriptionPolicy(%q) returned error: %v", value, err)
++		}
++	}
++	if _, err := ParseTranscriptionPolicy("maybe"); err == nil {
++		t.Fatal("expected invalid transcription policy to fail")
++	}
++}
++
++func TestLanguageHelpers(t *testing.T) {
++	t.Parallel()
++
++	got := normalizeLanguages([]string{" en ", "EN", "", "pt-BR"})
++	if len(got) != 2 || got[0] != "en" || got[1] != "pt-br" {
++		t.Fatalf("normalized languages = %#v", got)
++	}
++	if !languageMatches("en-US", "en") {
++		t.Fatal("expected language prefix match")
++	}
++	if languageMatches("de", "en") {
++		t.Fatal("did not expect unrelated language match")
++	}
++}
++
++func TestIsStatusCodeNetworkBlocked(t *testing.T) {
++	t.Parallel()
++
++	if !isStatusCodeNetworkBlocked(errors.New("unexpected status code: 403")) {
++		t.Fatal("expected forbidden status to be treated as network blocked")
++	}
++	if !isStatusCodeRateLimited(errors.New("unexpected status code: 429")) {
++		t.Fatal("expected text status to be treated as rate limited")
++	}
++	if isStatusCodeNetworkBlocked(errors.New("unexpected status code: 429")) {
++		t.Fatal("did not expect 429 to be treated as generic network blocked")
++	}
++	if isStatusCodeNetworkBlocked(errors.New("unexpected status code: 404")) {
++		t.Fatal("did not expect 404 to be treated as network blocked")
++	}
++}
++
++type stubSTTClient struct {
++	called      bool
++	audio       []byte
++	format      string
++	transcript  string
++	transcripts []string
++	err         error
++}
++
++func (client *stubSTTClient) Provider() string {
++	return "stub"
++}
++
++func (client *stubSTTClient) Model() string {
++	return "stub-model"
++}
++
++func (client *stubSTTClient) Transcribe(_ context.Context, audio []byte, format string) (string, error) {
++	client.called = true
++	client.audio = append([]byte(nil), audio...)
++	client.format = format
++	if client.err != nil {
++		return "", client.err
++	}
++	if len(client.transcripts) > 0 {
++		transcript := client.transcripts[0]
++		client.transcripts = client.transcripts[1:]
++		return transcript, nil
++	}
++	return client.transcript, nil
++}
+diff --git a/internal/mediadl/ytdlp.go b/internal/mediadl/ytdlp.go
+new file mode 100644
+index 0000000..6d4e97d
+--- /dev/null
++++ b/internal/mediadl/ytdlp.go
+@@ -0,0 +1,1038 @@
++package mediadl
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io/fs"
++	"math"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"sort"
++	"strconv"
++	"strings"
++	"time"
++)
++
++const ytdlpDefaultBinary = "yt-dlp"
++
++var errYTDLPUnavailable = errors.New("yt-dlp unavailable")
++var errYTDLPCaptionFetchFailed = errors.New("yt-dlp caption fetch failed")
++
++type commandContextFunc func(context.Context, string, ...string) *exec.Cmd
++type lookPathFunc func(string) (string, error)
++
++// BackendConfig holds the platform-neutral yt-dlp network knobs. Platform labels
++// the source ("youtube", "instagram") so diagnostics can point at the right TOML
++// section. RetryAttempts and RetryBackoff are consumed by NewExtractor.
++type BackendConfig struct {
++	Platform      string
++	YTDLPPath     string
++	Proxy         string
++	CookiesFile   string
++	UserAgent     string
++	RetryAttempts int
++	RetryBackoff  string
++}
++
++type ytDLPBackend struct {
++	binaryPath     string
++	cfg            BackendConfig
++	retry          retryPolicy
++	lookPath       lookPathFunc
++	commandContext commandContextFunc
++}
++
++type ytDLPInfo struct {
++	ID                   string                           `json:"id"`
++	Title                string                           `json:"title"`
++	Description          string                           `json:"description"`
++	Uploader             string                           `json:"uploader"`
++	UploaderID           string                           `json:"uploader_id"`
++	Channel              string                           `json:"channel"`
++	ChannelID            string                           `json:"channel_id"`
++	ChannelFollowerCount *int64                           `json:"channel_follower_count"`
++	Duration             float64                          `json:"duration"`
++	DurationString       string                           `json:"duration_string"`
++	UploadDate           string                           `json:"upload_date"`
++	WebpageURL           string                           `json:"webpage_url"`
++	ViewCount            *int64                           `json:"view_count"`
++	LikeCount            *int64                           `json:"like_count"`
++	CommentCount         *int64                           `json:"comment_count"`
++	Categories           []string                         `json:"categories"`
++	Tags                 []string                         `json:"tags"`
++	Language             string                           `json:"language"`
++	LiveStatus           string                           `json:"live_status"`
++	WasLive              *bool                            `json:"was_live"`
++	Chapters             []ytDLPChapter                   `json:"chapters"`
++	Subtitles            map[string][]ytDLPSubtitleFormat `json:"subtitles"`
++	AutomaticCaptions    map[string][]ytDLPSubtitleFormat `json:"automatic_captions"`
++}
++
++type ytDLPSubtitleFormat struct {
++	Ext string `json:"ext"`
++}
++
++type ytDLPChapter struct{}
++
++type ytDLPCaptionCandidate struct {
++	Language     string
++	BaseLanguage string
++	Automatic    bool
++	Original     bool
++	Translated   bool
++	OriginalKey  bool
++}
++
++type ytDLPDownloadedAudio struct {
++	Path    string
++	Format  string
++	cleanup func()
++}
++
++// PlaylistEntry is a single raw entry resolved from a channel or playlist URL.
++// Callers apply platform-specific filtering and URL canonicalization.
++type PlaylistEntry struct {
++	ID         string
++	Title      string
++	URL        string
++	WebpageURL string
++}
++
++type ytDLPPlaylist struct {
++	Entries []ytDLPPlaylistEntry `json:"entries"`
++}
++
++type ytDLPPlaylistEntry struct {
++	ID         string `json:"id"`
++	Title      string `json:"title"`
++	URL        string `json:"url"`
++	WebpageURL string `json:"webpage_url"`
++}
++
++func (audio ytDLPDownloadedAudio) Cleanup() {
++	if audio.cleanup != nil {
++		audio.cleanup()
++	}
++}
++
++func newYTDLPBackend(cfg BackendConfig, retry retryPolicy) *ytDLPBackend {
++	binaryPath := strings.TrimSpace(cfg.YTDLPPath)
++	if binaryPath == "" {
++		binaryPath = ytdlpDefaultBinary
++	}
++	return &ytDLPBackend{
++		binaryPath:     binaryPath,
++		cfg:            cfg,
++		retry:          retry,
++		lookPath:       exec.LookPath,
++		commandContext: exec.CommandContext,
++	}
++}
++
++func (backend *ytDLPBackend) Extract(
++	ctx context.Context,
++	parsed ParsedURL,
++	preferredLanguages []string,
++) (*Result, error) {
++	return backend.ExtractCaptions(ctx, parsed, preferredLanguages, true, false)
++}
++
++func (backend *ytDLPBackend) ExtractCaptions(
++	ctx context.Context,
++	parsed ParsedURL,
++	preferredLanguages []string,
++	allowAutomatic bool,
++	allowTranslated bool,
++) (*Result, error) {
++	if backend == nil {
++		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++
++	info, err := backend.loadInfo(ctx, parsed.CanonicalURL)
++	if err != nil {
++		return nil, err
++	}
++
++	return backend.extractCaptionsFromInfo(ctx, parsed, info, preferredLanguages, allowAutomatic, allowTranslated)
++}
++
++func (backend *ytDLPBackend) extractCaptionsFromInfo(
++	ctx context.Context,
++	parsed ParsedURL,
++	info ytDLPInfo,
++	preferredLanguages []string,
++	allowAutomatic bool,
++	allowTranslated bool,
++) (*Result, error) {
++	result := &Result{Metadata: metadataFromYTDLPInfo(parsed, info)}
++	candidate, ok := selectYTDLPCaption(info, preferredLanguages, allowAutomatic, allowTranslated)
++	if !ok {
++		return result, &Error{
++			Kind:    ErrorKindTranscriptUnavailable,
++			URL:     parsed.CanonicalURL,
++			VideoID: parsed.VideoID,
++			Message: ytDLPCaptionUnavailableMessage(preferredLanguages, allowTranslated),
++			Err:     errTranscriptDisabled,
++		}
++	}
++
++	markdown, err := backend.downloadCaption(ctx, parsed.CanonicalURL, candidate)
++	if err != nil {
++		return result, err
++	}
++	if strings.TrimSpace(markdown) == "" {
++		return result, fmt.Errorf("%w: empty transcript for %q", errYTDLPCaptionFetchFailed, candidate.Language)
++	}
++
++	result.Markdown = markdown
++	result.Source = TranscriptSourceCaptions
++	result.Language = candidate.Language
++	if candidate.Automatic {
++		result.CaptionKind = CaptionKindAutomatic
++	} else {
++		result.CaptionKind = CaptionKindManual
++	}
++	return result, nil
++}
++
++func (backend *ytDLPBackend) loadInfo(ctx context.Context, rawURL string) (ytDLPInfo, error) {
++	stdout, _, err := backend.run(ctx, "metadata", append(backend.baseArgs(),
++		"--dump-single-json",
++		"--skip-download",
++		rawURL,
++	)...)
++	if err != nil {
++		return ytDLPInfo{}, backend.wrapMetadataFetchError(err)
++	}
++
++	var info ytDLPInfo
++	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
++		return ytDLPInfo{}, fmt.Errorf("yt-dlp metadata: parse JSON: %w", err)
++	}
++	return info, nil
++}
++
++// ListPlaylistEntries resolves the raw entries for a channel or playlist URL. A
++// limit greater than zero caps the result to the newest uploads. Callers apply
++// platform-specific filtering and URL canonicalization on the returned entries.
++func (backend *ytDLPBackend) ListPlaylistEntries(ctx context.Context, channelURL string, limit int) ([]PlaylistEntry, error) {
++	if backend == nil {
++		return nil, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++
++	args := append(backend.playlistArgs(),
++		"--flat-playlist",
++		"--dump-single-json",
++		"--skip-download",
++	)
++	if limit > 0 {
++		args = append(args, "--playlist-end", strconv.Itoa(limit))
++	}
++	args = append(args, channelURL)
++
++	stdout, _, err := backend.run(ctx, "channel", args...)
++	if err != nil {
++		return nil, backend.wrapMetadataFetchError(err)
++	}
++
++	var playlist ytDLPPlaylist
++	if err := json.Unmarshal([]byte(stdout), &playlist); err != nil {
++		return nil, fmt.Errorf("yt-dlp channel: parse JSON: %w", err)
++	}
++
++	entries := make([]PlaylistEntry, 0, len(playlist.Entries))
++	for _, entry := range playlist.Entries {
++		entries = append(entries, PlaylistEntry{
++			ID:         strings.TrimSpace(entry.ID),
++			Title:      strings.TrimSpace(entry.Title),
++			URL:        strings.TrimSpace(entry.URL),
++			WebpageURL: strings.TrimSpace(entry.WebpageURL),
++		})
++	}
++	return entries, nil
++}
++
++func (backend *ytDLPBackend) downloadCaption(
++	ctx context.Context,
++	rawURL string,
++	candidate ytDLPCaptionCandidate,
++) (string, error) {
++	tempDir, err := os.MkdirTemp("", "kb-ytdlp-*")
++	if err != nil {
++		return "", fmt.Errorf("yt-dlp captions: create temp dir: %w", err)
++	}
++	defer func() {
++		_ = os.RemoveAll(tempDir)
++	}()
++
++	args := append(backend.baseArgs(),
++		"--skip-download",
++		"--sub-langs", candidate.Language,
++		"--sub-format", "json3/vtt/best",
++		"--paths", "home:"+tempDir,
++		"--output", "%(id)s.%(ext)s",
++	)
++	if candidate.Automatic {
++		args = append(args, "--write-auto-subs")
++	} else {
++		args = append(args, "--write-subs")
++	}
++	args = append(args, rawURL)
++
++	if _, _, err := backend.run(ctx, "captions", args...); err != nil {
++		return "", backend.wrapCaptionFetchError(err, candidate.Language)
++	}
++
++	data, ext, err := readYTDLPSubtitleFile(tempDir)
++	if err != nil {
++		return "", backend.wrapCaptionFetchError(err, candidate.Language)
++	}
++	switch ext {
++	case ".json3":
++		markdown, err := formatYTDLPJSON3Transcript(data)
++		if err != nil {
++			return "", backend.wrapCaptionFetchError(err, candidate.Language)
++		}
++		return markdown, nil
++	case ".vtt":
++		markdown, err := formatYTDLPVTTTranscript(data)
++		if err != nil {
++			return "", backend.wrapCaptionFetchError(err, candidate.Language)
++		}
++		return markdown, nil
++	default:
++		return "", backend.wrapCaptionFetchError(
++			fmt.Errorf("yt-dlp captions: unsupported subtitle extension %q", ext),
++			candidate.Language,
++		)
++	}
++}
++
++func (backend *ytDLPBackend) downloadAudio(
++	ctx context.Context,
++	rawURL string,
++	format string,
++) (ytDLPDownloadedAudio, error) {
++	if backend == nil {
++		return ytDLPDownloadedAudio{}, fmt.Errorf("%w: backend is nil", errYTDLPUnavailable)
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	format = strings.TrimSpace(strings.ToLower(format))
++	if format == "" {
++		format = "mp3"
++	}
++	tempDir, err := os.MkdirTemp("", "kb-ytdlp-audio-*")
++	if err != nil {
++		return ytDLPDownloadedAudio{}, fmt.Errorf("yt-dlp audio: create temp dir: %w", err)
++	}
++	cleanup := func() {
++		_ = os.RemoveAll(tempDir)
++	}
++
++	args := append(backend.baseArgs(),
++		"--extract-audio",
++		"--audio-format", format,
++		"--paths", "home:"+tempDir,
++		"--output", "%(id)s.%(ext)s",
++		rawURL,
++	)
++	if _, _, err := backend.run(ctx, "audio", args...); err != nil {
++		cleanup()
++		return ytDLPDownloadedAudio{}, backend.wrapAudioFetchError(err)
++	}
++
++	path, detectedFormat, err := findYTDLPAudioFile(tempDir)
++	if err != nil {
++		cleanup()
++		return ytDLPDownloadedAudio{}, backend.wrapAudioFetchError(err)
++	}
++	return ytDLPDownloadedAudio{Path: path, Format: detectedFormat, cleanup: cleanup}, nil
++}
++
++// networkBlockHint renders a remediation hint that points at the right TOML
++// section for the configured platform.
++func (backend *ytDLPBackend) networkBlockHint() string {
++	platform := strings.TrimSpace(backend.cfg.Platform)
++	if platform == "" {
++		platform = "youtube"
++	}
++	return fmt.Sprintf(
++		"update yt-dlp, configure [%s].proxy or [%s].cookies_file, or run from a trusted network",
++		platform, platform,
++	)
++}
++
++func (backend *ytDLPBackend) wrapAudioFetchError(err error) error {
++	if err == nil {
++		return nil
++	}
++	if isYTDLPRateLimitedError(err) {
++		return newRateLimitedError(
++			"",
++			"audio download was rate limited through yt-dlp; "+backend.networkBlockHint(),
++			err,
++		)
++	}
++	if isYTDLPNetworkBlockedError(err) {
++		return newNetworkBlockedError(
++			"",
++			"audio download was blocked through yt-dlp; "+backend.networkBlockHint(),
++			err,
++		)
++	}
++	return fmt.Errorf("yt-dlp audio: %w", err)
++}
++
++func findYTDLPAudioFile(directory string) (string, string, error) {
++	entries, err := os.ReadDir(directory)
++	if err != nil {
++		return "", "", fmt.Errorf("read audio output directory: %w", err)
++	}
++	for _, entry := range entries {
++		if entry.IsDir() {
++			continue
++		}
++		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name())), ".")
++		if ext == "" {
++			continue
++		}
++		switch ext {
++		case "mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm":
++			return filepath.Join(directory, entry.Name()), ext, nil
++		}
++	}
++	return "", "", errors.New("yt-dlp audio: no audio file was produced")
++}
++
++func (backend *ytDLPBackend) wrapMetadataFetchError(err error) error {
++	if err == nil {
++		return nil
++	}
++	if isYTDLPRateLimitedError(err) {
++		return newRateLimitedError("", "metadata request was rate limited through yt-dlp; "+backend.networkBlockHint(), err)
++	}
++	if isYTDLPNetworkBlockedError(err) {
++		return newNetworkBlockedError("", "metadata request was blocked through yt-dlp; "+backend.networkBlockHint(), err)
++	}
++	return err
++}
++
++func (backend *ytDLPBackend) wrapCaptionFetchError(err error, language string) error {
++	if err == nil {
++		return nil
++	}
++	if errors.Is(err, errYTDLPCaptionFetchFailed) {
++		return err
++	}
++	if isYTDLPRateLimitedError(err) {
++		return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, newRateLimitedError(
++			"",
++			fmt.Sprintf("caption language %q was rate limited through yt-dlp; %s", language, backend.networkBlockHint()),
++			err,
++		))
++	}
++	if isYTDLPNetworkBlockedError(err) {
++		return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, newNetworkBlockedError(
++			"",
++			"captions request was blocked through yt-dlp; "+backend.networkBlockHint(),
++			err,
++		))
++	}
++	return fmt.Errorf("%w: %w", errYTDLPCaptionFetchFailed, err)
++}
++
++// baseArgs returns the shared yt-dlp flags for single-video operations. It pins
++// --no-playlist so video URLs that also carry a playlist reference resolve to the
++// single video.
++func (backend *ytDLPBackend) baseArgs() []string {
++	return backend.commonArgs(false)
++}
++
++// playlistArgs returns the shared yt-dlp flags for channel/playlist enumeration.
++// It omits --no-playlist so the full uploads/playlist list is resolved.
++func (backend *ytDLPBackend) playlistArgs() []string {
++	return backend.commonArgs(true)
++}
++
++func (backend *ytDLPBackend) commonArgs(allowPlaylist bool) []string {
++	args := []string{"--ignore-config"}
++	if !allowPlaylist {
++		args = append(args, "--no-playlist")
++	}
++	args = append(args,
++		"--retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
++		"--fragment-retries", strconv.Itoa(normalizedRetryAttempts(backend.retry)),
++	)
++	if sleep := normalizedRetrySleep(backend.retry); sleep != "" {
++		args = append(args, "--retry-sleep", sleep)
++	}
++	if proxy := strings.TrimSpace(backend.cfg.Proxy); proxy != "" {
++		args = append(args, "--proxy", proxy)
++	}
++	if cookiesFile := strings.TrimSpace(backend.cfg.CookiesFile); cookiesFile != "" {
++		args = append(args, "--cookies", cookiesFile)
++	}
++	if userAgent := strings.TrimSpace(backend.cfg.UserAgent); userAgent != "" {
++		args = append(args, "--user-agent", userAgent)
++	}
++	return args
++}
++
++func (backend *ytDLPBackend) run(ctx context.Context, label string, args ...string) (string, string, error) {
++	binaryPath, err := backend.resolveBinary()
++	if err != nil {
++		return "", "", err
++	}
++
++	command := backend.commandContext(ctx, binaryPath, args...)
++	var stdout bytes.Buffer
++	var stderr bytes.Buffer
++	command.Stdout = &stdout
++	command.Stderr = &stderr
++	err = command.Run()
++	stdoutText := strings.TrimSpace(stdout.String())
++	stderrText := strings.TrimSpace(stderr.String())
++	if err != nil {
++		if ctxErr := ctx.Err(); ctxErr != nil {
++			return stdoutText, stderrText, fmt.Errorf("yt-dlp %s: %w", label, ctxErr)
++		}
++		diagnostics := cleanYTDLPDiagnostics(stderrText)
++		if diagnostics == "" {
++			diagnostics = cleanYTDLPDiagnostics(stdoutText)
++		}
++		if diagnostics != "" {
++			return stdoutText, stderrText, fmt.Errorf("yt-dlp %s: %w: %s", label, err, diagnostics)
++		}
++		return stdoutText, stderrText, fmt.Errorf("yt-dlp %s: %w", label, err)
++	}
++	return stdoutText, stderrText, nil
++}
++
++func (backend *ytDLPBackend) resolveBinary() (string, error) {
++	binaryPath := strings.TrimSpace(backend.binaryPath)
++	if binaryPath == "" {
++		binaryPath = ytdlpDefaultBinary
++	}
++
++	resolvedPath, err := backend.lookPath(binaryPath)
++	if err != nil {
++		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
++			return "", fmt.Errorf("%w: install yt-dlp or configure yt_dlp_path: %w", errYTDLPUnavailable, err)
++		}
++		return "", fmt.Errorf("resolve yt-dlp binary %q: %w", binaryPath, err)
++	}
++	return resolvedPath, nil
++}
++
++func normalizedRetryAttempts(retry retryPolicy) int {
++	if retry.Attempts < 1 {
++		return 1
++	}
++	return retry.Attempts
++}
++
++func normalizedRetrySleep(retry retryPolicy) string {
++	if retry.Backoff <= 0 {
++		return ""
++	}
++	return strconv.FormatFloat(retry.Backoff.Seconds(), 'f', -1, 64)
++}
++
++func cleanYTDLPDiagnostics(text string) string {
++	lines := strings.Split(strings.TrimSpace(text), "\n")
++	cleaned := make([]string, 0, len(lines))
++	for _, line := range lines {
++		line = strings.TrimSpace(line)
++		if line == "" {
++			continue
++		}
++		cleaned = append(cleaned, line)
++	}
++	return strings.Join(cleaned, "; ")
++}
++
++func isYTDLPRateLimitedError(err error) bool {
++	if err == nil {
++		return false
++	}
++	message := strings.ToLower(err.Error())
++	for _, marker := range []string{
++		"http error 429",
++		"too many requests",
++		"unexpected status code: 429",
++	} {
++		if strings.Contains(message, marker) {
++			return true
++		}
++	}
++	return false
++}
++
++func isYTDLPNetworkBlockedError(err error) bool {
++	if err == nil {
++		return false
++	}
++	message := strings.ToLower(err.Error())
++	for _, marker := range []string{
++		"http error 400",
++		"http error 403",
++		"http error 500",
++		"http error 502",
++		"http error 503",
++		"http error 504",
++		"bot",
++		"sign in to confirm",
++		"not a bot",
++	} {
++		if strings.Contains(message, marker) {
++			return true
++		}
++	}
++	return false
++}
++
++func metadataFromYTDLPInfo(parsed ParsedURL, info ytDLPInfo) Metadata {
++	videoID := strings.TrimSpace(info.ID)
++	if videoID == "" {
++		videoID = parsed.VideoID
++	}
++	videoURL := strings.TrimSpace(info.WebpageURL)
++	if videoURL == "" {
++		videoURL = parsed.CanonicalURL
++	}
++	channel := strings.TrimSpace(info.Channel)
++	if channel == "" {
++		channel = strings.TrimSpace(info.Uploader)
++	}
++	duration := durationFromYTDLPSeconds(info.Duration)
++	return Metadata{
++		VideoID:              videoID,
++		URL:                  videoURL,
++		Title:                strings.TrimSpace(info.Title),
++		Description:          strings.TrimSpace(info.Description),
++		Channel:              channel,
++		ChannelID:            strings.TrimSpace(info.ChannelID),
++		UploaderID:           strings.TrimSpace(info.UploaderID),
++		Duration:             duration,
++		DurationString:       durationStringFromYTDLP(info.DurationString, duration),
++		PublishDate:          parseYTDLPUploadDate(info.UploadDate),
++		ViewCount:            cloneInt64(info.ViewCount),
++		LikeCount:            cloneInt64(info.LikeCount),
++		CommentCount:         cloneInt64(info.CommentCount),
++		ChannelFollowerCount: cloneInt64(info.ChannelFollowerCount),
++		Categories:           normalizeYTDLPStringSlice(info.Categories),
++		VideoTags:            normalizeYTDLPStringSlice(info.Tags),
++		Language:             strings.TrimSpace(info.Language),
++		LiveStatus:           strings.TrimSpace(info.LiveStatus),
++		WasLive:              cloneBool(info.WasLive),
++		ChapterCount:         len(info.Chapters),
++	}
++}
++
++func durationFromYTDLPSeconds(seconds float64) time.Duration {
++	if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
++		return 0
++	}
++	return time.Duration(seconds * float64(time.Second))
++}
++
++func parseYTDLPUploadDate(value string) time.Time {
++	parsed, err := time.Parse("20060102", strings.TrimSpace(value))
++	if err != nil {
++		return time.Time{}
++	}
++	return parsed.UTC()
++}
++
++func durationStringFromYTDLP(value string, duration time.Duration) string {
++	if trimmed := strings.TrimSpace(value); trimmed != "" {
++		return trimmed
++	}
++	if duration <= 0 {
++		return ""
++	}
++	totalSeconds := int64(duration / time.Second)
++	hours := totalSeconds / 3600
++	minutes := (totalSeconds % 3600) / 60
++	seconds := totalSeconds % 60
++	if hours > 0 {
++		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
++	}
++	return fmt.Sprintf("%d:%02d", minutes, seconds)
++}
++
++func cloneInt64(value *int64) *int64 {
++	if value == nil {
++		return nil
++	}
++	cloned := *value
++	return &cloned
++}
++
++func cloneBool(value *bool) *bool {
++	if value == nil {
++		return nil
++	}
++	cloned := *value
++	return &cloned
++}
++
++func normalizeYTDLPStringSlice(values []string) []string {
++	if len(values) == 0 {
++		return []string{}
++	}
++	normalized := make([]string, 0, len(values))
++	for _, value := range values {
++		trimmed := strings.TrimSpace(value)
++		if trimmed == "" {
++			continue
++		}
++		normalized = append(normalized, trimmed)
++	}
++	return normalized
++}
++
++func selectYTDLPCaption(
++	info ytDLPInfo,
++	preferredLanguages []string,
++	allowAutomatic bool,
++	allowTranslated bool,
++) (ytDLPCaptionCandidate, bool) {
++	candidates := ytDLPCaptionCandidates(info, allowAutomatic)
++	if len(candidates) == 0 {
++		return ytDLPCaptionCandidate{}, false
++	}
++	for _, preferredLanguage := range normalizeYTDLPCaptionPreferences(preferredLanguages) {
++		matches := matchingYTDLPCaptionCandidates(candidates, preferredLanguage, allowTranslated)
++		if len(matches) == 0 {
++			continue
++		}
++		sort.SliceStable(matches, func(i int, j int) bool {
++			return ytDLPCaptionLess(matches[i], matches[j], preferredLanguage)
++		})
++		return matches[0], true
++	}
++	return ytDLPCaptionCandidate{}, false
++}
++
++func ytDLPCaptionCandidates(info ytDLPInfo, allowAutomatic bool) []ytDLPCaptionCandidate {
++	originalLanguage := detectYTDLPOriginalLanguage(info)
++	candidates := make([]ytDLPCaptionCandidate, 0, len(info.Subtitles)+len(info.AutomaticCaptions))
++	for language, formats := range info.Subtitles {
++		if isUsableYTDLPCaption(language, formats) {
++			candidates = append(candidates, newYTDLPCaptionCandidate(language, false, originalLanguage))
++		}
++	}
++	if !allowAutomatic {
++		return candidates
++	}
++	for language, formats := range info.AutomaticCaptions {
++		if isUsableYTDLPCaption(language, formats) {
++			candidates = append(candidates, newYTDLPCaptionCandidate(language, true, originalLanguage))
++		}
++	}
++	return candidates
++}
++
++func newYTDLPCaptionCandidate(language string, automatic bool, originalLanguage string) ytDLPCaptionCandidate {
++	trimmed := strings.TrimSpace(language)
++	baseLanguage := ytDLPCaptionBaseLanguage(trimmed)
++	originalKey := isYTDLPOriginalCaptionKey(trimmed)
++	original := originalKey
++	if originalLanguage != "" && languageMatches(baseLanguage, originalLanguage) {
++		original = true
++	}
++	return ytDLPCaptionCandidate{
++		Language:     trimmed,
++		BaseLanguage: baseLanguage,
++		Automatic:    automatic,
++		Original:     original,
++		Translated:   automatic && !original,
++		OriginalKey:  originalKey,
++	}
++}
++
++func detectYTDLPOriginalLanguage(info ytDLPInfo) string {
++	if language := normalizeYTDLPCaptionLanguage(info.Language); language != "" {
++		return language
++	}
++	languages := make([]string, 0, len(info.AutomaticCaptions))
++	for language, formats := range info.AutomaticCaptions {
++		if !isUsableYTDLPCaption(language, formats) || !isYTDLPOriginalCaptionKey(language) {
++			continue
++		}
++		if baseLanguage := ytDLPCaptionBaseLanguage(language); baseLanguage != "" {
++			languages = append(languages, baseLanguage)
++		}
++	}
++	sort.Strings(languages)
++	if len(languages) == 0 {
++		return ""
++	}
++	return languages[0]
++}
++
++func normalizeYTDLPCaptionPreferences(preferredLanguages []string) []string {
++	preferred := normalizeLanguages(preferredLanguages)
++	if len(preferred) == 0 {
++		return []string{"orig"}
++	}
++	return preferred
++}
++
++func ytDLPCaptionUnavailableMessage(preferredLanguages []string, allowTranslated bool) string {
++	preferred := normalizeYTDLPCaptionPreferences(preferredLanguages)
++	if len(preferred) == 1 && preferred[0] == "orig" {
++		return "no original-language caption available"
++	}
++	message := fmt.Sprintf("no eligible caption available for languages %s", strings.Join(preferred, ", "))
++	if !allowTranslated {
++		message += "; translated captions are disabled"
++	}
++	return message
++}
++
++func matchingYTDLPCaptionCandidates(
++	candidates []ytDLPCaptionCandidate,
++	preferredLanguage string,
++	allowTranslated bool,
++) []ytDLPCaptionCandidate {
++	matches := make([]ytDLPCaptionCandidate, 0, len(candidates))
++	for _, candidate := range candidates {
++		if preferredLanguage == "orig" {
++			if candidate.Original {
++				matches = append(matches, candidate)
++			}
++			continue
++		}
++		if !languageMatches(candidate.Language, preferredLanguage) {
++			continue
++		}
++		if candidate.Translated && (!allowTranslated || !captionLanguageExactMatch(candidate.Language, preferredLanguage)) {
++			continue
++		}
++		matches = append(matches, candidate)
++	}
++	return matches
++}
++
++func ytDLPCaptionLess(left ytDLPCaptionCandidate, right ytDLPCaptionCandidate, preferredLanguage string) bool {
++	leftRank := ytDLPCaptionRank(left, preferredLanguage)
++	rightRank := ytDLPCaptionRank(right, preferredLanguage)
++	if leftRank != rightRank {
++		return leftRank < rightRank
++	}
++	if left.Original && right.Original {
++		leftEnglish := 1
++		if languageMatches(left.BaseLanguage, "en") {
++			leftEnglish = 0
++		}
++		rightEnglish := 1
++		if languageMatches(right.BaseLanguage, "en") {
++			rightEnglish = 0
++		}
++		if leftEnglish != rightEnglish {
++			return leftEnglish < rightEnglish
++		}
++	}
++	return left.Language < right.Language
++}
++
++func ytDLPCaptionRank(candidate ytDLPCaptionCandidate, preferredLanguage string) int {
++	if preferredLanguage == "orig" {
++		if !candidate.Automatic {
++			return 0
++		}
++		switch {
++		case candidate.OriginalKey:
++			return 1
++		case captionLanguageExactMatch(candidate.Language, candidate.BaseLanguage):
++			return 2
++		default:
++			return 3
++		}
++	}
++
++	matchRank := 2
++	switch {
++	case captionLanguageExactMatch(candidate.Language, preferredLanguage):
++		matchRank = 0
++	case candidate.BaseLanguage == preferredLanguage:
++		matchRank = 1
++	}
++	automaticRank := 0
++	if candidate.Automatic {
++		automaticRank = 1
++	}
++	translatedRank := 0
++	if candidate.Translated {
++		translatedRank = 1
++	}
++	return matchRank*10 + automaticRank*2 + translatedRank
++}
++
++func isYTDLPOriginalCaptionKey(language string) bool {
++	return strings.HasSuffix(normalizeYTDLPCaptionLanguage(language), "-orig")
++}
++
++func ytDLPCaptionBaseLanguage(language string) string {
++	return strings.TrimSuffix(normalizeYTDLPCaptionLanguage(language), "-orig")
++}
++
++func normalizeYTDLPCaptionLanguage(language string) string {
++	return strings.ToLower(strings.TrimSpace(language))
++}
++
++func captionLanguageExactMatch(trackLanguage string, preferredLanguage string) bool {
++	return normalizeYTDLPCaptionLanguage(trackLanguage) == normalizeYTDLPCaptionLanguage(preferredLanguage)
++}
++
++func isUsableYTDLPCaption(language string, formats []ytDLPSubtitleFormat) bool {
++	language = strings.TrimSpace(language)
++	if language == "" || strings.EqualFold(language, "live_chat") {
++		return false
++	}
++	for _, format := range formats {
++		switch strings.ToLower(strings.TrimSpace(format.Ext)) {
++		case "json3", "vtt":
++			return true
++		}
++	}
++	return false
++}
++
++func readYTDLPSubtitleFile(dir string) ([]byte, string, error) {
++	entries, err := os.ReadDir(dir)
++	if err != nil {
++		return nil, "", fmt.Errorf("yt-dlp captions: read temp dir: %w", err)
++	}
++
++	var selected fs.DirEntry
++	selectedExt := ""
++	for _, ext := range []string{".json3", ".vtt"} {
++		for _, entry := range entries {
++			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ext) {
++				continue
++			}
++			selected = entry
++			selectedExt = ext
++			break
++		}
++		if selected != nil {
++			break
++		}
++	}
++	if selected == nil {
++		return nil, "", fmt.Errorf("yt-dlp captions: no supported caption file was written")
++	}
++
++	path := filepath.Join(dir, selected.Name())
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return nil, "", fmt.Errorf("yt-dlp captions: read %q: %w", path, err)
++	}
++	return data, selectedExt, nil
++}
++
++func formatYTDLPJSON3Transcript(data []byte) (string, error) {
++	var payload struct {
++		Events []struct {
++			StartMs  int `json:"tStartMs"`
++			Segments []struct {
++				Text string `json:"utf8"`
++			} `json:"segs"`
++		} `json:"events"`
++	}
++	if err := json.Unmarshal(data, &payload); err != nil {
++		return "", fmt.Errorf("yt-dlp captions: parse json3: %w", err)
++	}
++
++	transcript := make([]transcriptSegment, 0, len(payload.Events))
++	for _, event := range payload.Events {
++		if len(event.Segments) == 0 {
++			continue
++		}
++		var builder strings.Builder
++		for _, segment := range event.Segments {
++			builder.WriteString(segment.Text)
++		}
++		text := normalizeTranscriptText(builder.String())
++		if text == "" {
++			continue
++		}
++		transcript = append(transcript, transcriptSegment{
++			StartMs: event.StartMs,
++			Text:    text,
++		})
++	}
++	return formatTranscriptMarkdown(transcript), nil
++}
++
++func formatYTDLPVTTTranscript(data []byte) (string, error) {
++	lines := strings.Split(string(data), "\n")
++	transcript := make([]transcriptSegment, 0, len(lines)/3)
++	for index := 0; index < len(lines); index++ {
++		line := strings.TrimSpace(strings.TrimPrefix(lines[index], "\ufeff"))
++		if !strings.Contains(line, "-->") {
++			continue
++		}
++		startText, _, _ := strings.Cut(line, "-->")
++		startMs, ok := parseVTTTimestampMs(startText)
++		if !ok {
++			continue
++		}
++		textLines := make([]string, 0, 2)
++		for index++; index < len(lines); index++ {
++			textLine := strings.TrimSpace(lines[index])
++			if textLine == "" {
++				break
++			}
++			textLines = append(textLines, textLine)
++		}
++		text := normalizeTranscriptText(strings.Join(textLines, " "))
++		if text == "" {
++			continue
++		}
++		transcript = append(transcript, transcriptSegment{StartMs: startMs, Text: text})
++	}
++	return formatTranscriptMarkdown(transcript), nil
++}
++
++func parseVTTTimestampMs(value string) (int, bool) {
++	value = strings.TrimSpace(value)
++	parts := strings.Split(value, ":")
++	if len(parts) < 2 || len(parts) > 3 {
++		return 0, false
++	}
++
++	secondsPart := parts[len(parts)-1]
++	seconds, err := strconv.ParseFloat(strings.Replace(secondsPart, ",", ".", 1), 64)
++	if err != nil {
++		return 0, false
++	}
++	minutes, err := strconv.Atoi(parts[len(parts)-2])
++	if err != nil {
++		return 0, false
++	}
++	hours := 0
++	if len(parts) == 3 {
++		hours, err = strconv.Atoi(parts[0])
++		if err != nil {
++			return 0, false
++		}
++	}
++
++	return int((float64(hours*3600+minutes*60) + seconds) * 1000), true
++}
+diff --git a/internal/mediadl/ytdlp_test.go b/internal/mediadl/ytdlp_test.go
+new file mode 100644
+index 0000000..23adc4e
+--- /dev/null
++++ b/internal/mediadl/ytdlp_test.go
+@@ -0,0 +1,915 @@
++package mediadl
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"reflect"
++	"slices"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/compozy/kb/internal/config"
++)
++
++func TestYTDLPBackendExtractsJSON3Captions(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ",`,
++			`"title":"Example Video",`,
++			`"channel":"Example Channel",`,
++			`"channel_id":"UC123456789",`,
++			`"uploader_id":"@ExampleChannel",`,
++			`"channel_follower_count":20000,`,
++			`"duration":6441,`,
++			`"duration_string":"1:47:21",`,
++			`"upload_date":"20240307",`,
++			`"view_count":3271,`,
++			`"like_count":77,`,
++			`"comment_count":11,`,
++			`"categories":["Science & Technology"],`,
++			`"tags":["go"," distributed systems ",""],`,
++			`"language":"en",`,
++			`"live_status":"not_live",`,
++			`"was_live":false,`,
++			`"chapters":[{"title":"Intro"},{"title":"Deep dive"}],`,
++			`"webpage_url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ",`,
++			`"subtitles":{"en":[{"ext":"json3"}]},`,
++			`"automatic_captions":{"pt-BR":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt: "json3",
++		captionBody: strings.Join([]string{
++			`{"events":[`,
++			`{"tStartMs":0,"segs":[{"utf8":" Hello   world "}]},`,
++			`{"tStartMs":5000,"segs":[{"utf8":"Second"},{"utf8":" line"}]}`,
++			`]}`,
++		}, ""),
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{
++		YTDLPPath:   "custom-yt-dlp",
++		Proxy:       "http://proxy.internal:8080",
++		CookiesFile: "/tmp/youtube-cookies.txt",
++		UserAgent:   "kb-test-agent",
++	}, retryPolicy{Attempts: 5})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++
++	if result.Metadata.Title != "Example Video" {
++		t.Fatalf("title = %q, want Example Video", result.Metadata.Title)
++	}
++	if result.Metadata.Channel != "Example Channel" {
++		t.Fatalf("channel = %q, want Example Channel", result.Metadata.Channel)
++	}
++	if result.Metadata.ChannelID != "UC123456789" {
++		t.Fatalf("channel id = %q, want UC123456789", result.Metadata.ChannelID)
++	}
++	if result.Metadata.UploaderID != "@ExampleChannel" {
++		t.Fatalf("uploader id = %q, want @ExampleChannel", result.Metadata.UploaderID)
++	}
++	if result.Metadata.Duration != 6441*time.Second {
++		t.Fatalf("duration = %v, want 6441s", result.Metadata.Duration)
++	}
++	if result.Metadata.DurationString != "1:47:21" {
++		t.Fatalf("duration string = %q, want 1:47:21", result.Metadata.DurationString)
++	}
++	if result.Metadata.PublishDate != time.Date(2024, time.March, 7, 0, 0, 0, 0, time.UTC) {
++		t.Fatalf("publish date = %v", result.Metadata.PublishDate)
++	}
++	assertInt64Ptr(t, result.Metadata.ViewCount, 3271)
++	assertInt64Ptr(t, result.Metadata.LikeCount, 77)
++	assertInt64Ptr(t, result.Metadata.CommentCount, 11)
++	assertInt64Ptr(t, result.Metadata.ChannelFollowerCount, 20000)
++	if !reflect.DeepEqual(result.Metadata.Categories, []string{"Science & Technology"}) {
++		t.Fatalf("categories = %#v", result.Metadata.Categories)
++	}
++	if !reflect.DeepEqual(result.Metadata.VideoTags, []string{"go", "distributed systems"}) {
++		t.Fatalf("video tags = %#v", result.Metadata.VideoTags)
++	}
++	if result.Metadata.Language != "en" {
++		t.Fatalf("language = %q, want en", result.Metadata.Language)
++	}
++	if result.Metadata.LiveStatus != "not_live" {
++		t.Fatalf("live status = %q, want not_live", result.Metadata.LiveStatus)
++	}
++	assertBoolPtr(t, result.Metadata.WasLive, false)
++	if result.Metadata.ChapterCount != 2 {
++		t.Fatalf("chapter count = %d, want 2", result.Metadata.ChapterCount)
++	}
++	if result.Source != TranscriptSourceCaptions {
++		t.Fatalf("source = %q, want captions", result.Source)
++	}
++	if result.Language != "en" {
++		t.Fatalf("language = %q, want en", result.Language)
++	}
++	wantMarkdown := "## 00:00\nHello world\n\n## 00:05\nSecond line"
++	if result.Markdown != wantMarkdown {
++		t.Fatalf("markdown = %q, want %q", result.Markdown, wantMarkdown)
++	}
++
++	invocations := readYTDLPInvocationLog(t, logPath)
++	if len(invocations) != 2 {
++		t.Fatalf("invocations = %#v, want metadata and captions", invocations)
++	}
++	assertArgsContain(t, invocations[0], "--dump-single-json")
++	assertArgsContain(t, invocations[0], "--ignore-config")
++	assertArgsContain(t, invocations[0], "--no-playlist")
++	assertArgsContain(t, invocations[0], "--proxy", "http://proxy.internal:8080")
++	assertArgsContain(t, invocations[0], "--cookies", "/tmp/youtube-cookies.txt")
++	assertArgsContain(t, invocations[0], "--user-agent", "kb-test-agent")
++	assertArgsContain(t, invocations[0], "--retries", "5")
++	assertArgsContain(t, invocations[1], "--ignore-config")
++	assertArgsContain(t, invocations[1], "--no-playlist")
++	assertArgsContain(t, invocations[1], "--retries", "5")
++	assertArgsContain(t, invocations[1], "--fragment-retries", "5")
++	assertArgsContain(t, invocations[1], "--write-subs")
++	assertArgsContain(t, invocations[1], "--sub-langs", "en")
++	assertArgsContain(t, invocations[1], "--sub-format", "json3/vtt/best")
++	if containsArg(invocations[1], "--write-auto-subs") {
++		t.Fatalf("manual captions should not use --write-auto-subs: %#v", invocations[1])
++	}
++}
++
++func TestMetadataFromYTDLPInfoHandlesMissingOptionalMetrics(t *testing.T) {
++	t.Parallel()
++
++	var info ytDLPInfo
++	if err := json.Unmarshal([]byte(strings.Join([]string{
++		`{"id":"dQw4w9WgXcQ",`,
++		`"title":"Sparse Video",`,
++		`"duration":90,`,
++		`"like_count":null,`,
++		`"comment_count":null,`,
++		`"channel_follower_count":null,`,
++		`"was_live":null,`,
++		`"categories":["", "Education"],`,
++		`"tags":null}`,
++	}, "")), &info); err != nil {
++		t.Fatalf("unmarshal sparse yt-dlp info: %v", err)
++	}
++
++	metadata := metadataFromYTDLPInfo(parsedRickRollURL(), info)
++	if metadata.DurationString != "1:30" {
++		t.Fatalf("duration string = %q, want fallback 1:30", metadata.DurationString)
++	}
++	if metadata.LikeCount != nil {
++		t.Fatalf("like count = %#v, want nil", metadata.LikeCount)
++	}
++	if metadata.CommentCount != nil {
++		t.Fatalf("comment count = %#v, want nil", metadata.CommentCount)
++	}
++	if metadata.ChannelFollowerCount != nil {
++		t.Fatalf("channel follower count = %#v, want nil", metadata.ChannelFollowerCount)
++	}
++	if metadata.WasLive != nil {
++		t.Fatalf("was live = %#v, want nil", metadata.WasLive)
++	}
++	if !reflect.DeepEqual(metadata.Categories, []string{"Education"}) {
++		t.Fatalf("categories = %#v, want trimmed non-empty values", metadata.Categories)
++	}
++	if !reflect.DeepEqual(metadata.VideoTags, []string{}) {
++		t.Fatalf("video tags = %#v, want empty list", metadata.VideoTags)
++	}
++}
++
++func TestMetadataFromYTDLPInfoCapturesDescription(t *testing.T) {
++	t.Parallel()
++
++	var info ytDLPInfo
++	if err := json.Unmarshal([]byte(`{"id":"abc","title":"Reel","description":"  Caption body  ","duration":12}`), &info); err != nil {
++		t.Fatalf("unmarshal yt-dlp info: %v", err)
++	}
++	metadata := metadataFromYTDLPInfo(ParsedURL{CanonicalURL: "https://www.instagram.com/reel/abc/", VideoID: "abc"}, info)
++	if metadata.Description != "Caption body" {
++		t.Fatalf("description = %q, want trimmed caption body", metadata.Description)
++	}
++}
++
++func TestYTDLPBackendListsPlaylistEntries(t *testing.T) {
++	t.Parallel()
++
++	playlist := `{"entries":[
++  {"id":"aaaaaaaaaaa","title":"First","url":"https://www.youtube.com/watch?v=aaaaaaaaaaa"},
++  {"id":"bbbbbbbbbbb","title":"Second"}
++]}`
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{metadataJSON: playlist})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{}, retryPolicy{Attempts: 1})
++
++	entries, err := backend.ListPlaylistEntries(context.Background(), "https://www.youtube.com/@chan/videos", 5)
++	if err != nil {
++		t.Fatalf("ListPlaylistEntries returned error: %v", err)
++	}
++	if len(entries) != 2 {
++		t.Fatalf("want 2 entries, got %d: %+v", len(entries), entries)
++	}
++	if entries[0].ID != "aaaaaaaaaaa" || entries[0].Title != "First" {
++		t.Fatalf("unexpected first entry: %+v", entries[0])
++	}
++	if entries[0].URL != "https://www.youtube.com/watch?v=aaaaaaaaaaa" {
++		t.Fatalf("first entry url = %q", entries[0].URL)
++	}
++
++	args := readYTDLPInvocationLog(t, logPath)[0]
++	assertArgsContain(t, args, "--flat-playlist")
++	assertArgsContain(t, args, "--playlist-end", "5")
++	if containsArg(args, "--no-playlist") {
++		t.Fatalf("--no-playlist must be absent for channel enumeration: %#v", args)
++	}
++}
++
++func TestYTDLPBackendExtractsVTTFallback(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"VTT Video",`,
++			`"language":"en",`,
++			`"subtitles":{"en":[{"ext":"vtt"}]},"automatic_captions":{}}`,
++		}, ""),
++		captionExt: "vtt",
++		captionBody: strings.Join([]string{
++			"WEBVTT",
++			"",
++			"00:00:01.250 --> 00:00:02.500",
++			"First caption",
++			"",
++			"00:02.000 --> 00:03.000",
++			"Second caption",
++			"",
++		}, "\n"),
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++
++	wantMarkdown := "## 00:01\nFirst caption\n\n## 00:02\nSecond caption"
++	if result.Markdown != wantMarkdown {
++		t.Fatalf("markdown = %q, want %q", result.Markdown, wantMarkdown)
++	}
++}
++
++func TestYTDLPBackendDefaultsToOriginalAutomaticCaption(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
++			`"language":"pt",`,
++			`"subtitles":{},`,
++			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"pt":[{"ext":"json3"}],"en":[{"ext":"json3"}],"es":[{"ext":"json3"}],"fr":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt:  "json3",
++		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Ola mundo"}]}]}`,
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Language != "pt-orig" {
++		t.Fatalf("language = %q, want pt-orig", result.Language)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	assertArgsContain(t, invocations[1], "--write-auto-subs")
++	assertArgsContain(t, invocations[1], "--sub-langs", "pt-orig")
++	if containsArgSequence(invocations[1], "--sub-langs", "en") {
++		t.Fatalf("default selection must not request translated English: %#v", invocations[1])
++	}
++}
++
++func TestYTDLPBackendPrefersManualOriginalCaption(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Manual Portuguese",`,
++			`"language":"pt",`,
++			`"subtitles":{"pt":[{"ext":"json3"}]},`,
++			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"en":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt:  "json3",
++		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Manual"}]}]}`,
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Language != "pt" {
++		t.Fatalf("language = %q, want pt", result.Language)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	assertArgsContain(t, invocations[1], "--write-subs")
++	assertArgsContain(t, invocations[1], "--sub-langs", "pt")
++}
++
++func TestYTDLPBackendDefaultsToOriginalEnglishCaption(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"English",`,
++			`"language":"en",`,
++			`"subtitles":{},`,
++			`"automatic_captions":{"en-orig":[{"ext":"json3"}],"en":[{"ext":"json3"}],"pt":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt:  "json3",
++		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Hello"}]}]}`,
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), nil)
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Language != "en-orig" {
++		t.Fatalf("language = %q, want en-orig", result.Language)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	assertArgsContain(t, invocations[1], "--sub-langs", "en-orig")
++}
++
++func TestYTDLPBackendSelectsPreferredAutomaticCaption(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Preferred",`,
++			`"language":"pt-BR",`,
++			`"subtitles":{"en":[{"ext":"json3"}]},`,
++			`"automatic_captions":{"pt-BR":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt:  "json3",
++		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Preferido"}]}]}`,
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})
++
++	result, err := backend.Extract(context.Background(), parsedRickRollURL(), []string{"pt"})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Language != "pt-BR" {
++		t.Fatalf("language = %q, want pt-BR", result.Language)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	assertArgsContain(t, invocations[1], "--write-auto-subs")
++	assertArgsContain(t, invocations[1], "--sub-langs", "pt-BR")
++}
++
++func TestExtractorRejectsTranslatedCaptionWhenDisabled(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
++			`"language":"pt",`,
++			`"subtitles":{},`,
++			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExit: 1,
++		captionErr:  "translated caption should not be downloaded",
++	})
++	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
++
++	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
++		PreferredLanguages: []string{"es"},
++	})
++	if err == nil {
++		t.Fatal("expected translated caption selection to fail")
++	}
++	var mediaErr *Error
++	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindTranscriptUnavailable {
++		t.Fatalf("error = %v, want transcript_unavailable", err)
++	}
++	if !strings.Contains(err.Error(), "translated captions are disabled") {
++		t.Fatalf("error = %v, want translated captions diagnostic", err)
++	}
++}
++
++func TestExtractorAllowsExplicitTranslatedCaptionWhenEnabled(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
++			`"language":"pt",`,
++			`"subtitles":{},`,
++			`"automatic_captions":{"pt-orig":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExt:  "json3",
++		captionBody: `{"events":[{"tStartMs":0,"segs":[{"utf8":"Hola"}]}]}`,
++	})
++	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
++
++	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
++		PreferredLanguages:      []string{"es"},
++		AllowTranslatedCaptions: true,
++	})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Language != "es" {
++		t.Fatalf("language = %q, want es", result.Language)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	assertArgsContain(t, invocations[1], "--sub-langs", "es")
++}
++
++func TestExtractorFailsWhenNoOriginalCaptionAvailable(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: strings.Join([]string{
++			`{"id":"dQw4w9WgXcQ","title":"Portuguese",`,
++			`"language":"pt",`,
++			`"subtitles":{},`,
++			`"automatic_captions":{"en":[{"ext":"json3"}],"es":[{"ext":"json3"}]}}`,
++		}, ""),
++		captionExit: 1,
++		captionErr:  "caption download should not run",
++	})
++	extractor := &Extractor{ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{})}
++
++	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err == nil {
++		t.Fatal("expected missing original caption to fail")
++	}
++	var mediaErr *Error
++	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindTranscriptUnavailable {
++		t.Fatalf("error = %v, want transcript_unavailable", err)
++	}
++	if !strings.Contains(err.Error(), "no original-language caption available") {
++		t.Fatalf("error = %v, want original-language diagnostic", err)
++	}
++}
++
++func TestExtractorFailsWhenYTDLPIsUnavailable(t *testing.T) {
++	t.Parallel()
++
++	extractor := &Extractor{
++		ytDLP: &ytDLPBackend{
++			binaryPath: "missing-yt-dlp",
++			lookPath: func(string) (string, error) {
++				return "", exec.ErrNotFound
++			},
++			commandContext: exec.CommandContext,
++		},
++	}
++
++	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err == nil {
++		t.Fatal("expected Extract to fail")
++	}
++	if !errors.Is(err, errYTDLPUnavailable) {
++		t.Fatalf("error = %v, want yt-dlp unavailable", err)
++	}
++}
++
++func TestExtractorUsesYTDLPWhenAvailable(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Primary","language":"en","subtitles":{"en":[{"ext":"json3"}]}}`,
++		captionExt:   "json3",
++		captionBody:  `{"events":[{"tStartMs":0,"segs":[{"utf8":"Primary transcript"}]}]}`,
++	})
++	extractor := &Extractor{
++		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++	}
++
++	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if !strings.Contains(result.Markdown, "Primary transcript") {
++		t.Fatalf("markdown = %q, want primary transcript", result.Markdown)
++	}
++}
++
++func TestExtractorUsesSTTWhenYTDLPProvesCaptionsUnavailable(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"No Captions","subtitles":{},"automatic_captions":{}}`,
++		audioExt:     "mp3",
++		audioBody:    "audio-from-ytdlp",
++	})
++	stt := &stubSTTClient{transcript: "Fallback transcript"}
++	extractor := &Extractor{
++		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++		stt:       stt,
++		sttConfig: config.Default().STT,
++	}
++
++	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
++		TranscriptionPolicy: TranscriptionPolicyAuto,
++	})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Source != TranscriptSourceSTT {
++		t.Fatalf("source = %q, want stt", result.Source)
++	}
++	if result.Markdown != "## 00:00\nFallback transcript" {
++		t.Fatalf("markdown = %q", result.Markdown)
++	}
++	if !reflect.DeepEqual(stt.audio, []byte("audio-from-ytdlp\n")) {
++		t.Fatalf("stt audio = %q, want audio-from-ytdlp", string(stt.audio))
++	}
++}
++
++func TestExtractorAutoPolicyUsesSTTWhenOnlyAutomaticCaptionsExist(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Automatic Only","subtitles":{},"automatic_captions":{"en":[{"ext":"json3"}]}}`,
++		audioExt:     "mp3",
++		audioBody:    "audio-from-ytdlp",
++		captionExit:  1,
++		captionErr:   "caption download should not run for auto policy with only automatic captions",
++	})
++	stt := &stubSTTClient{transcript: "STT transcript"}
++	extractor := &Extractor{
++		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++		stt:       stt,
++		sttConfig: config.Default().STT,
++	}
++
++	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
++		TranscriptionPolicy: TranscriptionPolicyAuto,
++	})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Source != TranscriptSourceSTT {
++		t.Fatalf("source = %q, want stt", result.Source)
++	}
++	if result.Markdown != "## 00:00\nSTT transcript" {
++		t.Fatalf("markdown = %q", result.Markdown)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	if len(invocations) != 2 {
++		t.Fatalf("invocations = %#v, want metadata and audio", invocations)
++	}
++	if containsArg(invocations[1], "--write-subs") || containsArg(invocations[1], "--write-auto-subs") {
++		t.Fatalf("caption download should not run for auto policy without manual captions: %#v", invocations[1])
++	}
++}
++
++func TestExtractorSTTPolicyIgnoresYTDLPCaptions(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","language":"en","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
++		audioExt:     "mp3",
++		audioBody:    "audio-from-ytdlp",
++		captionExit:  1,
++		captionErr:   "caption download should not run",
++	})
++	stt := &stubSTTClient{transcript: "Forced STT transcript"}
++	extractor := &Extractor{
++		ytDLP:     newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++		stt:       stt,
++		sttConfig: config.Default().STT,
++	}
++
++	result, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{
++		TranscriptionPolicy: TranscriptionPolicySTT,
++	})
++	if err != nil {
++		t.Fatalf("Extract returned error: %v", err)
++	}
++	if result.Source != TranscriptSourceSTT {
++		t.Fatalf("source = %q, want stt", result.Source)
++	}
++	if result.Markdown != "## 00:00\nForced STT transcript" {
++		t.Fatalf("markdown = %q", result.Markdown)
++	}
++	invocations := readYTDLPInvocationLog(t, logPath)
++	if len(invocations) != 2 {
++		t.Fatalf("invocations = %#v, want metadata and audio", invocations)
++	}
++	if containsArg(invocations[1], "--write-subs") || containsArg(invocations[1], "--write-auto-subs") {
++		t.Fatalf("caption download should not run for STT policy: %#v", invocations[1])
++	}
++}
++
++func TestExtractorDoesNotUseSTTWhenYTDLPSeesCaptionsButFetchFails(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataJSON: `{"id":"dQw4w9WgXcQ","title":"Captioned","language":"en","subtitles":{"en":[{"ext":"json3"}]},"automatic_captions":{}}`,
++		captionExit:  1,
++		captionErr:   "HTTP Error 429: Too Many Requests",
++	})
++	stt := &stubSTTClient{transcript: "should not run"}
++	extractor := &Extractor{
++		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++		stt:   stt,
++	}
++
++	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err == nil {
++		t.Fatal("expected Extract to fail")
++	}
++	if !errors.Is(err, errYTDLPCaptionFetchFailed) {
++		t.Fatalf("error = %v, want yt-dlp caption fetch failure", err)
++	}
++	var mediaErr *Error
++	if !errors.As(err, &mediaErr) || mediaErr.Kind != ErrorKindRateLimited {
++		t.Fatalf("error = %v, want rate_limited detail", err)
++	}
++	if !strings.Contains(err.Error(), `caption language "en"`) {
++		t.Fatalf("error = %v, want requested caption language", err)
++	}
++	if stt.called {
++		t.Fatal("STT should not run when yt-dlp already observed captions")
++	}
++}
++
++func TestYTDLPBackendDownloadsAudioWithConfiguredNetworkArgs(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, logPath := writeFakeYTDLP(t, fakeYTDLPOptions{
++		audioExt:  "mp3",
++		audioBody: "audio-bytes",
++	})
++	backend := newFakeYTDLPBackend(scriptPath, BackendConfig{
++		YTDLPPath:   "custom-yt-dlp",
++		Proxy:       "http://proxy.internal:8080",
++		CookiesFile: "/tmp/youtube-cookies.txt",
++		UserAgent:   "kb-test-agent",
++	}, retryPolicy{Attempts: 4, Backoff: 2 * time.Second})
++
++	audio, err := backend.downloadAudio(context.Background(), parsedRickRollURL().CanonicalURL, "mp3")
++	if err != nil {
++		t.Fatalf("downloadAudio returned error: %v", err)
++	}
++	defer audio.Cleanup()
++	data, err := os.ReadFile(audio.Path)
++	if err != nil {
++		t.Fatalf("read audio: %v", err)
++	}
++	if string(data) != "audio-bytes\n" {
++		t.Fatalf("audio data = %q", string(data))
++	}
++	if audio.Format != "mp3" {
++		t.Fatalf("audio format = %q, want mp3", audio.Format)
++	}
++
++	invocations := readYTDLPInvocationLog(t, logPath)
++	if len(invocations) != 1 {
++		t.Fatalf("invocations = %#v, want one audio invocation", invocations)
++	}
++	assertArgsContain(t, invocations[0], "--extract-audio")
++	assertArgsContain(t, invocations[0], "--audio-format", "mp3")
++	assertArgsContain(t, invocations[0], "--proxy", "http://proxy.internal:8080")
++	assertArgsContain(t, invocations[0], "--cookies", "/tmp/youtube-cookies.txt")
++	assertArgsContain(t, invocations[0], "--user-agent", "kb-test-agent")
++	assertArgsContain(t, invocations[0], "--retries", "4")
++	assertArgsContain(t, invocations[0], "--fragment-retries", "4")
++	assertArgsContain(t, invocations[0], "--retry-sleep", "2")
++}
++
++func TestFindYTDLPAudioFileRejectsUnsupportedFormats(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "audio.flac"), []byte("audio"), 0o644); err != nil {
++		t.Fatalf("write audio: %v", err)
++	}
++	_, _, err := findYTDLPAudioFile(dir)
++	if err == nil {
++		t.Fatal("expected unsupported audio format to fail")
++	}
++	if !strings.Contains(err.Error(), "no audio file") {
++		t.Fatalf("error = %v, want no audio file produced", err)
++	}
++}
++
++func TestExtractorReportsYTDLPMetadataFailure(t *testing.T) {
++	t.Parallel()
++
++	scriptPath, _ := writeFakeYTDLP(t, fakeYTDLPOptions{
++		metadataExit: 1,
++		metadataErr:  "yt-dlp protocol failed",
++	})
++	extractor := &Extractor{
++		ytDLP: newFakeYTDLPBackend(scriptPath, BackendConfig{YTDLPPath: "yt-dlp"}, retryPolicy{}),
++	}
++
++	_, err := extractor.Extract(context.Background(), parsedRickRollURL(), ExtractOptions{})
++	if err == nil {
++		t.Fatal("expected Extract to fail")
++	}
++	message := err.Error()
++	if !strings.Contains(message, "yt-dlp backend") || strings.Contains(message, "legacy") {
++		t.Fatalf("error = %q, want only yt-dlp diagnostics", message)
++	}
++}
++
++type fakeYTDLPOptions struct {
++	metadataJSON string
++	metadataExit int
++	metadataErr  string
++	captionExt   string
++	captionBody  string
++	captionExit  int
++	captionErr   string
++	audioExt     string
++	audioBody    string
++	audioExit    int
++	audioErr     string
++}
++
++func writeFakeYTDLP(t *testing.T, options fakeYTDLPOptions) (string, string) {
++	t.Helper()
++
++	dir := t.TempDir()
++	scriptPath := filepath.Join(dir, "yt-dlp")
++	logPath := filepath.Join(dir, "args.log")
++
++	var builder strings.Builder
++	builder.WriteString("#!/bin/sh\n")
++	builder.WriteString("set -eu\n")
++	builder.WriteString("LOG_PATH=" + shellQuoteYTDLPTest(logPath) + "\n")
++	builder.WriteString("for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$LOG_PATH\"; done\n")
++	builder.WriteString("printf '%s\\n' '---' >> \"$LOG_PATH\"\n")
++	builder.WriteString("case \" $* \" in\n")
++	builder.WriteString("  *\" --dump-single-json \"*)\n")
++	if options.metadataErr != "" {
++		builder.WriteString("    printf '%s\\n' " + shellQuoteYTDLPTest(options.metadataErr) + " >&2\n")
++	}
++	if options.metadataExit != 0 {
++		builder.WriteString("    exit " + strconv.Itoa(options.metadataExit) + "\n")
++	} else {
++		builder.WriteString("    cat <<'JSON'\n")
++		builder.WriteString(options.metadataJSON)
++		if !strings.HasSuffix(options.metadataJSON, "\n") {
++			builder.WriteString("\n")
++		}
++		builder.WriteString("JSON\n")
++	}
++	builder.WriteString("    ;;\n")
++	builder.WriteString("  *\" --extract-audio \"*)\n")
++	if options.audioErr != "" {
++		builder.WriteString("    printf '%s\\n' " + shellQuoteYTDLPTest(options.audioErr) + " >&2\n")
++	}
++	if options.audioExit != 0 {
++		builder.WriteString("    exit " + strconv.Itoa(options.audioExit) + "\n")
++	} else if options.audioExt != "" {
++		builder.WriteString("    out_dir=\"\"\n")
++		builder.WriteString("    previous=\"\"\n")
++		builder.WriteString("    for arg in \"$@\"; do\n")
++		builder.WriteString("      if [ \"$previous\" = \"--paths\" ]; then out_dir=${arg#home:}; fi\n")
++		builder.WriteString("      previous=\"$arg\"\n")
++		builder.WriteString("    done\n")
++		builder.WriteString("    [ -n \"$out_dir\" ] || exit 7\n")
++		builder.WriteString("    mkdir -p \"$out_dir\"\n")
++		builder.WriteString("    cat > \"$out_dir/dQw4w9WgXcQ." + options.audioExt + "\" <<'AUDIO'\n")
++		builder.WriteString(options.audioBody)
++		if !strings.HasSuffix(options.audioBody, "\n") {
++			builder.WriteString("\n")
++		}
++		builder.WriteString("AUDIO\n")
++	}
++	builder.WriteString("    ;;\n")
++	builder.WriteString("  *)\n")
++	if options.captionErr != "" {
++		builder.WriteString("    printf '%s\\n' " + shellQuoteYTDLPTest(options.captionErr) + " >&2\n")
++	}
++	if options.captionExit != 0 {
++		builder.WriteString("    exit " + strconv.Itoa(options.captionExit) + "\n")
++	} else if options.captionExt != "" {
++		builder.WriteString("    out_dir=\"\"\n")
++		builder.WriteString("    previous=\"\"\n")
++		builder.WriteString("    for arg in \"$@\"; do\n")
++		builder.WriteString("      if [ \"$previous\" = \"--paths\" ]; then out_dir=${arg#home:}; fi\n")
++		builder.WriteString("      previous=\"$arg\"\n")
++		builder.WriteString("    done\n")
++		builder.WriteString("    [ -n \"$out_dir\" ] || exit 7\n")
++		builder.WriteString("    mkdir -p \"$out_dir\"\n")
++		builder.WriteString("    cat > \"$out_dir/dQw4w9WgXcQ.en." + options.captionExt + "\" <<'CAPTION'\n")
++		builder.WriteString(options.captionBody)
++		if !strings.HasSuffix(options.captionBody, "\n") {
++			builder.WriteString("\n")
++		}
++		builder.WriteString("CAPTION\n")
++	}
++	builder.WriteString("    ;;\n")
++	builder.WriteString("esac\n")
++
++	if err := os.WriteFile(scriptPath, []byte(builder.String()), 0o755); err != nil {
++		t.Fatalf("write fake yt-dlp: %v", err)
++	}
++	return scriptPath, logPath
++}
++
++func newFakeYTDLPBackend(scriptPath string, cfg BackendConfig, retry retryPolicy) *ytDLPBackend {
++	backend := newYTDLPBackend(cfg, retry)
++	backend.lookPath = func(string) (string, error) {
++		return scriptPath, nil
++	}
++	return backend
++}
++
++func readYTDLPInvocationLog(t *testing.T, path string) [][]string {
++	t.Helper()
++
++	data, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatalf("read invocation log: %v", err)
++	}
++	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
++	invocations := make([][]string, 0, 2)
++	current := make([]string, 0, 16)
++	for _, line := range lines {
++		if line == "---" {
++			invocations = append(invocations, append([]string(nil), current...))
++			current = current[:0]
++			continue
++		}
++		current = append(current, line)
++	}
++	if len(current) > 0 {
++		invocations = append(invocations, current)
++	}
++	return invocations
++}
++
++func parsedRickRollURL() ParsedURL {
++	return ParsedURL{
++		CanonicalURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
++		VideoID:      "dQw4w9WgXcQ",
++	}
++}
++
++func assertArgsContain(t *testing.T, args []string, want ...string) {
++	t.Helper()
++
++	if len(want) == 1 {
++		if !containsArg(args, want[0]) {
++			t.Fatalf("args %#v do not contain %q", args, want[0])
++		}
++		return
++	}
++	for index := 0; index <= len(args)-len(want); index++ {
++		if reflect.DeepEqual(args[index:index+len(want)], want) {
++			return
++		}
++	}
++	t.Fatalf("args %#v do not contain sequence %#v", args, want)
++}
++
++func containsArg(args []string, want string) bool {
++	return slices.Contains(args, want)
++}
++
++func containsArgSequence(args []string, want ...string) bool {
++	for index := 0; index <= len(args)-len(want); index++ {
++		if reflect.DeepEqual(args[index:index+len(want)], want) {
++			return true
++		}
++	}
++	return false
++}
++
++func assertInt64Ptr(t *testing.T, got *int64, want int64) {
++	t.Helper()
++
++	if got == nil {
++		t.Fatalf("value = nil, want %d", want)
++	}
++	if *got != want {
++		t.Fatalf("value = %d, want %d", *got, want)
++	}
++}
++
++func assertBoolPtr(t *testing.T, got *bool, want bool) {
++	t.Helper()
++
++	if got == nil {
++		t.Fatalf("value = nil, want %t", want)
++	}
++	if *got != want {
++		t.Fatalf("value = %t, want %t", *got, want)
++	}
++}
++
++func shellQuoteYTDLPTest(value string) string {
++	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
++}
+diff --git a/internal/youtube/channel.go b/internal/youtube/channel.go
+new file mode 100644
+index 0000000..471e904
+--- /dev/null
++++ b/internal/youtube/channel.go
+@@ -0,0 +1,346 @@
++package youtube
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"math/rand"
++	"net/url"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/compozy/kb/internal/mediadl"
++)
++
++// ChannelVideo identifies a single video resolved from a channel or playlist.
++type ChannelVideo struct {
++	VideoID string
++	Title   string
++	URL     string
++}
++
++// BulkOptions controls channel/playlist bulk transcript extraction. Concurrency,
++// Throttle, BackoffMax, and MaxRetries form the rate-limit defense: a small worker
++// pool, an inter-request throttle with jitter, and adaptive exponential backoff
++// when YouTube starts blocking requests.
++type BulkOptions struct {
++	TranscriptionPolicy     TranscriptionPolicy
++	PreferredLanguages      []string
++	AllowTranslatedCaptions bool
++	Concurrency             int
++	Throttle                time.Duration
++	BackoffMax              time.Duration
++	MaxRetries              int
++}
++
++// VideoOutcome reports the result of extracting a single video during a bulk run.
++// Exactly one of Result or Err is set.
++type VideoOutcome struct {
++	Video  ChannelVideo
++	Result *Result
++	Err    error
++}
++
++// NormalizeChannelURL canonicalizes a channel or playlist URL to the form yt-dlp
++// enumerates cleanly. Channel handles and the /shorts and /streams tabs are
++// rewritten to /videos; playlist URLs keep their list query. Single-video URLs
++// are rejected so callers route them to single-video ingestion instead.
++func NormalizeChannelURL(raw string) (string, error) {
++	value := strings.TrimSpace(raw)
++	if value == "" {
++		return "", &Error{Kind: ErrorKindInvalidURL, URL: raw, Message: "channel url is required"}
++	}
++	if !strings.Contains(value, "://") {
++		value = "https://" + value
++	}
++	parsed, err := url.Parse(value)
++	if err != nil || parsed.Host == "" {
++		return "", &Error{Kind: ErrorKindInvalidURL, URL: raw, Message: "invalid channel URL", Err: err}
++	}
++
++	host := strings.ToLower(parsed.Host)
++	if host == "youtu.be" || host == "www.youtu.be" {
++		return "", videoURLNotAllowed(raw)
++	}
++	if !strings.Contains(host, "youtube.com") {
++		return "", &Error{
++			Kind:    ErrorKindInvalidURL,
++			URL:     raw,
++			Message: fmt.Sprintf("expected a youtube.com channel or playlist URL: %q", raw),
++		}
++	}
++
++	path := strings.TrimRight(parsed.Path, "/")
++	if path == "/watch" || strings.TrimSpace(parsed.Query().Get("v")) != "" {
++		return "", videoURLNotAllowed(raw)
++	}
++
++	if listID := strings.TrimSpace(parsed.Query().Get("list")); listID != "" {
++		normalized := url.URL{Scheme: schemeOrHTTPS(parsed.Scheme), Host: parsed.Host, Path: "/playlist", RawQuery: "list=" + listID}
++		return normalized.String(), nil
++	}
++
++	if path == "" {
++		return "", &Error{Kind: ErrorKindInvalidURL, URL: raw, Message: "channel URL path is required"}
++	}
++
++	var normalizedPath string
++	switch {
++	case strings.HasSuffix(path, "/videos"):
++		normalizedPath = path
++	case strings.HasSuffix(path, "/shorts"), strings.HasSuffix(path, "/streams"):
++		normalizedPath = path[:strings.LastIndex(path, "/")] + "/videos"
++	default:
++		normalizedPath = path + "/videos"
++	}
++
++	normalized := url.URL{Scheme: schemeOrHTTPS(parsed.Scheme), Host: parsed.Host, Path: normalizedPath}
++	return normalized.String(), nil
++}
++
++func videoURLNotAllowed(raw string) error {
++	return &Error{
++		Kind:    ErrorKindInvalidURL,
++		URL:     raw,
++		Message: "expected a channel or playlist URL, not a video URL; use kb ingest youtube for single videos",
++	}
++}
++
++func schemeOrHTTPS(scheme string) string {
++	if strings.TrimSpace(scheme) == "" {
++		return "https"
++	}
++	return scheme
++}
++
++// ListChannelVideos resolves the videos for an already-normalized channel or
++// playlist URL. A limit greater than zero caps the result to the newest uploads.
++func (extractor *Extractor) ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]ChannelVideo, error) {
++	if extractor == nil || extractor.core == nil {
++		return nil, errors.New("youtube channel: extractor is not configured")
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	entries, err := extractor.core.ListPlaylistEntries(ctx, normalizedURL, limit)
++	if err != nil {
++		return nil, err
++	}
++	videos := channelVideosFromEntries(entries)
++	if len(videos) == 0 {
++		return nil, fmt.Errorf("yt-dlp channel: no videos resolved for %q", normalizedURL)
++	}
++	return videos, nil
++}
++
++// channelVideosFromEntries filters raw playlist entries down to valid YouTube
++// videos, deduplicates by ID, and synthesizes watch URLs when needed.
++func channelVideosFromEntries(entries []mediadl.PlaylistEntry) []ChannelVideo {
++	videos := make([]ChannelVideo, 0, len(entries))
++	seen := make(map[string]struct{}, len(entries))
++	for _, entry := range entries {
++		id := strings.TrimSpace(entry.ID)
++		if !youtubeVideoIDPattern.MatchString(id) {
++			continue
++		}
++		if _, ok := seen[id]; ok {
++			continue
++		}
++		seen[id] = struct{}{}
++
++		videoURL := strings.TrimSpace(entry.WebpageURL)
++		if videoURL == "" {
++			videoURL = strings.TrimSpace(entry.URL)
++		}
++		if !strings.HasPrefix(strings.ToLower(videoURL), "http") {
++			videoURL = "https://www.youtube.com/watch?v=" + id
++		}
++
++		videos = append(videos, ChannelVideo{
++			VideoID: id,
++			Title:   strings.TrimSpace(entry.Title),
++			URL:     videoURL,
++		})
++	}
++	return videos
++}
++
++// BulkExtract extracts transcripts for the supplied videos using a bounded worker
++// pool with an inter-request throttle and adaptive backoff on YouTube rate limits.
++// sink is invoked exactly once per video (serialized, so it need not be
++// thread-safe) so callers can persist incrementally. It returns the context error
++// if the run was canceled.
++func (extractor *Extractor) BulkExtract(
++	ctx context.Context,
++	videos []ChannelVideo,
++	options BulkOptions,
++	sink func(VideoOutcome),
++) error {
++	if extractor == nil {
++		return errors.New("youtube bulk: extractor is nil")
++	}
++	if sink == nil {
++		return errors.New("youtube bulk: sink is required")
++	}
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	if len(videos) == 0 {
++		return nil
++	}
++
++	concurrency := max(options.Concurrency, 1)
++	maxRetries := max(options.MaxRetries, 1)
++	backoffMax := options.BackoffMax
++	if backoffMax <= 0 {
++		backoffMax = 60 * time.Second
++	}
++	throttle := max(options.Throttle, 0)
++
++	extractOptions := ExtractOptions{
++		TranscriptionPolicy:     options.TranscriptionPolicy,
++		PreferredLanguages:      options.PreferredLanguages,
++		AllowTranslatedCaptions: options.AllowTranslatedCaptions,
++	}
++	pacer := &bulkPacer{throttle: throttle, backoffMax: backoffMax}
++
++	var sinkMu sync.Mutex
++	emit := func(outcome VideoOutcome) {
++		sinkMu.Lock()
++		defer sinkMu.Unlock()
++		sink(outcome)
++	}
++
++	jobs := make(chan ChannelVideo)
++	var wg sync.WaitGroup
++	for range concurrency {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for video := range jobs {
++				if ctx.Err() != nil {
++					emit(VideoOutcome{Video: video, Err: ctx.Err()})
++					continue
++				}
++				emit(extractor.extractOneVideo(ctx, video, extractOptions, pacer, maxRetries))
++			}
++		}()
++	}
++
++feed:
++	for _, video := range videos {
++		select {
++		case jobs <- video:
++		case <-ctx.Done():
++			break feed
++		}
++	}
++	close(jobs)
++	wg.Wait()
++
++	return ctx.Err()
++}
++
++func (extractor *Extractor) extractOneVideo(
++	ctx context.Context,
++	video ChannelVideo,
++	options ExtractOptions,
++	pacer *bulkPacer,
++	maxRetries int,
++) VideoOutcome {
++	extract := extractor.extractFn
++	if extract == nil {
++		extract = extractor.Extract
++	}
++
++	var lastErr error
++	for attempt := 1; attempt <= maxRetries; attempt++ {
++		if err := pacer.wait(ctx); err != nil {
++			return VideoOutcome{Video: video, Err: err}
++		}
++
++		result, err := extract(ctx, video.URL, options)
++		if err == nil {
++			pacer.onSuccess()
++			return VideoOutcome{Video: video, Result: result}
++		}
++
++		lastErr = err
++		if mediadl.IsContextError(err) {
++			return VideoOutcome{Video: video, Err: err}
++		}
++		if isNetworkBlocked(err) && attempt < maxRetries {
++			pacer.onBlocked()
++			continue
++		}
++		break
++	}
++	return VideoOutcome{Video: video, Err: lastErr}
++}
++
++// bulkPacer spreads requests across workers with a base throttle plus jitter and
++// raises a shared exponential penalty when YouTube starts blocking requests.
++type bulkPacer struct {
++	throttle   time.Duration
++	backoffMax time.Duration
++
++	mu      sync.Mutex
++	penalty time.Duration
++}
++
++func (pacer *bulkPacer) wait(ctx context.Context) error {
++	pacer.mu.Lock()
++	delay := pacer.penalty
++	pacer.mu.Unlock()
++
++	if pacer.throttle > 0 {
++		jitter := time.Duration(rand.Int63n(int64(pacer.throttle/2) + 1))
++		delay += pacer.throttle + jitter
++	}
++	return bulkSleep(ctx, delay)
++}
++
++func (pacer *bulkPacer) onBlocked() {
++	pacer.mu.Lock()
++	defer pacer.mu.Unlock()
++	if pacer.penalty <= 0 {
++		base := pacer.throttle
++		if base <= 0 {
++			base = time.Second
++		}
++		pacer.penalty = base
++	} else {
++		pacer.penalty *= 2
++	}
++	if pacer.penalty > pacer.backoffMax {
++		pacer.penalty = pacer.backoffMax
++	}
++}
++
++func (pacer *bulkPacer) onSuccess() {
++	pacer.mu.Lock()
++	defer pacer.mu.Unlock()
++	pacer.penalty /= 2
++	if pacer.penalty < 0 {
++		pacer.penalty = 0
++	}
++}
++
++func bulkSleep(ctx context.Context, delay time.Duration) error {
++	if delay <= 0 {
++		return ctx.Err()
++	}
++	timer := time.NewTimer(delay)
++	defer timer.Stop()
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	case <-timer.C:
++		return nil
++	}
++}
++
++func isNetworkBlocked(err error) bool {
++	return mediadl.IsNetworkBlocked(err) || mediadl.IsRateLimited(err)
++}
+diff --git a/internal/cli/ingest_channel.go b/internal/cli/ingest_channel.go
+new file mode 100644
+index 0000000..c3fa73e
+--- /dev/null
++++ b/internal/cli/ingest_channel.go
+@@ -0,0 +1,274 @@
++package cli
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/spf13/cobra"
++
++	kconfig "github.com/compozy/kb/internal/config"
++	kingest "github.com/compozy/kb/internal/ingest"
++	"github.com/compozy/kb/internal/models"
++	"github.com/compozy/kb/internal/youtube"
++)
++
++type youtubeChannelExtractor interface {
++	ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error)
++	BulkExtract(
++		ctx context.Context,
++		videos []youtube.ChannelVideo,
++		options youtube.BulkOptions,
++		sink func(youtube.VideoOutcome),
++	) error
++}
++
++var newYouTubeChannelExtractor = func(cfg kconfig.Config) youtubeChannelExtractor {
++	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.YouTube)
++}
++
++type channelVideoSummary struct {
++	VideoID  string `json:"video_id"`
++	Title    string `json:"title"`
++	URL      string `json:"url"`
++	FilePath string `json:"file_path,omitempty"`
++	Error    string `json:"error,omitempty"`
++}
++
++type channelIngestSummary struct {
++	Topic                string                `json:"topic"`
++	ChannelURL           string                `json:"channel_url"`
++	NormalizedChannelURL string                `json:"normalized_channel_url"`
++	Selection            string                `json:"selection"`
++	Transcribe           string                `json:"transcribe"`
++	CaptionLanguages     []string              `json:"caption_languages"`
++	Resolved             int                   `json:"resolved"`
++	DryRun               bool                  `json:"dry_run"`
++	Videos               []channelVideoSummary `json:"videos"`
++	Ingested             []channelVideoSummary `json:"ingested"`
++	Skipped              []channelVideoSummary `json:"skipped"`
++	Failures             []channelVideoSummary `json:"failures"`
++}
++
++func newIngestChannelCommand() *cobra.Command {
++	var topicSlug string
++	var transcribe string
++	var limit int
++	var all bool
++	var concurrency int
++	var throttle time.Duration
++	var dryRun bool
++	var subLangs string
++	var lang string
++
++	command := &cobra.Command{
++		Use:   "channel <url>",
++		Short: "Bulk-extract YouTube channel or playlist transcripts into a topic",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			target, err := resolveIngestTarget(cmd, "ingest channel", topicSlug)
++			if err != nil {
++				return err
++			}
++			cfg, err := loadIngestConfig()
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			policyValue := strings.TrimSpace(cfg.YouTube.Transcription)
++			if cmd.Flags().Changed("transcribe") {
++				policyValue = transcribe
++			}
++			policy, err := youtube.ParseTranscriptionPolicy(policyValue)
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++			captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, subLangs, lang)
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			normalizedURL, err := youtube.NormalizeChannelURL(args[0])
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			resolvedLimit := limit
++			if all {
++				resolvedLimit = 0
++			}
++
++			ctx := commandContext(cmd)
++			extractor := newYouTubeChannelExtractor(cfg)
++			videos, err := extractor.ListChannelVideos(ctx, normalizedURL, resolvedLimit)
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			summary := newChannelIngestSummary(target, args[0], normalizedURL, policy, captionLanguages, resolvedLimit, dryRun, videos)
++
++			if dryRun {
++				return writeJSON(cmd, summary)
++			}
++
++			existing, err := existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			toFetch := make([]youtube.ChannelVideo, 0, len(videos))
++			for _, video := range videos {
++				if _, done := existing[video.VideoID]; done {
++					summary.Skipped = append(summary.Skipped, summarizeVideo(video))
++					continue
++				}
++				toFetch = append(toFetch, video)
++			}
++
++			options, err := resolveChannelBulkOptions(cmd, cfg.YouTube, policy, captionLanguages, concurrency, throttle)
++			if err != nil {
++				return fmt.Errorf("ingest channel: %w", err)
++			}
++
++			sink := func(outcome youtube.VideoOutcome) {
++				entry := summarizeVideo(outcome.Video)
++				if outcome.Err != nil {
++					entry.Error = outcome.Err.Error()
++					summary.Failures = append(summary.Failures, entry)
++					return
++				}
++				result, err := ingestChannelVideo(ctx, target, outcome)
++				if err != nil {
++					entry.Error = err.Error()
++					summary.Failures = append(summary.Failures, entry)
++					return
++				}
++				entry.FilePath = result.FilePath
++				summary.Ingested = append(summary.Ingested, entry)
++			}
++
++			bulkErr := extractor.BulkExtract(ctx, toFetch, options, sink)
++
++			if writeErr := writeJSON(cmd, summary); writeErr != nil {
++				return writeErr
++			}
++			if bulkErr != nil {
++				return fmt.Errorf("ingest channel: %w", bulkErr)
++			}
++			return nil
++		},
++	}
++
++	requireTopicFlag(command, &topicSlug)
++	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt (default captions)")
++	command.Flags().IntVar(&limit, "limit", 0, "Maximum newest uploads to ingest (0 = all)")
++	command.Flags().BoolVar(&all, "all", false, "Ingest all uploads (overrides --limit)")
++	command.Flags().IntVar(&concurrency, "concurrency", 0, "Concurrent transcript fetches (default from [youtube].bulk_concurrency)")
++	command.Flags().DurationVar(&throttle, "throttle", 0, "Delay between transcript fetches (default from [youtube].bulk_throttle)")
++	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
++	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
++	command.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and list videos without ingesting")
++
++	return command
++}
++
++func newChannelIngestSummary(
++	target ingestTarget,
++	channelURL string,
++	normalizedURL string,
++	policy youtube.TranscriptionPolicy,
++	captionLanguages []string,
++	limit int,
++	dryRun bool,
++	videos []youtube.ChannelVideo,
++) channelIngestSummary {
++	summary := channelIngestSummary{
++		Topic:                target.TopicInfo.Slug,
++		ChannelURL:           channelURL,
++		NormalizedChannelURL: normalizedURL,
++		Selection:            channelSelectionLabel(limit),
++		Transcribe:           string(policy),
++		CaptionLanguages:     append([]string(nil), captionLanguages...),
++		Resolved:             len(videos),
++		DryRun:               dryRun,
++		Videos:               make([]channelVideoSummary, 0, len(videos)),
++		Ingested:             []channelVideoSummary{},
++		Skipped:              []channelVideoSummary{},
++		Failures:             []channelVideoSummary{},
++	}
++	for _, video := range videos {
++		summary.Videos = append(summary.Videos, summarizeVideo(video))
++	}
++	return summary
++}
++
++func resolveChannelBulkOptions(
++	cmd *cobra.Command,
++	youtubeConfig kconfig.YouTubeConfig,
++	policy youtube.TranscriptionPolicy,
++	captionLanguages []string,
++	concurrency int,
++	throttle time.Duration,
++) (youtube.BulkOptions, error) {
++	throttleValue := throttle
++	if !cmd.Flags().Changed("throttle") {
++		parsed, err := youtubeConfig.BulkThrottleDuration()
++		if err != nil {
++			return youtube.BulkOptions{}, err
++		}
++		throttleValue = parsed
++	}
++
++	concurrencyValue := concurrency
++	if !cmd.Flags().Changed("concurrency") {
++		concurrencyValue = youtubeConfig.BulkConcurrency
++	}
++
++	backoffMax, err := youtubeConfig.BulkBackoffMaxDuration()
++	if err != nil {
++		return youtube.BulkOptions{}, err
++	}
++
++	return youtube.BulkOptions{
++		TranscriptionPolicy:     policy,
++		PreferredLanguages:      append([]string(nil), captionLanguages...),
++		AllowTranslatedCaptions: youtubeConfig.AllowTranslatedCaptions,
++		Concurrency:             concurrencyValue,
++		Throttle:                throttleValue,
++		BackoffMax:              backoffMax,
++		MaxRetries:              youtubeConfig.BulkRetries,
++	}, nil
++}
++
++func ingestChannelVideo(ctx context.Context, target ingestTarget, outcome youtube.VideoOutcome) (models.IngestResult, error) {
++	result := outcome.Result
++	sourceURL := strings.TrimSpace(result.Metadata.URL)
++	if sourceURL == "" {
++		sourceURL = outcome.Video.URL
++	}
++	title := strings.TrimSpace(result.Metadata.Title)
++	if title == "" {
++		title = outcome.Video.Title
++	}
++	return runIngest(ctx, kingest.Options{
++		VaultPath:        target.VaultPath,
++		Topic:            target.TopicInfo.Slug,
++		SourceKind:       models.SourceKindYouTubeTranscript,
++		SourceURL:        sourceURL,
++		Title:            title,
++		Markdown:         result.Markdown,
++		ExtraFrontmatter: youtubeFrontmatter(result),
++	})
++}
++
++func summarizeVideo(video youtube.ChannelVideo) channelVideoSummary {
++	return channelVideoSummary{VideoID: video.VideoID, Title: video.Title, URL: video.URL}
++}
++
++func channelSelectionLabel(limit int) string {
++	if limit <= 0 {
++		return "all uploads"
++	}
++	return fmt.Sprintf("latest %d uploads", limit)
++}
+diff --git a/.agents/skills/kb-yt-channel/SKILL.md b/.agents/skills/kb-yt-channel/SKILL.md
+new file mode 100644
+index 0000000..f17c86b
+--- /dev/null
++++ b/.agents/skills/kb-yt-channel/SKILL.md
+@@ -0,0 +1,56 @@
++---
++name: kb-yt-channel
++description: Creates and maintains Knowledge Base topics from YouTube channels by resolving recent or full uploads, scaffolding yt-channels topics, ingesting transcripts through kb ingest youtube, and validating/indexing the result. Use when turning a YouTube channel into a Karpathy KB topic. Do not use for single-video ingestion, general video summaries, or non-YouTube sources.
++---
++
++# KB YouTube Channel
++
++## Required Inputs
++
++- Channel URL, such as https://www.youtube.com/@aiDotEngineer.
++- Topic slug, such as ai-dot-engineer.
++- Topic title and domain.
++- Video selection: either --limit N for the newest uploads or --all for the full uploads list.
++- Transcript policy: --transcribe captions, auto, or stt.
++- Caption language policy: defaults to `orig`; optionally pass --sub-langs with a comma-separated list such as `orig,pt`.
++- Indexing policy: lexical QMD indexing by default; pass --embed when vector embeddings are explicitly needed.
++
++## Procedure
++
++**Step 1: Confirm Prerequisites**
++1. Run kb version from the vault root.
++2. Run yt-dlp --version from the vault root.
++3. Run qmd --version when final indexing is required.
++4. If --transcribe stt is selected, confirm ffmpeg -version and the configured STT provider credentials.
++
++**Step 2: Run Channel Ingest**
++1. Read references/channel-topic-contract.md when topic metadata or output validation is unclear.
++2. Execute python3 scripts/ingest-channel.py from this skill directory, passing:
++   - --vault /path/to/vault
++   - --channel-url <youtube-channel-url>
++   - --topic-slug <slug>
++   - --title <title>
++   - --domain <domain>
++	   - either --limit <n> or --all
++	   - --transcribe captions|auto|stt
++	   - optionally --sub-langs orig,<lang>
++	   - optionally --embed for vector embedding after collection sync
++3. Treat the script's JSON stdout as the run summary. Treat stderr as progress and diagnostics.
++4. The script delegates video enumeration, resume, and per-video transcript ingestion to `kb ingest channel`, which applies low-concurrency throttling and adaptive backoff to avoid YouTube rate limiting and skips videos already present in raw/youtube. Caption selection defaults to the video's original language (`orig`); translated YouTube automatic captions require `[youtube].allow_translated_captions = true`. Tune `[youtube].bulk_concurrency`, `[youtube].bulk_throttle`, `[youtube].bulk_backoff_max`, and `[youtube].bulk_retries` (or the `--concurrency`/`--throttle` flags) when a large channel still trips rate limits.
++
++Example:
++
++    python3 .agents/skills/kb-yt-channel/scripts/ingest-channel.py --vault . --channel-url https://www.youtube.com/@aiDotEngineer --topic-slug ai-dot-engineer --title "AI Engineer Channel" --domain youtube-channel --limit 10 --transcribe captions
++
++**Step 3: Verify The Topic**
++1. Confirm kb topic info yt-channels/<slug> returns the expected topic path and source count.
++2. Confirm <topic>/outputs/reports/ contains the channel ingest report for the run.
++3. Confirm kb search "<channel topic>" --topic yt-channels/<slug> --collection <slug> --lex --format json returns raw transcript or index content after indexing.
++4. Leave wiki article compilation to the normal kb compile workflow unless the user explicitly asks for article synthesis.
++
++## Error Handling
++
++- If channel resolution fails, read references/troubleshooting.md and retry after updating yt-dlp or YouTube proxy/cookie settings.
++- If captions are unavailable and --transcribe captions was selected, report the failed video and rerun only when the user chooses --transcribe auto or stt.
++- If STT fails, read references/troubleshooting.md to check ffmpeg, provider credentials, model, chunk size, and network settings.
++- If a partial topic exists after failure, rerun the same command. The script reuses the existing topic and skips videos whose source URLs are already present in raw/youtube.

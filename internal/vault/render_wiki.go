@@ -43,13 +43,13 @@ func buildStarterWikiArticles(
 func makeWikiFrontmatter(
 	topic models.TopicMetadata,
 	article starterWikiArticle,
-) map[string]interface{} {
+) map[string]any {
 	sources := make([]string, 0, len(article.Sources))
 	for _, source := range article.Sources {
 		sources = append(sources, toSourceWikiLink(topic, source, ""))
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"created":   topic.Today,
 		"domain":    topic.Domain,
 		"generator": "kodebase",
@@ -121,7 +121,7 @@ func renderDashboard(
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
 		RelativePath: GetWikiIndexPath(CodebaseDashboardTitle),
-		Frontmatter: map[string]interface{}{
+		Frontmatter: map[string]any{
 			"domain":  topic.Domain,
 			"title":   CodebaseDashboardTitle,
 			"type":    "index",
@@ -157,7 +157,7 @@ func renderConceptIndex(
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
 		RelativePath: GetWikiIndexPath(CodebaseConceptIndexTitle),
-		Frontmatter: map[string]interface{}{
+		Frontmatter: map[string]any{
 			"domain":  topic.Domain,
 			"title":   CodebaseConceptIndexTitle,
 			"type":    "index",
@@ -209,7 +209,7 @@ func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle
 		Kind:         models.DocIndex,
 		ManagedArea:  models.AreaWikiIndex,
 		RelativePath: GetWikiIndexPath(CodebaseSourceIndexTitle),
-		Frontmatter: map[string]interface{}{
+		Frontmatter: map[string]any{
 			"domain":  topic.Domain,
 			"title":   CodebaseSourceIndexTitle,
 			"type":    "index",

@@ -126,7 +126,7 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 					Kind:         models.DocWiki,
 					ManagedArea:  models.AreaWikiConcept,
 					RelativePath: vault.GetWikiConceptPath("Codebase Overview"),
-					Frontmatter:  map[string]interface{}{"title": "Codebase Overview"},
+					Frontmatter:  map[string]any{"title": "Codebase Overview"},
 					Body:         "---\ntitle: \"Codebase Overview\"\n---\n\n# Codebase Overview\n",
 				},
 			}
@@ -351,7 +351,7 @@ func TestRunnerGenerateSummaryReportsCounts(t *testing.T) {
 					Kind:         models.DocRaw,
 					ManagedArea:  models.AreaRawCodebase,
 					RelativePath: "raw/codebase/files/main.go.md",
-					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Frontmatter:  map[string]any{"title": "main.go"},
 					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
 				},
 			}
@@ -513,7 +513,7 @@ func TestRunnerGenerateDryRunSkipsWriteAndReportsSelection(t *testing.T) {
 					Kind:         models.DocRaw,
 					ManagedArea:  models.AreaRawCodebase,
 					RelativePath: "raw/codebase/files/main.go.md",
-					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Frontmatter:  map[string]any{"title": "main.go"},
 					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
 				},
 			}
@@ -659,7 +659,7 @@ func TestRunnerGenerateEmitsParseAndWriteProgressEvents(t *testing.T) {
 					Kind:         models.DocRaw,
 					ManagedArea:  models.AreaRawCodebase,
 					RelativePath: "raw/codebase/files/main.go.md",
-					Frontmatter:  map[string]interface{}{"title": "main.go"},
+					Frontmatter:  map[string]any{"title": "main.go"},
 					Body:         "---\ntitle: \"main.go\"\n---\n\n# main.go\n",
 				},
 			}
@@ -893,7 +893,6 @@ func TestSummarizeJavaParseTelemetry(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

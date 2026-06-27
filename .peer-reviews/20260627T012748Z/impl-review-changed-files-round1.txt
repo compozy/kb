@@ -1,0 +1,17 @@
+README.md
+config.example.toml
+internal/config/config.go
+internal/config/env.go
+internal/config/config_test.go
+internal/youtube/youtube.go
+internal/youtube/channel_test.go
+internal/cli/ingest_youtube.go
+internal/cli/ingest_test.go
+internal/mediadl/mediadl.go
+internal/mediadl/mediadl_test.go
+internal/mediadl/ytdlp.go
+internal/mediadl/ytdlp_test.go
+internal/youtube/channel.go
+internal/cli/ingest_channel.go
+.agents/skills/kb-yt-channel/SKILL.md
+.agents/skills/kb-yt-channel/scripts/ingest-channel.py

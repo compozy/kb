@@ -357,10 +357,7 @@ func writeFilesInBatches(ctx context.Context, files []fileWriteRequest, report f
 			return err
 		}
 
-		end := index + fileWriteBatchSize
-		if end > len(files) {
-			end = len(files)
-		}
+		end := min(index+fileWriteBatchSize, len(files))
 
 		for _, file := range files[index:end] {
 			if err := ctx.Err(); err != nil {

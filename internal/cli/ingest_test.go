@@ -295,12 +295,15 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	channelFollowers := int64(20000)
 	wasLive := false
 	wantYouTubeConfig := kconfig.YouTubeConfig{
-		YTDLPPath:     "custom-yt-dlp",
-		Proxy:         "http://proxy.internal:8080",
-		CookiesFile:   "/tmp/youtube-cookies.txt",
-		UserAgent:     "kb-test-agent",
-		RetryAttempts: 4,
-		RetryBackoff:  "250ms",
+		YTDLPPath:               "custom-yt-dlp",
+		Proxy:                   "http://proxy.internal:8080",
+		CookiesFile:             "/tmp/youtube-cookies.txt",
+		UserAgent:               "kb-test-agent",
+		Transcription:           "captions",
+		RetryAttempts:           4,
+		RetryBackoff:            "250ms",
+		CaptionLanguages:        []string{"orig"},
+		AllowTranslatedCaptions: true,
 	}
 
 	loadIngestConfig = func() (kconfig.Config, error) {
@@ -372,6 +375,7 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 		"--topic", "systems-design",
 		"--vault", "/tmp/vault",
 		"--transcribe", "auto",
+		"--sub-langs", "pt, es",
 	})
 
 	if err := command.ExecuteContext(context.Background()); err != nil {
@@ -383,6 +387,12 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	}
 	if gotExtractOptions.TranscriptionPolicy != youtube.TranscriptionPolicyAuto {
 		t.Fatalf("transcription policy = %q, want auto", gotExtractOptions.TranscriptionPolicy)
+	}
+	if !reflect.DeepEqual(gotExtractOptions.PreferredLanguages, []string{"pt", "es"}) {
+		t.Fatalf("preferred languages = %#v, want [pt es]", gotExtractOptions.PreferredLanguages)
+	}
+	if !gotExtractOptions.AllowTranslatedCaptions {
+		t.Fatal("expected allow_translated_captions to pass through")
 	}
 	if gotIngest.SourceKind != models.SourceKindYouTubeTranscript {
 		t.Fatalf("ingest source kind = %q, want %q", gotIngest.SourceKind, models.SourceKindYouTubeTranscript)
@@ -441,6 +451,7 @@ func TestYouTubeFrontmatterIncludesVideoMetricsAndTranscriptProvenance(t *testin
 	wasLive := false
 	values := youtubeFrontmatter(&youtube.Result{
 		Metadata: youtube.Metadata{
+			VideoID:              "abcdefghijk",
 			Channel:              "Changelog",
 			ChannelID:            "UCZbTest",
 			UploaderID:           "@Changelog",
@@ -466,6 +477,7 @@ func TestYouTubeFrontmatterIncludesVideoMetricsAndTranscriptProvenance(t *testin
 		STTModel:            "gpt-4o-transcribe",
 	})
 	want := map[string]any{
+		"video_id":               "abcdefghijk",
 		"view_count":             viewCount,
 		"like_count":             likeCount,
 		"comment_count":          commentCount,
@@ -954,6 +966,9 @@ func restoreIngestGlobals(t *testing.T) {
 	originalLoadIngestConfig := loadIngestConfig
 	originalFirecrawlScraper := newFirecrawlScraper
 	originalYouTubeExtractor := newYouTubeTranscriptExtractor
+	originalYouTubeChannelExtractor := newYouTubeChannelExtractor
+	originalInstagramExtractor := newInstagramTranscriptExtractor
+	originalExistingYouTubeVideoIDs := existingYouTubeVideoIDs
 	originalRegistry := newIngestRegistry
 	originalRunGenerate := runGenerate
 
@@ -964,6 +979,9 @@ func restoreIngestGlobals(t *testing.T) {
 		loadIngestConfig = originalLoadIngestConfig
 		newFirecrawlScraper = originalFirecrawlScraper
 		newYouTubeTranscriptExtractor = originalYouTubeExtractor
+		newYouTubeChannelExtractor = originalYouTubeChannelExtractor
+		newInstagramTranscriptExtractor = originalInstagramExtractor
+		existingYouTubeVideoIDs = originalExistingYouTubeVideoIDs
 		newIngestRegistry = originalRegistry
 		runGenerate = originalRunGenerate
 	})
@@ -989,4 +1007,220 @@ func (extractor fakeYouTubeExtractor) Extract(ctx context.Context, rawURL string
 		return nil, errors.New("unexpected extract call")
 	}
 	return extractor.extract(ctx, rawURL, options)
+}
+
+func TestIngestChannelCommandBulkIngestsWithResume(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	video1 := youtube.ChannelVideo{VideoID: "vid00000001", Title: "Already Done", URL: "https://www.youtube.com/watch?v=vid00000001"}
+	video2 := youtube.ChannelVideo{VideoID: "vid00000002", Title: "Fresh One", URL: "https://www.youtube.com/watch?v=vid00000002"}
+	video3 := youtube.ChannelVideo{VideoID: "vid00000003", Title: "No Captions", URL: "https://www.youtube.com/watch?v=vid00000003"}
+
+	var gotListURL string
+	var gotLimit int
+	var gotBulkVideos []youtube.ChannelVideo
+	var gotBulkPolicy youtube.TranscriptionPolicy
+	var gotBulkLanguages []string
+	var gotBulkAllowTranslated bool
+	var ingestCalls int
+
+	loadIngestConfig = func() (kconfig.Config, error) {
+		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+	}
+	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{Slug: slug, Title: "AI Engineer", Domain: "youtube-channel"}, nil
+	}
+	existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
+		return map[string]struct{}{"vid00000001": {}}, nil
+	}
+	newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+		return fakeYouTubeChannelExtractor{
+			list: func(_ context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
+				gotListURL = normalizedURL
+				gotLimit = limit
+				return []youtube.ChannelVideo{video1, video2, video3}, nil
+			},
+			bulk: func(_ context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
+				gotBulkVideos = videos
+				gotBulkPolicy = options.TranscriptionPolicy
+				gotBulkLanguages = append([]string(nil), options.PreferredLanguages...)
+				gotBulkAllowTranslated = options.AllowTranslatedCaptions
+				for _, video := range videos {
+					if video.VideoID == "vid00000003" {
+						sink(youtube.VideoOutcome{Video: video, Err: errors.New("captions unavailable")})
+						continue
+					}
+					sink(youtube.VideoOutcome{Video: video, Result: &youtube.Result{
+						Metadata: youtube.Metadata{VideoID: video.VideoID, URL: video.URL, Title: video.Title},
+						Markdown: "transcript",
+					}})
+				}
+				return nil
+			},
+		}
+	}
+	runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
+		ingestCalls++
+		return models.IngestResult{
+			Topic:      options.Topic,
+			SourceType: options.SourceKind,
+			FilePath:   "yt-channels/ai/raw/youtube/" + options.Title + ".md",
+			Title:      options.Title,
+		}, nil
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "channel", "https://www.youtube.com/@aiDotEngineer",
+		"--topic", "yt-channels/ai",
+		"--vault", "/tmp/vault",
+		"--limit", "10",
+		"--sub-langs", "pt",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	if gotListURL != "https://www.youtube.com/@aiDotEngineer/videos" {
+		t.Fatalf("list URL = %q, want normalized /videos URL", gotListURL)
+	}
+	if gotLimit != 10 {
+		t.Fatalf("limit = %d, want 10", gotLimit)
+	}
+	if len(gotBulkVideos) != 2 {
+		t.Fatalf("bulk received %d videos, want 2 (resume skips the existing one)", len(gotBulkVideos))
+	}
+	if gotBulkPolicy != youtube.TranscriptionPolicyCaptions {
+		t.Fatalf("bulk policy = %q, want captions", gotBulkPolicy)
+	}
+	if !reflect.DeepEqual(gotBulkLanguages, []string{"pt"}) {
+		t.Fatalf("bulk preferred languages = %#v, want [pt]", gotBulkLanguages)
+	}
+	if gotBulkAllowTranslated {
+		t.Fatal("expected channel bulk to default translated captions off")
+	}
+	if ingestCalls != 1 {
+		t.Fatalf("runIngest calls = %d, want 1 (only the successful fresh video)", ingestCalls)
+	}
+
+	var summary channelIngestSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v\n%s", err, stdout.String())
+	}
+	if summary.Resolved != 3 {
+		t.Fatalf("resolved = %d, want 3", summary.Resolved)
+	}
+	if len(summary.Skipped) != 1 || summary.Skipped[0].VideoID != "vid00000001" {
+		t.Fatalf("skipped = %+v, want only vid00000001", summary.Skipped)
+	}
+	if len(summary.Ingested) != 1 || summary.Ingested[0].VideoID != "vid00000002" {
+		t.Fatalf("ingested = %+v, want only vid00000002", summary.Ingested)
+	}
+	if summary.Ingested[0].FilePath == "" {
+		t.Fatalf("ingested entry is missing a file path: %+v", summary.Ingested[0])
+	}
+	if len(summary.Failures) != 1 || summary.Failures[0].VideoID != "vid00000003" {
+		t.Fatalf("failures = %+v, want only vid00000003", summary.Failures)
+	}
+}
+
+func TestIngestChannelCommandDryRunSkipsIngest(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	loadIngestConfig = func() (kconfig.Config, error) {
+		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+	}
+	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{Slug: slug}, nil
+	}
+	existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
+		t.Fatal("existingYouTubeVideoIDs must not run during a dry run")
+		return nil, nil
+	}
+	newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+		return fakeYouTubeChannelExtractor{
+			list: func(context.Context, string, int) ([]youtube.ChannelVideo, error) {
+				return []youtube.ChannelVideo{{VideoID: "vid00000001", Title: "One", URL: "https://www.youtube.com/watch?v=vid00000001"}}, nil
+			},
+		}
+	}
+	runIngest = func(context.Context, kingest.Options) (models.IngestResult, error) {
+		t.Fatal("runIngest must not run during a dry run")
+		return models.IngestResult{}, nil
+	}
+
+	command := newRootCommand()
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "channel", "https://www.youtube.com/@chan",
+		"--topic", "yt-channels/chan",
+		"--vault", "/tmp/vault",
+		"--dry-run",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext returned error: %v", err)
+	}
+
+	var summary channelIngestSummary
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatalf("decode summary: %v\n%s", err, stdout.String())
+	}
+	if !summary.DryRun || summary.Resolved != 1 {
+		t.Fatalf("dry-run summary = %+v, want DryRun=true resolved=1", summary)
+	}
+}
+
+func TestIngestChannelCommandRejectsVideoURL(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	loadIngestConfig = func() (kconfig.Config, error) {
+		return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+	}
+	runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{Slug: slug}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"ingest", "channel", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		"--topic", "yt-channels/chan",
+		"--vault", "/tmp/vault",
+	})
+
+	if err := command.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("expected an error when a single-video URL is passed to ingest channel")
+	}
+}
+
+type fakeYouTubeChannelExtractor struct {
+	list func(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error)
+	bulk func(ctx context.Context, videos []youtube.ChannelVideo, options youtube.BulkOptions, sink func(youtube.VideoOutcome)) error
+}
+
+func (extractor fakeYouTubeChannelExtractor) ListChannelVideos(ctx context.Context, normalizedURL string, limit int) ([]youtube.ChannelVideo, error) {
+	if extractor.list == nil {
+		return nil, errors.New("unexpected list call")
+	}
+	return extractor.list(ctx, normalizedURL, limit)
+}
+
+func (extractor fakeYouTubeChannelExtractor) BulkExtract(
+	ctx context.Context,
+	videos []youtube.ChannelVideo,
+	options youtube.BulkOptions,
+	sink func(youtube.VideoOutcome),
+) error {
+	if extractor.bulk == nil {
+		return errors.New("unexpected bulk call")
+	}
+	return extractor.bulk(ctx, videos, options, sink)
 }

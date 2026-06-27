@@ -60,7 +60,9 @@ Raw source material enters through the `kb` CLI and is staged immutably:
 ```bash
 kb ingest url <url> --topic <topic-id>        # web articles, blog posts, papers -> raw/articles/
 kb ingest file <path> --topic <topic-id>      # local files (PDF, DOCX, EPUB, images w/OCR) -> raw/articles/
-kb ingest youtube <url> --topic <topic-id>    # YouTube transcripts -> raw/youtube/
+kb ingest youtube <url> --topic <topic-id>    # single YouTube transcript -> raw/youtube/
+kb ingest channel <url> --topic <topic-id>    # YouTube channel/playlist bulk -> raw/youtube/
+kb ingest instagram <url> --topic <topic-id>  # Instagram reel/video (caption + transcript) -> raw/instagram/
 kb ingest bookmarks <path> --topic <topic-id> # bookmark clusters -> raw/bookmarks/
 kb ingest codebase <path> --topic <topic-id>  # codebase analysis -> raw/codebase/
 ```

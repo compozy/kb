@@ -207,7 +207,7 @@ func readInput(input models.ConvertInput) ([]byte, error) {
 }
 
 func firstNonEmptyLine(body string) string {
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		title := normalizeTitleLine(line)
 		if title != "" {
 			return title

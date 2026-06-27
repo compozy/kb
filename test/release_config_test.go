@@ -67,7 +67,6 @@ func TestHomebrewInstallDocsUseFormulaTap(t *testing.T) {
 	}
 
 	for _, path := range paths {
-		path := path
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 

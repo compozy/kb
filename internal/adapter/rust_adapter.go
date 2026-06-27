@@ -390,7 +390,6 @@ func collectRustDeclarations(
 	moduleIndex rustModuleIndex,
 ) {
 	for _, child := range namedChildren(node) {
-		child := child
 
 		switch child.Kind() {
 		case "function_item":
@@ -466,7 +465,6 @@ func collectRustTraitMethods(entry *parsedRustFile, node *tree_sitter.Node, sour
 	}
 
 	for _, child := range namedChildren(body) {
-		child := child
 		if child.Kind() != "function_signature_item" && child.Kind() != "function_item" {
 			continue
 		}
@@ -486,7 +484,6 @@ func collectRustImplMethods(entry *parsedRustFile, node *tree_sitter.Node, sourc
 	}
 
 	for _, child := range namedChildren(body) {
-		child := child
 		if child.Kind() != "function_item" && child.Kind() != "function_signature_item" {
 			continue
 		}

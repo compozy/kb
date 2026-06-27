@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/compozy/kb/internal/models"
@@ -362,11 +363,5 @@ func relation(fromID, toID string, relationType models.RelationType) models.Rela
 }
 
 func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(values, target)
 }

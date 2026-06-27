@@ -9,10 +9,11 @@
 # - `[openrouter]`
 # - `[stt]`
 # - `[youtube]`
+# - `[instagram]`
 #
 # Primary CLI surface is configured through commands and flags:
 # - `kb topic {new,list,info}`
-# - `kb ingest {url,file,youtube,codebase,bookmarks}`
+# - `kb ingest {url,file,youtube,channel,instagram,codebase,bookmarks}`
 # - `kb lint`
 # - `kb inspect ...`
 # - `kb index`
@@ -32,6 +33,7 @@
 # - YOUTUBE_PROXY
 # - YOUTUBE_COOKIES_FILE
 # - YOUTUBE_USER_AGENT
+# - YOUTUBE_CAPTION_LANGUAGES
 #
 # `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
 
@@ -74,5 +76,34 @@ proxy = ""
 cookies_file = ""
 user_agent = ""
 transcription = "captions"
+# Caption language preference order. "orig" means the video's original language
+# from yt-dlp metadata. Translated automatic captions are disabled by default
+# because YouTube serves them through a more aggressively rate-limited endpoint.
+caption_languages = ["orig"]
+allow_translated_captions = false
+retry_attempts = 3
+retry_backoff = "1s"
+# Bulk channel/playlist ingestion (kb ingest channel): worker pool size, the
+# inter-request throttle, the adaptive-backoff ceiling on YouTube rate limits,
+# and per-video retries on a block. Keep concurrency low to avoid rate limiting.
+bulk_concurrency = 2
+bulk_throttle = "2s"
+bulk_backoff_max = "60s"
+bulk_retries = 3
+
+[instagram]
+# Controls `kb ingest instagram <url>` (reels, video posts, IGTV). Uses yt-dlp +
+# STT, the same engine as YouTube. Cookies/proxy are kept separate from [youtube]
+# because Instagram requires its own authenticated session. Public reels often
+# work without cookies but Instagram rate-limits aggressively; set cookies_file
+# (and optionally proxy) for reliable access.
+yt_dlp_path = "yt-dlp"
+proxy = ""
+cookies_file = ""
+user_agent = ""
+# Reels rarely carry manual caption tracks, so the default policy is "auto":
+# manual captions when present, otherwise Whisper STT. Use "stt" to always
+# transcribe audio, or "captions" to require a caption track.
+transcription = "auto"
 retry_attempts = 3
 retry_backoff = "1s"

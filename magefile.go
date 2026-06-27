@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -16,11 +17,12 @@ import (
 )
 
 const (
-	golangciLintVersion = "v2.11.4"
-	gotestsumVersion    = "v1.13.0"
-	binDir              = "bin"
-	cliBinary           = "kb"
-	versionPackage      = "github.com/compozy/kb/internal/version"
+	golangciLintVersion   = "v2.11.4"
+	gotestsumVersion      = "v1.13.0"
+	goplsModernizeVersion = "v0.22.0"
+	binDir                = "bin"
+	cliBinary             = "kb"
+	versionPackage        = "github.com/compozy/kb/internal/version"
 )
 
 var Default = Verify
@@ -42,17 +44,52 @@ func Fmt() error {
 }
 
 func Lint() error {
-	if golangciLintPath, err := exec.LookPath("golangci-lint"); err == nil {
-		return sh.RunV(golangciLintPath, "run", "./...")
+	if err := runGolangCILint(); err != nil {
+		return err
+	}
+	return Modernize()
+}
+
+func runGolangCILint() error {
+	args := []string{"run", "./..."}
+	if hasPinnedTool("golangci-lint", golangciLintVersion) {
+		return sh.RunV("golangci-lint", args...)
 	}
 
+	goRunArgs := append(
+		[]string{"run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@" + golangciLintVersion},
+		args...,
+	)
+	return sh.RunV("go", goRunArgs...)
+}
+
+// Modernize runs gopls' modernize analyzer to enforce idiomatic Go
+// (any, min/max, range-over-int, slices/maps helpers, strings.Cut, ...).
+// CGO stays enabled because the tree-sitter adapters require it to type-check.
+func Modernize() error {
 	return sh.RunV(
 		"go",
 		"run",
-		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+golangciLintVersion,
-		"run",
+		"golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@"+goplsModernizeVersion,
 		"./...",
 	)
+}
+
+// hasPinnedTool reports whether an executable named name is on PATH and reports
+// the pinned version. It runs `<name> version` and matches the output so a broken
+// or mismatched shim (for example a mise shim with no version configured) is
+// rejected in favor of `go run <module>@<version>`.
+func hasPinnedTool(name string, wantVersion string) bool {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return false
+	}
+	output, err := exec.Command(path, "version").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	versionToken := "version " + strings.TrimPrefix(wantVersion, "v")
+	return bytes.Contains(output, []byte(versionToken))
 }
 
 // Test runs unit tests only (no integration tag).
@@ -198,11 +235,8 @@ func gitOutput(args ...string) string {
 }
 
 func runGoTests(testArgs ...string) error {
-	args := append([]string{"--format", "pkgname", "--"}, testArgs...)
-	if gotestsumPath, err := exec.LookPath("gotestsum"); err == nil {
-		return sh.RunV(gotestsumPath, args...)
-	}
-
-	fallbackArgs := append([]string{"run", "gotest.tools/gotestsum@" + gotestsumVersion}, args...)
-	return sh.RunV("go", fallbackArgs...)
+	// Always go run the pinned gotestsum so a broken or mismatched shim on PATH
+	// cannot break the test gate. The build is cached after the first run.
+	args := append([]string{"run", "gotest.tools/gotestsum@" + gotestsumVersion, "--format", "pkgname", "--"}, testArgs...)
+	return sh.RunV("go", args...)
 }

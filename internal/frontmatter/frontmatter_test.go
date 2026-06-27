@@ -278,7 +278,6 @@ func TestRoundTripSchemaVariants(t *testing.T) {
 	}
 
 	for name, values := range cases {
-		values := values
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -582,15 +581,15 @@ func mustDecodeGeneratedFrontmatter(t *testing.T, markdown string) (map[string]a
 	}
 
 	remainder := strings.TrimPrefix(markdown, "---\n")
-	index := strings.Index(remainder, "\n---\n")
-	if index < 0 {
+	before, after, ok := strings.Cut(remainder, "\n---\n")
+	if !ok {
 		t.Fatalf("missing closing delimiter:\n%s", markdown)
 	}
 
 	var parsed map[string]any
-	if err := yaml.Unmarshal([]byte(remainder[:index]), &parsed); err != nil {
+	if err := yaml.Unmarshal([]byte(before), &parsed); err != nil {
 		t.Fatalf("generated YAML is invalid: %v", err)
 	}
 
-	return parsed, remainder[index+5:]
+	return parsed, after
 }

@@ -29,7 +29,6 @@ func TestNew(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -61,7 +60,7 @@ func TestNewWritesJSON(t *testing.T) {
 
 	logger.Info("test message", "key", "value")
 
-	var record map[string]interface{}
+	var record map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
 		t.Fatalf("output is not valid JSON: %v\nraw: %s", err, buf.String())
 	}
@@ -84,7 +83,7 @@ func TestNewUppercaseLevelKey(t *testing.T) {
 
 	logger.Info("test")
 
-	var record map[string]interface{}
+	var record map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}

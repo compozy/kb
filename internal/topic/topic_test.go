@@ -305,7 +305,6 @@ func TestNewValidatesInputs(t *testing.T) {
 			contains: "not a directory",
 		},
 	} {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

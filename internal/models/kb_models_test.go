@@ -13,6 +13,7 @@ func TestSourceKinds(t *testing.T) {
 		SourceKindCodebaseSymbol,
 		SourceKindBookmarkCluster,
 		SourceKindDocument,
+		SourceKindInstagramVideo,
 	}
 
 	assertUniqueNonEmptyKinds(t, SourceKinds(), expected)

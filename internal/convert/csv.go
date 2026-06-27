@@ -101,7 +101,7 @@ func writeMarkdownTableRow(builder *strings.Builder, row []string) {
 
 func writeMarkdownTableSeparator(builder *strings.Builder, width int) {
 	builder.WriteString("|")
-	for i := 0; i < width; i++ {
+	for range width {
 		builder.WriteString(" --- |")
 	}
 	builder.WriteString("\n")

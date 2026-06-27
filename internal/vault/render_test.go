@@ -216,7 +216,7 @@ func TestRenderBaseDefinitionsProduceValidYAML(t *testing.T) {
 	for _, baseFile := range baseFiles {
 		rendered := vault.RenderBaseDefinition(baseFile.Definition)
 
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		if err := yaml.Unmarshal([]byte(rendered), &parsed); err != nil {
 			t.Fatalf("base file %s did not parse as YAML: %v\n%s", baseFile.RelativePath, err, rendered)
 		}
@@ -284,7 +284,7 @@ func findDocument(t *testing.T, documents []models.RenderedDocument, relativePat
 	return models.RenderedDocument{}
 }
 
-func parseFrontmatter(t *testing.T, body string) (map[string]interface{}, string) {
+func parseFrontmatter(t *testing.T, body string) (map[string]any, string) {
 	t.Helper()
 
 	if !strings.HasPrefix(body, "---\n") {
@@ -292,18 +292,18 @@ func parseFrontmatter(t *testing.T, body string) (map[string]interface{}, string
 	}
 
 	remainder := strings.TrimPrefix(body, "---\n")
-	index := strings.Index(remainder, "\n---\n")
-	if index < 0 {
+	before, after, ok := strings.Cut(remainder, "\n---\n")
+	if !ok {
 		t.Fatalf("body missing closing frontmatter delimiter:\n%s", body)
 	}
 
-	var parsed map[string]interface{}
-	frontmatterBlock := remainder[:index]
+	var parsed map[string]any
+	frontmatterBlock := before
 	if err := yaml.Unmarshal([]byte(frontmatterBlock), &parsed); err != nil {
 		t.Fatalf("frontmatter did not parse as YAML: %v\n%s", err, frontmatterBlock)
 	}
 
-	return parsed, remainder[index+5:]
+	return parsed, after
 }
 
 func testTopicFixture() models.TopicMetadata {

@@ -22,11 +22,11 @@ type VaultRelation struct {
 
 // VaultDocument is the parsed read-side representation of a vault markdown file.
 type VaultDocument struct {
-	RelativePath      string                 `json:"relativePath"`
-	Frontmatter       map[string]interface{} `json:"frontmatter"`
-	Body              string                 `json:"body"`
-	Backlinks         []VaultRelation        `json:"backlinks"`
-	OutgoingRelations []VaultRelation        `json:"outgoingRelations"`
+	RelativePath      string          `json:"relativePath"`
+	Frontmatter       map[string]any  `json:"frontmatter"`
+	Body              string          `json:"body"`
+	Backlinks         []VaultRelation `json:"backlinks"`
+	OutgoingRelations []VaultRelation `json:"outgoingRelations"`
 }
 
 // VaultSnapshot groups parsed vault documents by their source category.
@@ -226,7 +226,7 @@ func parseVaultDocument(markdown, relativePath string, warn func(string)) (Vault
 		return VaultDocument{}, false
 	}
 
-	var parsedFrontmatter map[string]interface{}
+	var parsedFrontmatter map[string]any
 	if err := yaml.Unmarshal([]byte(frontmatterMatch[1]), &parsedFrontmatter); err != nil {
 		warn(fmt.Sprintf("Skipping %s: malformed YAML frontmatter (%s).", relativePath, err))
 		return VaultDocument{}, false
@@ -248,7 +248,7 @@ func parseVaultDocument(markdown, relativePath string, warn func(string)) (Vault
 	}, true
 }
 
-func classifyDocument(frontmatter map[string]interface{}) vaultDocumentBucket {
+func classifyDocument(frontmatter map[string]any) vaultDocumentBucket {
 	switch frontmatterString(frontmatter, "source_kind") {
 	case "codebase-symbol":
 		return vaultBucketSymbols
@@ -311,26 +311,26 @@ func sortVaultDocuments(documents []VaultDocument) {
 	})
 }
 
-func normalizeFrontmatterMap(values map[string]interface{}) map[string]interface{} {
-	normalized := make(map[string]interface{}, len(values))
+func normalizeFrontmatterMap(values map[string]any) map[string]any {
+	normalized := make(map[string]any, len(values))
 	for key, value := range values {
 		normalized[key] = normalizeFrontmatterValue(value)
 	}
 	return normalized
 }
 
-func normalizeFrontmatterValue(value interface{}) interface{} {
+func normalizeFrontmatterValue(value any) any {
 	switch typed := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return normalizeFrontmatterMap(typed)
-	case map[interface{}]interface{}:
-		normalized := make(map[string]interface{}, len(typed))
+	case map[any]any:
+		normalized := make(map[string]any, len(typed))
 		for key, nestedValue := range typed {
 			normalized[fmt.Sprint(key)] = normalizeFrontmatterValue(nestedValue)
 		}
 		return normalized
-	case []interface{}:
-		normalizedValues := make([]interface{}, len(typed))
+	case []any:
+		normalizedValues := make([]any, len(typed))
 		stringValues := make([]string, len(typed))
 		allStrings := true
 
@@ -357,7 +357,7 @@ func normalizeFrontmatterValue(value interface{}) interface{} {
 	}
 }
 
-func frontmatterString(frontmatter map[string]interface{}, key string) string {
+func frontmatterString(frontmatter map[string]any, key string) string {
 	value, exists := frontmatter[key]
 	if !exists {
 		return ""
@@ -373,7 +373,7 @@ func frontmatterString(frontmatter map[string]interface{}, key string) string {
 	}
 }
 
-func frontmatterInt(frontmatter map[string]interface{}, key string) int {
+func frontmatterInt(frontmatter map[string]any, key string) int {
 	value, exists := frontmatter[key]
 	if !exists {
 		return 0

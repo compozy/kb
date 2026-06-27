@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -32,6 +33,7 @@ func clearServiceEnv(t *testing.T) {
 	t.Setenv(EnvYouTubeProxy, "")
 	t.Setenv(EnvYouTubeCookiesFile, "")
 	t.Setenv(EnvYouTubeUserAgent, "")
+	t.Setenv(EnvYouTubeCaptionLanguages, "")
 }
 
 func TestDefaultConfigHasValidDefaults(t *testing.T) {
@@ -92,6 +94,12 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if cfg.YouTube.RetryBackoff != defaultYouTubeRetryBackoff {
 		t.Errorf("expected default youtube.retry_backoff %q, got %q", defaultYouTubeRetryBackoff, cfg.YouTube.RetryBackoff)
 	}
+	if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig"}) {
+		t.Errorf("expected default youtube.caption_languages [orig], got %#v", cfg.YouTube.CaptionLanguages)
+	}
+	if cfg.YouTube.AllowTranslatedCaptions {
+		t.Error("expected youtube.allow_translated_captions to default false")
+	}
 }
 
 func TestLoadConfigRoundTrip(t *testing.T) {
@@ -139,6 +147,8 @@ ffmpeg_path = "/opt/bin/ffmpeg"
 transcription = "auto"
 retry_attempts = 5
 retry_backoff = "250ms"
+caption_languages = ["orig", "pt"]
+allow_translated_captions = true
 `
 	path := writeConfigFile(t, content)
 
@@ -211,6 +221,12 @@ retry_backoff = "250ms"
 	}
 	if cfg.YouTube.RetryAttempts != 5 {
 		t.Errorf("expected youtube.retry_attempts 5, got %d", cfg.YouTube.RetryAttempts)
+	}
+	if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig", "pt"}) {
+		t.Errorf("expected youtube.caption_languages, got %#v", cfg.YouTube.CaptionLanguages)
+	}
+	if !cfg.YouTube.AllowTranslatedCaptions {
+		t.Error("expected youtube.allow_translated_captions true")
 	}
 }
 
@@ -305,6 +321,10 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name:   "invalid youtube transcription",
 			mutate: func(c *Config) { c.YouTube.Transcription = "maybe" },
+		},
+		{
+			name:   "empty youtube caption languages",
+			mutate: func(c *Config) { c.YouTube.CaptionLanguages = []string{" "} },
 		},
 	}
 
@@ -514,6 +534,17 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:     "youtube caption languages override toml",
+			envKey:   EnvYouTubeCaptionLanguages,
+			envValue: "orig, pt , es",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig", "pt", "es"}) {
+					t.Fatalf("expected youtube.caption_languages to be overridden, got %#v", cfg.YouTube.CaptionLanguages)
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -543,9 +574,10 @@ model = "gpt-4o-transcribe"
 	[youtube]
 	yt_dlp_path = "/toml/bin/yt-dlp"
 	proxy = "http://toml.proxy:8080"
-	cookies_file = "/tmp/toml-cookies.txt"
-	user_agent = "toml-agent"
-`)
+		cookies_file = "/tmp/toml-cookies.txt"
+		user_agent = "toml-agent"
+		caption_languages = ["orig", "en"]
+	`)
 
 			t.Setenv(tc.envKey, tc.envValue)
 

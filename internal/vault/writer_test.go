@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,7 +78,7 @@ func TestWriteVaultCreatesTopicSkeletonAndManagedFiles(t *testing.T) {
 
 	basePath := filepath.Join(topic.TopicPath, filepath.FromSlash("bases/symbol-explorer.base"))
 	baseContent := readFile(t, basePath)
-	var parsedBase map[string]interface{}
+	var parsedBase map[string]any
 	if err := yaml.Unmarshal([]byte(baseContent), &parsedBase); err != nil {
 		t.Fatalf("base definition did not parse as YAML: %v\n%s", err, baseContent)
 	}
@@ -713,13 +714,7 @@ func filterOutDocument(documents []models.RenderedDocument, relativePath string)
 }
 
 func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(values, target)
 }
 
 func readFile(t *testing.T, filePath string) string {

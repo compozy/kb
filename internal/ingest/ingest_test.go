@@ -174,7 +174,6 @@ func TestIngestWritesExpectedSubdirectories(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -584,7 +583,6 @@ func TestRawDirectoryForSourceKind(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -742,4 +740,54 @@ func assertFrontmatter(t *testing.T, got map[string]any, want map[string]any) {
 			}
 		}
 	}
+}
+
+func TestExistingYouTubeVideoIDs(t *testing.T) {
+	t.Run("returns empty set when raw youtube directory is absent", func(t *testing.T) {
+		vaultPath, slug := scaffoldTopic(t)
+		ids, err := ExistingYouTubeVideoIDs(vaultPath, slug)
+		if err != nil {
+			t.Fatalf("ExistingYouTubeVideoIDs returned error: %v", err)
+		}
+		if len(ids) != 0 {
+			t.Fatalf("want empty set, got %v", ids)
+		}
+	})
+
+	t.Run("collects ids from the video_id field and the source_url", func(t *testing.T) {
+		vaultPath, slug := scaffoldTopic(t)
+		if _, err := Ingest(context.Background(), Options{
+			VaultPath:        vaultPath,
+			Topic:            slug,
+			SourceKind:       models.SourceKindYouTubeTranscript,
+			SourceURL:        "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+			Title:            "First Video",
+			Markdown:         "# First Video\n\nTranscript.\n",
+			ExtraFrontmatter: map[string]any{"video_id": "aaaaaaaaaaa"},
+			ScrapedAt:        fixedScrapeTime,
+		}); err != nil {
+			t.Fatalf("ingest first video: %v", err)
+		}
+		if _, err := Ingest(context.Background(), Options{
+			VaultPath:  vaultPath,
+			Topic:      slug,
+			SourceKind: models.SourceKindYouTubeTranscript,
+			SourceURL:  "https://www.youtube.com/watch?v=ccccccccccc",
+			Title:      "Second Video",
+			Markdown:   "# Second Video\n\nTranscript.\n",
+			ScrapedAt:  fixedScrapeTime,
+		}); err != nil {
+			t.Fatalf("ingest second video: %v", err)
+		}
+
+		ids, err := ExistingYouTubeVideoIDs(vaultPath, slug)
+		if err != nil {
+			t.Fatalf("ExistingYouTubeVideoIDs returned error: %v", err)
+		}
+		for _, want := range []string{"aaaaaaaaaaa", "ccccccccccc"} {
+			if _, ok := ids[want]; !ok {
+				t.Fatalf("expected video id %q in %v", want, ids)
+			}
+		}
+	})
 }
