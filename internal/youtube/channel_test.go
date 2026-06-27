@@ -33,11 +33,13 @@ func TestNormalizeChannelURL(t *testing.T) {
 		{name: "watch url with list rejected", input: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc", wantErr: true},
 		{name: "youtu.be rejected", input: "https://youtu.be/dQw4w9WgXcQ", wantErr: true},
 		{name: "non youtube host rejected", input: "https://example.com/@chan", wantErr: true},
+		{name: "youtube lookalike host rejected", input: "https://notyoutube.com/@chan", wantErr: true},
+		{name: "youtube suffix lookalike host rejected", input: "https://youtube.com.evil.test/@chan", wantErr: true},
 		{name: "empty rejected", input: "   ", wantErr: true},
 	}
 
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
+		t.Run("Should normalize "+testCase.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := NormalizeChannelURL(testCase.input)
 			if testCase.wantErr {
@@ -56,36 +58,40 @@ func TestNormalizeChannelURL(t *testing.T) {
 	}
 }
 
-func TestChannelVideosFromEntriesFiltersAndSynthesizesURLs(t *testing.T) {
+func TestChannelVideosFromEntries(t *testing.T) {
 	t.Parallel()
 
-	entries := []mediadl.PlaylistEntry{
-		{ID: "aaaaaaaaaaa", Title: "First", URL: "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
-		{ID: "bbbbbbbbbbb", Title: "Second"},
-		{ID: "aaaaaaaaaaa", Title: "Duplicate"},
-		{ID: "bad", Title: "Bad ID"},
-	}
-	videos := channelVideosFromEntries(entries)
-	if len(videos) != 2 {
-		t.Fatalf("want 2 videos, got %d: %+v", len(videos), videos)
-	}
-	if videos[0].VideoID != "aaaaaaaaaaa" || videos[0].Title != "First" {
-		t.Fatalf("unexpected first video: %+v", videos[0])
-	}
-	if videos[0].URL != "https://www.youtube.com/watch?v=aaaaaaaaaaa" {
-		t.Fatalf("first video url = %q", videos[0].URL)
-	}
-	if videos[1].URL != "https://www.youtube.com/watch?v=bbbbbbbbbbb" {
-		t.Fatalf("second video url should be synthesized from id, got %q", videos[1].URL)
-	}
-}
+	t.Run("Should filter and synthesize URLs", func(t *testing.T) {
+		t.Parallel()
 
-func TestChannelVideosFromEntriesEmptyWhenNoValidIDs(t *testing.T) {
-	t.Parallel()
+		entries := []mediadl.PlaylistEntry{
+			{ID: "aaaaaaaaaaa", Title: "First", URL: "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+			{ID: "bbbbbbbbbbb", Title: "Second"},
+			{ID: "aaaaaaaaaaa", Title: "Duplicate"},
+			{ID: "bad", Title: "Bad ID"},
+		}
+		videos := channelVideosFromEntries(entries)
+		if len(videos) != 2 {
+			t.Fatalf("want 2 videos, got %d: %+v", len(videos), videos)
+		}
+		if videos[0].VideoID != "aaaaaaaaaaa" || videos[0].Title != "First" {
+			t.Fatalf("unexpected first video: %+v", videos[0])
+		}
+		if videos[0].URL != "https://www.youtube.com/watch?v=aaaaaaaaaaa" {
+			t.Fatalf("first video url = %q", videos[0].URL)
+		}
+		if videos[1].URL != "https://www.youtube.com/watch?v=bbbbbbbbbbb" {
+			t.Fatalf("second video url should be synthesized from id, got %q", videos[1].URL)
+		}
+	})
 
-	if got := channelVideosFromEntries([]mediadl.PlaylistEntry{{ID: "bad"}, {ID: ""}}); len(got) != 0 {
-		t.Fatalf("expected no videos for invalid IDs, got %+v", got)
-	}
+	t.Run("Should return empty when no IDs are valid", func(t *testing.T) {
+		t.Parallel()
+
+		if got := channelVideosFromEntries([]mediadl.PlaylistEntry{{ID: "bad"}, {ID: ""}}); len(got) != 0 {
+			t.Fatalf("expected no videos for invalid IDs, got %+v", got)
+		}
+	})
 }
 
 func bulkVideos(ids ...string) []ChannelVideo {
@@ -113,139 +119,141 @@ func collectOutcomes(
 	return outcomes
 }
 
-func TestBulkExtractIsolatesFailures(t *testing.T) {
-	extractor := &Extractor{extractFn: func(_ context.Context, rawURL string, _ ExtractOptions) (*Result, error) {
-		if strings.Contains(rawURL, "fail") {
-			return nil, &Error{Kind: ErrorKindTranscriptUnavailable, Message: "no captions"}
+func TestBulkExtract(t *testing.T) {
+	t.Run("Should isolate failures", func(t *testing.T) {
+		extractor := &Extractor{extractFn: func(_ context.Context, rawURL string, _ ExtractOptions) (*Result, error) {
+			if strings.Contains(rawURL, "fail") {
+				return nil, &Error{Kind: ErrorKindTranscriptUnavailable, Message: "no captions"}
+			}
+			return &Result{Markdown: "transcript"}, nil
+		}}
+
+		videos := []ChannelVideo{
+			{VideoID: "vid00000001", URL: "https://youtu.be/ok1"},
+			{VideoID: "vid00000002", URL: "https://youtu.be/fail"},
+			{VideoID: "vid00000003", URL: "https://youtu.be/ok2"},
 		}
-		return &Result{Markdown: "transcript"}, nil
-	}}
+		outcomes := collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 2, MaxRetries: 1})
 
-	videos := []ChannelVideo{
-		{VideoID: "vid00000001", URL: "https://youtu.be/ok1"},
-		{VideoID: "vid00000002", URL: "https://youtu.be/fail"},
-		{VideoID: "vid00000003", URL: "https://youtu.be/ok2"},
-	}
-	outcomes := collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 2, MaxRetries: 1})
-
-	var success, failure int
-	for _, outcome := range outcomes {
-		if outcome.Err != nil {
-			failure++
-		} else {
-			success++
-		}
-	}
-	if success != 2 || failure != 1 {
-		t.Fatalf("want 2 success / 1 failure, got %d / %d", success, failure)
-	}
-}
-
-func TestBulkExtractRetriesAfterBlockThenSucceeds(t *testing.T) {
-	var mu sync.Mutex
-	attempts := map[string]int{}
-	extractor := &Extractor{extractFn: func(_ context.Context, rawURL string, _ ExtractOptions) (*Result, error) {
-		mu.Lock()
-		attempts[rawURL]++
-		count := attempts[rawURL]
-		mu.Unlock()
-		if count == 1 {
-			return nil, &Error{Kind: ErrorKindRateLimited, Message: "HTTP Error 429"}
-		}
-		return &Result{Markdown: "transcript"}, nil
-	}}
-
-	videos := bulkVideos("vid00000001")
-	outcomes := collectOutcomes(t, extractor, videos, BulkOptions{
-		Concurrency: 1,
-		MaxRetries:  3,
-		BackoffMax:  10 * time.Millisecond,
-	})
-
-	if len(outcomes) != 1 || outcomes[0].Result == nil {
-		t.Fatalf("expected one successful outcome after retry, got %+v", outcomes)
-	}
-	if attempts["https://www.youtube.com/watch?v=vid00000001"] != 2 {
-		t.Fatalf("expected 2 attempts (block then success), got %d", attempts["https://www.youtube.com/watch?v=vid00000001"])
-	}
-}
-
-func TestBulkExtractSurfacesPersistentBlock(t *testing.T) {
-	var calls atomic.Int32
-	extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
-		calls.Add(1)
-		return nil, &Error{Kind: ErrorKindNetworkBlocked, Message: "HTTP Error 403"}
-	}}
-
-	outcomes := collectOutcomes(t, extractor, bulkVideos("vid00000001"), BulkOptions{
-		Concurrency: 1,
-		MaxRetries:  2,
-		BackoffMax:  5 * time.Millisecond,
-	})
-
-	if len(outcomes) != 1 || outcomes[0].Err == nil {
-		t.Fatalf("expected one failed outcome, got %+v", outcomes)
-	}
-	if !isNetworkBlocked(outcomes[0].Err) {
-		t.Fatalf("expected a network-block error, got %v", outcomes[0].Err)
-	}
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("expected 2 attempts before giving up, got %d", got)
-	}
-}
-
-func TestBulkExtractRespectsConcurrencyLimit(t *testing.T) {
-	var inFlight, maxInFlight atomic.Int32
-	extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
-		current := inFlight.Add(1)
-		for {
-			observed := maxInFlight.Load()
-			if current <= observed || maxInFlight.CompareAndSwap(observed, current) {
-				break
+		var success, failure int
+		for _, outcome := range outcomes {
+			if outcome.Err != nil {
+				failure++
+			} else {
+				success++
 			}
 		}
-		time.Sleep(15 * time.Millisecond)
-		inFlight.Add(-1)
-		return &Result{Markdown: "transcript"}, nil
-	}}
+		if success != 2 || failure != 1 {
+			t.Fatalf("want 2 success / 1 failure, got %d / %d", success, failure)
+		}
+	})
 
-	videos := bulkVideos("vid00000001", "vid00000002", "vid00000003", "vid00000004", "vid00000005", "vid00000006")
-	outcomes := collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 3, MaxRetries: 1})
+	t.Run("Should retry after block then succeed", func(t *testing.T) {
+		var mu sync.Mutex
+		attempts := map[string]int{}
+		extractor := &Extractor{extractFn: func(_ context.Context, rawURL string, _ ExtractOptions) (*Result, error) {
+			mu.Lock()
+			attempts[rawURL]++
+			count := attempts[rawURL]
+			mu.Unlock()
+			if count == 1 {
+				return nil, &Error{Kind: ErrorKindRateLimited, Message: "HTTP Error 429"}
+			}
+			return &Result{Markdown: "transcript"}, nil
+		}}
 
-	if len(outcomes) != len(videos) {
-		t.Fatalf("want %d outcomes, got %d", len(videos), len(outcomes))
-	}
-	if got := maxInFlight.Load(); got > 3 {
-		t.Fatalf("concurrency exceeded limit: observed %d in flight, limit 3", got)
-	}
-}
+		videos := bulkVideos("vid00000001")
+		outcomes := collectOutcomes(t, extractor, videos, BulkOptions{
+			Concurrency: 1,
+			MaxRetries:  3,
+			BackoffMax:  10 * time.Millisecond,
+		})
 
-func TestBulkExtractAppliesThrottle(t *testing.T) {
-	extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
-		return &Result{Markdown: "transcript"}, nil
-	}}
+		if len(outcomes) != 1 || outcomes[0].Result == nil {
+			t.Fatalf("expected one successful outcome after retry, got %+v", outcomes)
+		}
+		if attempts["https://www.youtube.com/watch?v=vid00000001"] != 2 {
+			t.Fatalf("expected 2 attempts (block then success), got %d", attempts["https://www.youtube.com/watch?v=vid00000001"])
+		}
+	})
 
-	videos := bulkVideos("vid00000001", "vid00000002", "vid00000003", "vid00000004")
-	start := time.Now()
-	collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 1, Throttle: 15 * time.Millisecond, MaxRetries: 1})
-	elapsed := time.Since(start)
+	t.Run("Should surface persistent block", func(t *testing.T) {
+		var calls atomic.Int32
+		extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
+			calls.Add(1)
+			return nil, &Error{Kind: ErrorKindNetworkBlocked, Message: "HTTP Error 403"}
+		}}
 
-	// Four serial videos each wait at least the base throttle before extraction.
-	if elapsed < 45*time.Millisecond {
-		t.Fatalf("expected throttled run to take >= 45ms, took %s", elapsed)
-	}
-}
+		outcomes := collectOutcomes(t, extractor, bulkVideos("vid00000001"), BulkOptions{
+			Concurrency: 1,
+			MaxRetries:  2,
+			BackoffMax:  5 * time.Millisecond,
+		})
 
-func TestBulkExtractStopsOnCanceledContext(t *testing.T) {
-	extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
-		return &Result{Markdown: "transcript"}, nil
-	}}
+		if len(outcomes) != 1 || outcomes[0].Err == nil {
+			t.Fatalf("expected one failed outcome, got %+v", outcomes)
+		}
+		if !isNetworkBlocked(outcomes[0].Err) {
+			t.Fatalf("expected a network-block error, got %v", outcomes[0].Err)
+		}
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("expected 2 attempts before giving up, got %d", got)
+		}
+	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	t.Run("Should respect concurrency limit", func(t *testing.T) {
+		var inFlight, maxInFlight atomic.Int32
+		extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
+			current := inFlight.Add(1)
+			for {
+				observed := maxInFlight.Load()
+				if current <= observed || maxInFlight.CompareAndSwap(observed, current) {
+					break
+				}
+			}
+			time.Sleep(15 * time.Millisecond)
+			inFlight.Add(-1)
+			return &Result{Markdown: "transcript"}, nil
+		}}
 
-	err := extractor.BulkExtract(ctx, bulkVideos("vid00000001", "vid00000002"), BulkOptions{Concurrency: 1, MaxRetries: 1}, func(VideoOutcome) {})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
+		videos := bulkVideos("vid00000001", "vid00000002", "vid00000003", "vid00000004", "vid00000005", "vid00000006")
+		outcomes := collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 3, MaxRetries: 1})
+
+		if len(outcomes) != len(videos) {
+			t.Fatalf("want %d outcomes, got %d", len(videos), len(outcomes))
+		}
+		if got := maxInFlight.Load(); got > 3 {
+			t.Fatalf("concurrency exceeded limit: observed %d in flight, limit 3", got)
+		}
+	})
+
+	t.Run("Should apply throttle", func(t *testing.T) {
+		extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
+			return &Result{Markdown: "transcript"}, nil
+		}}
+
+		videos := bulkVideos("vid00000001", "vid00000002", "vid00000003", "vid00000004")
+		start := time.Now()
+		collectOutcomes(t, extractor, videos, BulkOptions{Concurrency: 1, Throttle: 15 * time.Millisecond, MaxRetries: 1})
+		elapsed := time.Since(start)
+
+		// Four serial videos each wait at least the base throttle before extraction.
+		if elapsed < 45*time.Millisecond {
+			t.Fatalf("expected throttled run to take >= 45ms, took %s", elapsed)
+		}
+	})
+
+	t.Run("Should stop on canceled context", func(t *testing.T) {
+		extractor := &Extractor{extractFn: func(_ context.Context, _ string, _ ExtractOptions) (*Result, error) {
+			return &Result{Markdown: "transcript"}, nil
+		}}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := extractor.BulkExtract(ctx, bulkVideos("vid00000001", "vid00000002"), BulkOptions{Concurrency: 1, MaxRetries: 1}, func(VideoOutcome) {})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	})
 }

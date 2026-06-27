@@ -217,6 +217,7 @@ func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.YouTube.Transcription) == "" {
 		c.YouTube.Transcription = defaultYouTubeTranscription
 	}
+	c.YouTube.CaptionLanguages = normalizeConfigStringList(c.YouTube.CaptionLanguages)
 	if len(c.YouTube.CaptionLanguages) == 0 {
 		c.YouTube.CaptionLanguages = []string{defaultYouTubeCaptionLanguage}
 	}

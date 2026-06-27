@@ -660,7 +660,7 @@ func TestInspectSubcommandsRespondToHelp(t *testing.T) {
 
 	subcommands := []string{"smells", "dead-code", "complexity", "blast-radius", "coupling", "symbol", "file", "backlinks", "deps", "circular-deps"}
 	for _, subcommand := range subcommands {
-		t.Run(subcommand, func(t *testing.T) {
+		t.Run("Should show help for "+subcommand, func(t *testing.T) {
 			t.Parallel()
 
 			command := newRootCommand()

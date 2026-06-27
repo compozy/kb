@@ -51,6 +51,18 @@ type channelIngestSummary struct {
 	Failures             []channelVideoSummary `json:"failures"`
 }
 
+type ingestChannelCommandOptions struct {
+	topicSlug   string
+	transcribe  string
+	limit       int
+	all         bool
+	concurrency int
+	throttle    time.Duration
+	dryRun      bool
+	subLangs    string
+	lang        string
+}
+
 func newIngestChannelCommand() *cobra.Command {
 	var topicSlug string
 	var transcribe string
@@ -67,96 +79,17 @@ func newIngestChannelCommand() *cobra.Command {
 		Short: "Bulk-extract YouTube channel or playlist transcripts into a topic",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target, err := resolveIngestTarget(cmd, "ingest channel", topicSlug)
-			if err != nil {
-				return err
-			}
-			cfg, err := loadIngestConfig()
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			policyValue := strings.TrimSpace(cfg.YouTube.Transcription)
-			if cmd.Flags().Changed("transcribe") {
-				policyValue = transcribe
-			}
-			policy, err := youtube.ParseTranscriptionPolicy(policyValue)
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-			captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, subLangs, lang)
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			normalizedURL, err := youtube.NormalizeChannelURL(args[0])
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			resolvedLimit := limit
-			if all {
-				resolvedLimit = 0
-			}
-
-			ctx := commandContext(cmd)
-			extractor := newYouTubeChannelExtractor(cfg)
-			videos, err := extractor.ListChannelVideos(ctx, normalizedURL, resolvedLimit)
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			summary := newChannelIngestSummary(target, args[0], normalizedURL, policy, captionLanguages, resolvedLimit, dryRun, videos)
-
-			if dryRun {
-				return writeJSON(cmd, summary)
-			}
-
-			existing, err := existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			toFetch := make([]youtube.ChannelVideo, 0, len(videos))
-			for _, video := range videos {
-				if _, done := existing[video.VideoID]; done {
-					summary.Skipped = append(summary.Skipped, summarizeVideo(video))
-					continue
-				}
-				toFetch = append(toFetch, video)
-			}
-
-			options, err := resolveChannelBulkOptions(cmd, cfg.YouTube, policy, captionLanguages, concurrency, throttle)
-			if err != nil {
-				return fmt.Errorf("ingest channel: %w", err)
-			}
-
-			sink := func(outcome youtube.VideoOutcome) {
-				entry := summarizeVideo(outcome.Video)
-				if outcome.Err != nil {
-					entry.Error = outcome.Err.Error()
-					summary.Failures = append(summary.Failures, entry)
-					return
-				}
-				result, err := ingestChannelVideo(ctx, target, outcome)
-				if err != nil {
-					entry.Error = err.Error()
-					summary.Failures = append(summary.Failures, entry)
-					return
-				}
-				entry.FilePath = result.FilePath
-				summary.Ingested = append(summary.Ingested, entry)
-			}
-
-			bulkErr := extractor.BulkExtract(ctx, toFetch, options, sink)
-
-			if writeErr := writeJSON(cmd, summary); writeErr != nil {
-				return writeErr
-			}
-			if bulkErr != nil {
-				return fmt.Errorf("ingest channel: %w", bulkErr)
-			}
-			return nil
+			return runIngestChannelCommand(cmd, args[0], ingestChannelCommandOptions{
+				topicSlug:   topicSlug,
+				transcribe:  transcribe,
+				limit:       limit,
+				all:         all,
+				concurrency: concurrency,
+				throttle:    throttle,
+				dryRun:      dryRun,
+				subLangs:    subLangs,
+				lang:        lang,
+			})
 		},
 	}
 
@@ -171,6 +104,112 @@ func newIngestChannelCommand() *cobra.Command {
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and list videos without ingesting")
 
 	return command
+}
+
+func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options ingestChannelCommandOptions) error {
+	target, err := resolveIngestTarget(cmd, "ingest channel", options.topicSlug)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadIngestConfig()
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+
+	policyValue := strings.TrimSpace(cfg.YouTube.Transcription)
+	if cmd.Flags().Changed("transcribe") {
+		policyValue = options.transcribe
+	}
+	policy, err := youtube.ParseTranscriptionPolicy(policyValue)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+	captionLanguages, err := resolveYouTubeCaptionLanguages(cmd, cfg.YouTube, options.subLangs, options.lang)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+
+	normalizedURL, err := youtube.NormalizeChannelURL(channelURL)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+
+	resolvedLimit := options.limit
+	if options.all {
+		resolvedLimit = 0
+	}
+
+	ctx := commandContext(cmd)
+	extractor := newYouTubeChannelExtractor(cfg)
+	videos, err := extractor.ListChannelVideos(ctx, normalizedURL, resolvedLimit)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+
+	summary := newChannelIngestSummary(target, channelURL, normalizedURL, policy, captionLanguages, resolvedLimit, options.dryRun, videos)
+	if options.dryRun {
+		return writeJSON(cmd, summary)
+	}
+
+	existing, err := existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+	toFetch := newChannelVideosToFetch(videos, existing, &summary)
+
+	bulkOptions, err := resolveChannelBulkOptions(cmd, cfg.YouTube, policy, captionLanguages, options.concurrency, options.throttle)
+	if err != nil {
+		return fmt.Errorf("ingest channel: %w", err)
+	}
+
+	bulkErr := extractor.BulkExtract(ctx, toFetch, bulkOptions, func(outcome youtube.VideoOutcome) {
+		recordChannelOutcome(ctx, target, outcome, &summary)
+	})
+	if writeErr := writeJSON(cmd, summary); writeErr != nil {
+		return writeErr
+	}
+	if bulkErr != nil {
+		return fmt.Errorf("ingest channel: %w", bulkErr)
+	}
+	return nil
+}
+
+func newChannelVideosToFetch(
+	videos []youtube.ChannelVideo,
+	existing map[string]struct{},
+	summary *channelIngestSummary,
+) []youtube.ChannelVideo {
+	toFetch := make([]youtube.ChannelVideo, 0, len(videos))
+	for _, video := range videos {
+		if _, done := existing[video.VideoID]; done {
+			summary.Skipped = append(summary.Skipped, summarizeVideo(video))
+			continue
+		}
+		toFetch = append(toFetch, video)
+	}
+	return toFetch
+}
+
+func recordChannelOutcome(
+	ctx context.Context,
+	target ingestTarget,
+	outcome youtube.VideoOutcome,
+	summary *channelIngestSummary,
+) {
+	entry := summarizeVideo(outcome.Video)
+	if outcome.Err != nil {
+		entry.Error = outcome.Err.Error()
+		summary.Failures = append(summary.Failures, entry)
+		return
+	}
+	result, err := ingestChannelVideo(ctx, target, outcome)
+	if err != nil {
+		entry.Error = err.Error()
+		summary.Failures = append(summary.Failures, entry)
+		return
+	}
+	entry.FilePath = result.FilePath
+	summary.Ingested = append(summary.Ingested, entry)
 }
 
 func newChannelIngestSummary(

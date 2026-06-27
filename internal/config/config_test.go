@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -147,7 +148,7 @@ ffmpeg_path = "/opt/bin/ffmpeg"
 transcription = "auto"
 retry_attempts = 5
 retry_backoff = "250ms"
-caption_languages = ["orig", "pt"]
+caption_languages = ["orig", " pt "]
 allow_translated_captions = true
 `
 	path := writeConfigFile(t, content)
@@ -275,8 +276,9 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name   string
-		mutate func(*Config)
+		name            string
+		mutate          func(*Config)
+		wantErrContains string
 	}{
 		{
 			name:   "empty app name",
@@ -323,8 +325,9 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			mutate: func(c *Config) { c.YouTube.Transcription = "maybe" },
 		},
 		{
-			name:   "empty youtube caption languages",
-			mutate: func(c *Config) { c.YouTube.CaptionLanguages = []string{" "} },
+			name:            "empty youtube caption languages",
+			mutate:          func(c *Config) { c.YouTube.CaptionLanguages = []string{" "} },
+			wantErrContains: "youtube.caption_languages",
 		},
 	}
 
@@ -334,8 +337,12 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 
 			cfg := Default()
 			tc.mutate(&cfg)
-			if err := cfg.Validate(); err == nil {
+			err := cfg.Validate()
+			if err == nil {
 				t.Fatal("expected validation error, got nil")
+			}
+			if tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error = %q, want %q", err.Error(), tc.wantErrContains)
 			}
 		})
 	}

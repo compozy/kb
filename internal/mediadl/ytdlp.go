@@ -754,6 +754,9 @@ func newYTDLPCaptionCandidate(language string, automatic bool, originalLanguage 
 	if originalLanguage != "" && languageMatches(baseLanguage, originalLanguage) {
 		original = true
 	}
+	if originalLanguage == "" && !automatic {
+		original = true
+	}
 	return ytDLPCaptionCandidate{
 		Language:     trimmed,
 		BaseLanguage: baseLanguage,

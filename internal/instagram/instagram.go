@@ -68,6 +68,7 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 	result, err := extractor.core.Extract(ctx, parsed, options)
 	if err != nil {
 		if mediadl.IsTranscriptUnavailable(err) && result != nil && captionOf(result) != "" {
+			backfillMetadataURL(result, parsed.CanonicalURL)
 			result.Markdown = composeBody(captionOf(result), "")
 			result.Source = transcriptSourceNone
 			result.Language = ""
@@ -77,8 +78,18 @@ func (extractor *Extractor) Extract(ctx context.Context, rawURL string, options 
 		return nil, err
 	}
 
+	backfillMetadataURL(result, parsed.CanonicalURL)
 	result.Markdown = composeBody(captionOf(result), result.Markdown)
 	return result, nil
+}
+
+func backfillMetadataURL(result *mediadl.Result, canonicalURL string) {
+	if result == nil {
+		return
+	}
+	if strings.TrimSpace(result.Metadata.URL) == "" {
+		result.Metadata.URL = canonicalURL
+	}
 }
 
 func captionOf(result *mediadl.Result) string {

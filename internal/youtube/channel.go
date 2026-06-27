@@ -59,11 +59,11 @@ func NormalizeChannelURL(raw string) (string, error) {
 		return "", &Error{Kind: ErrorKindInvalidURL, URL: raw, Message: "invalid channel URL", Err: err}
 	}
 
-	host := strings.ToLower(parsed.Host)
+	host := strings.ToLower(parsed.Hostname())
 	if host == "youtu.be" || host == "www.youtu.be" {
 		return "", videoURLNotAllowed(raw)
 	}
-	if !strings.Contains(host, "youtube.com") {
+	if !isYouTubeHost(host) {
 		return "", &Error{
 			Kind:    ErrorKindInvalidURL,
 			URL:     raw,
@@ -97,6 +97,10 @@ func NormalizeChannelURL(raw string) (string, error) {
 
 	normalized := url.URL{Scheme: schemeOrHTTPS(parsed.Scheme), Host: parsed.Host, Path: normalizedPath}
 	return normalized.String(), nil
+}
+
+func isYouTubeHost(host string) bool {
+	return host == "youtube.com" || strings.HasSuffix(host, ".youtube.com")
 }
 
 func videoURLNotAllowed(raw string) error {

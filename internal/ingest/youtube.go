@@ -46,7 +46,7 @@ func ExistingYouTubeVideoIDs(vaultPath, topicRef string) (map[string]struct{}, e
 		}
 		values, _, err := frontmatter.Parse(string(data))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("existing youtube ids: parse %q: %w", path, err)
 		}
 		if id := strings.TrimSpace(frontmatter.GetString(values, "video_id")); youtubeVideoIDPattern.MatchString(id) {
 			ids[id] = struct{}{}

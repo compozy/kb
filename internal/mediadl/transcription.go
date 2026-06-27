@@ -120,20 +120,23 @@ func (extractor *Extractor) extractSTTFromYTDLP(
 	if result == nil {
 		result = &Result{Metadata: metadataFromYTDLPInfo(parsed, info)}
 	}
+	if result.TranscriptionPolicy == TranscriptionPolicySTT && extractor.stt == nil {
+		return result, errors.Join(transcriptErr, errors.New("media stt: transcriber is nil"))
+	}
 	if !extractor.shouldAttemptSTT(result.TranscriptionPolicy) {
 		return result, transcriptErr
 	}
 	if extractor.ytDLP == nil {
-		return result, errors.Join(transcriptErr, errors.New("media stt: yt-dlp backend is nil"))
+		return result, errors.New("media stt: yt-dlp backend is nil")
 	}
 	if extractor.stt == nil {
-		return result, errors.Join(transcriptErr, errors.New("media stt: transcriber is nil"))
+		return result, errors.New("media stt: transcriber is nil")
 	}
 
 	sttConfig := normalizeSTTConfig(extractor.sttConfig)
 	audio, audioErr := extractor.ytDLP.downloadAudio(ctx, parsed.CanonicalURL, sttConfig.AudioFormat)
 	if audioErr != nil {
-		return result, errors.Join(transcriptErr, fmt.Errorf("media stt: %w", audioErr))
+		return result, fmt.Errorf("media stt: %w", audioErr)
 	}
 	defer audio.Cleanup()
 
@@ -148,7 +151,7 @@ func (extractor *Extractor) extractSTTFromYTDLP(
 				Err:     sttErr,
 			})
 		}
-		return result, errors.Join(transcriptErr, fmt.Errorf("media stt: %w", sttErr))
+		return result, fmt.Errorf("media stt: %w", sttErr)
 	}
 	result.Markdown = markdown
 	result.Source = TranscriptSourceSTT
