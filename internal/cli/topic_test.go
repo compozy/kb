@@ -80,48 +80,50 @@ func TestTopicNewCommandPassesArgsAndPrintsJSON(t *testing.T) {
 }
 
 func TestTopicNewCommandPassesOKFMode(t *testing.T) {
-	originalNewWithMode := runTopicNewWithMode
-	originalGetwd := topicGetwd
-	t.Cleanup(func() {
-		runTopicNewWithMode = originalNewWithMode
-		topicGetwd = originalGetwd
+	t.Run("Should pass OKF mode to topic creation", func(t *testing.T) {
+		originalNewWithMode := runTopicNewWithMode
+		originalGetwd := topicGetwd
+		t.Cleanup(func() {
+			runTopicNewWithMode = originalNewWithMode
+			topicGetwd = originalGetwd
+		})
+
+		var gotMode models.TopicMode
+		runTopicNewWithMode = func(vaultPath, slug, title, domain string, mode models.TopicMode) (models.TopicInfo, error) {
+			gotMode = mode
+			return models.TopicInfo{
+				Slug:     slug,
+				Title:    title,
+				Domain:   domain,
+				Mode:     mode,
+				RootPath: filepath.Join(vaultPath, slug),
+			}, nil
+		}
+		topicGetwd = func() (string, error) {
+			return "/workspace/repo", nil
+		}
+
+		command := newRootCommand()
+		var stdout bytes.Buffer
+		command.SetOut(&stdout)
+		command.SetErr(new(bytes.Buffer))
+		command.SetArgs([]string{"topic", "new", "ops-catalog", "Ops Catalog", "ops", "--mode", "okf", "--vault", "/tmp/vault"})
+
+		if err := command.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("ExecuteContext returned error: %v", err)
+		}
+		if gotMode != models.TopicModeOKF {
+			t.Fatalf("mode = %q, want okf", gotMode)
+		}
+
+		var info models.TopicInfo
+		if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
+			t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
+		}
+		if info.Mode != models.TopicModeOKF {
+			t.Fatalf("payload mode = %q, want okf", info.Mode)
+		}
 	})
-
-	var gotMode models.TopicMode
-	runTopicNewWithMode = func(vaultPath, slug, title, domain string, mode models.TopicMode) (models.TopicInfo, error) {
-		gotMode = mode
-		return models.TopicInfo{
-			Slug:     slug,
-			Title:    title,
-			Domain:   domain,
-			Mode:     mode,
-			RootPath: filepath.Join(vaultPath, slug),
-		}, nil
-	}
-	topicGetwd = func() (string, error) {
-		return "/workspace/repo", nil
-	}
-
-	command := newRootCommand()
-	var stdout bytes.Buffer
-	command.SetOut(&stdout)
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"topic", "new", "ops-catalog", "Ops Catalog", "ops", "--mode", "okf", "--vault", "/tmp/vault"})
-
-	if err := command.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("ExecuteContext returned error: %v", err)
-	}
-	if gotMode != models.TopicModeOKF {
-		t.Fatalf("mode = %q, want okf", gotMode)
-	}
-
-	var info models.TopicInfo
-	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
-		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
-	}
-	if info.Mode != models.TopicModeOKF {
-		t.Fatalf("payload mode = %q, want okf", info.Mode)
-	}
 }
 
 func TestTopicNewCommandRejectsInvalidMode(t *testing.T) {
@@ -134,8 +136,9 @@ func TestTopicNewCommandRejectsInvalidMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid mode error")
 	}
-	if !strings.Contains(err.Error(), "invalid --mode") {
-		t.Fatalf("unexpected error: %v", err)
+	want := `invalid --mode "catalog": expected "wiki" or "okf"`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
 	}
 }
 

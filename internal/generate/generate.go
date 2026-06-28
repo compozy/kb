@@ -3,6 +3,7 @@ package generate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/compozy/kb/internal/metrics"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/scanner"
+	ktopic "github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
 )
 
@@ -52,6 +54,7 @@ type generationTarget struct {
 	RootPath  string
 	TopicSlug string
 	VaultPath string
+	Mode      models.TopicMode
 }
 
 // Generate runs the full repository-to-vault pipeline and returns a structured
@@ -430,10 +433,19 @@ func resolveTarget(opts models.GenerateOptions) (generationTarget, error) {
 		topicSlugSource = rootPath
 	}
 
+	topicSlug := vault.DeriveTopicSlug(topicSlugSource)
+	topicMode := models.TopicModeWiki
+	if topicInfo, infoErr := ktopic.Info(resolvedVaultPath, topicSlug); infoErr == nil {
+		topicMode = topicInfo.Mode
+	} else if !errors.Is(infoErr, ktopic.ErrTopicNotFound) {
+		return generationTarget{}, fmt.Errorf("resolve topic metadata: %w", infoErr)
+	}
+
 	return generationTarget{
 		RootPath:  rootPath,
-		TopicSlug: vault.DeriveTopicSlug(topicSlugSource),
+		TopicSlug: topicSlug,
 		VaultPath: resolvedVaultPath,
+		Mode:      topicMode,
 	}, nil
 }
 
@@ -453,7 +465,7 @@ func (r runner) createTopicMetadata(target generationTarget, opts models.Generat
 		Title:     title,
 		Slug:      target.TopicSlug,
 		Domain:    vault.DeriveTopicDomain(domainSource),
-		Mode:      models.TopicModeWiki,
+		Mode:      target.Mode,
 		Today:     r.now().Format("2006-01-02"),
 		VaultPath: target.VaultPath,
 		TopicPath: filepath.Join(target.VaultPath, target.TopicSlug),

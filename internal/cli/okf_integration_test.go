@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	kokf "github.com/compozy/kb/internal/okf"
 )
@@ -82,7 +81,7 @@ func TestCLIIntegrationOKFPromoteAndCheck(t *testing.T) {
 		t.Fatalf("index.md missing promoted concept:\n%s", index)
 	}
 	logContent := readFile(t, filepath.Join(okfTopic.RootPath, "log.md"))
-	if !strings.Contains(logContent, "## "+frontmatter.DateLayout[:4]) && !strings.Contains(logContent, "**Creation**") {
+	if !strings.Contains(logContent, "Promoted [Alpha Note](alpha-note.md) from `wiki/concepts/Alpha Note.md`") {
 		t.Fatalf("log.md missing promotion entry:\n%s", logContent)
 	}
 }

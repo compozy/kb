@@ -236,78 +236,122 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 func TestNewWithModeCreatesOKFTopicSkeleton(t *testing.T) {
 	t.Parallel()
 
-	vaultPath := t.TempDir()
+	t.Run("Should create OKF topic with standard skeleton directories", func(t *testing.T) {
+		vaultPath := t.TempDir()
 
-	info, err := newWithDateWithMode(
-		vaultPath,
-		"ops-catalog",
-		"Operations Catalog",
-		"operations",
-		models.TopicModeOKF,
-		time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
-	)
-	if err != nil {
-		t.Fatalf("newWithDateWithMode returned error: %v", err)
-	}
-	if info.Mode != models.TopicModeOKF {
-		t.Fatalf("mode = %q, want okf", info.Mode)
-	}
-	if info.ArticleCount != 0 || info.SourceCount != 0 {
-		t.Fatalf("counts = articles %d sources %d, want 0/0", info.ArticleCount, info.SourceCount)
-	}
-	if info.LastLogEntry != "## 2026-06-27" {
-		t.Fatalf("last log entry = %q, want OKF date heading", info.LastLogEntry)
-	}
-
-	topicPath := filepath.Join(vaultPath, "ops-catalog")
-	for _, relativePath := range []string{"CLAUDE.md", "AGENTS.md", "index.md", "log.md", "topic.yaml"} {
-		assertFileExists(t, filepath.Join(topicPath, filepath.FromSlash(relativePath)))
-	}
-	for _, relativePath := range []string{"raw", "wiki", "outputs", "bases"} {
-		if _, err := os.Stat(filepath.Join(topicPath, relativePath)); !os.IsNotExist(err) {
-			t.Fatalf("OKF scaffold should not create %s", relativePath)
+		info, err := newWithDateWithMode(
+			vaultPath,
+			"ops-catalog",
+			"Operations Catalog",
+			"operations",
+			models.TopicModeOKF,
+			time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+		)
+		if err != nil {
+			t.Fatalf("newWithDateWithMode returned error: %v", err)
 		}
-	}
-
-	metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
-	for _, fragment := range []string{
-		"slug: ops-catalog",
-		"title: Operations Catalog",
-		"domain: operations",
-		"mode: okf",
-	} {
-		if !strings.Contains(metadataContent, fragment) {
-			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+		if info.Mode != models.TopicModeOKF {
+			t.Fatalf("mode = %q, want okf", info.Mode)
 		}
-	}
+		if info.ArticleCount != 0 || info.SourceCount != 0 {
+			t.Fatalf("counts = articles %d sources %d, want 0/0", info.ArticleCount, info.SourceCount)
+		}
+		if info.LastLogEntry != "## 2026-06-27" {
+			t.Fatalf("last log entry = %q, want OKF date heading", info.LastLogEntry)
+		}
 
-	indexValues, indexBody := parseFrontmatterFile(t, filepath.Join(topicPath, "index.md"))
-	if got := indexValues["okf_version"]; got != "0.1" {
-		t.Fatalf("index okf_version = %#v, want 0.1", got)
-	}
-	if !strings.Contains(indexBody, "# OKF Bundle Index") {
-		t.Fatalf("index body missing heading:\n%s", indexBody)
-	}
-	logContent := readFile(t, filepath.Join(topicPath, "log.md"))
-	if !strings.Contains(logContent, "## 2026-06-27") || strings.Contains(logContent, "## [2026-06-27]") {
-		t.Fatalf("log.md does not use OKF date heading:\n%s", logContent)
-	}
+		topicPath := filepath.Join(vaultPath, "ops-catalog")
+		for _, relativePath := range []string{
+			"CLAUDE.md",
+			"AGENTS.md",
+			"index.md",
+			"log.md",
+			"topic.yaml",
+			"raw/articles/.gitkeep",
+			"raw/bookmarks/.gitkeep",
+			"raw/codebase/files/.gitkeep",
+			"raw/codebase/symbols/.gitkeep",
+			"raw/github/.gitkeep",
+			"raw/youtube/.gitkeep",
+			"wiki/codebase/concepts/.gitkeep",
+			"wiki/codebase/index/.gitkeep",
+			"wiki/concepts/.gitkeep",
+			"outputs/queries/.gitkeep",
+			"outputs/briefings/.gitkeep",
+			"outputs/diagrams/.gitkeep",
+			"outputs/reports/.gitkeep",
+			"bases/.gitkeep",
+		} {
+			assertFileExists(t, filepath.Join(topicPath, filepath.FromSlash(relativePath)))
+		}
+
+		metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+		for _, fragment := range []string{
+			"slug: ops-catalog",
+			"title: Operations Catalog",
+			"domain: operations",
+			"mode: okf",
+		} {
+			if !strings.Contains(metadataContent, fragment) {
+				t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+			}
+		}
+
+		indexValues, indexBody := parseFrontmatterFile(t, filepath.Join(topicPath, "index.md"))
+		if got := indexValues["okf_version"]; got != "0.1" {
+			t.Fatalf("index okf_version = %#v, want 0.1", got)
+		}
+		if !strings.Contains(indexBody, "# OKF Bundle Index") {
+			t.Fatalf("index body missing heading:\n%s", indexBody)
+		}
+		logContent := readFile(t, filepath.Join(topicPath, "log.md"))
+		if !strings.Contains(logContent, "## 2026-06-27") || strings.Contains(logContent, "## [2026-06-27]") {
+			t.Fatalf("log.md does not use OKF date heading:\n%s", logContent)
+		}
+	})
 }
 
 func TestReadTopicMetadataDefaultsMissingModeToWiki(t *testing.T) {
 	t.Parallel()
 
-	topicPath := t.TempDir()
-	writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: old-topic\ntitle: Old Topic\ndomain: legacy\n")
-	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Old Topic\n\n**Domain:** `legacy`\n")
+	t.Run("Should default missing topic mode to wiki", func(t *testing.T) {
+		topicPath := t.TempDir()
+		writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: old-topic\ntitle: Old Topic\ndomain: legacy\n")
+		writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Old Topic\n\n**Domain:** `legacy`\n")
 
-	info, err := infoAtPath(topicPath, "old-topic")
-	if err != nil {
-		t.Fatalf("infoAtPath returned error: %v", err)
-	}
-	if info.Mode != models.TopicModeWiki {
-		t.Fatalf("mode = %q, want wiki", info.Mode)
-	}
+		info, err := infoAtPath(topicPath, "old-topic")
+		if err != nil {
+			t.Fatalf("infoAtPath returned error: %v", err)
+		}
+		if info.Mode != models.TopicModeWiki {
+			t.Fatalf("mode = %q, want wiki", info.Mode)
+		}
+	})
+}
+
+func TestWriteMetadataFilePreservesExistingMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Should keep OKF mode when rewriting metadata", func(t *testing.T) {
+		topicPath := t.TempDir()
+		writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: ops-catalog\ntitle: Old\ndomain: old\nmode: okf\n")
+
+		if err := WriteMetadataFile(topicPath, "ops-catalog", "Operations Catalog", "operations"); err != nil {
+			t.Fatalf("WriteMetadataFile returned error: %v", err)
+		}
+
+		metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+		for _, fragment := range []string{
+			"slug: ops-catalog",
+			"title: Operations Catalog",
+			"domain: operations",
+			"mode: okf",
+		} {
+			if !strings.Contains(metadataContent, fragment) {
+				t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+			}
+		}
+	})
 }
 
 func TestNewAppendsScaffoldEntryToLog(t *testing.T) {

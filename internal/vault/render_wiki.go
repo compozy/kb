@@ -44,9 +44,10 @@ func makeWikiFrontmatter(
 	topic models.TopicMetadata,
 	article starterWikiArticle,
 ) map[string]any {
+	fromDir := documentDir(GetWikiConceptPath(article.Title))
 	sources := make([]string, 0, len(article.Sources))
 	for _, source := range article.Sources {
-		sources = append(sources, toSourceWikiLink(topic, source, ""))
+		sources = append(sources, toSourceWikiLink(topic, fromDir, source, ""))
 	}
 
 	return map[string]any{
@@ -77,6 +78,7 @@ func renderDashboard(
 	graph models.GraphSnapshot,
 	articles []starterWikiArticle,
 ) models.RenderedDocument {
+	fromDir := documentDir(GetWikiIndexPath(CodebaseDashboardTitle))
 	directoryPaths := make(map[string]struct{}, len(graph.Files))
 	languages := make(map[string]struct{}, len(graph.Files))
 
@@ -105,7 +107,7 @@ func renderDashboard(
 	for _, article := range articles {
 		lines = append(lines, fmt.Sprintf(
 			"- %s - %s",
-			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
+			linkFor(topic, fromDir, GetWikiConceptPath(article.Title), article.Title),
 			article.Summary,
 		))
 	}
@@ -113,8 +115,8 @@ func renderDashboard(
 	lines = append(lines,
 		"",
 		"## Navigation",
-		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
-		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"- "+linkFor(topic, fromDir, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- "+linkFor(topic, fromDir, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 	)
 
 	return models.RenderedDocument{
@@ -135,6 +137,7 @@ func renderConceptIndex(
 	topic models.TopicMetadata,
 	articles []starterWikiArticle,
 ) models.RenderedDocument {
+	fromDir := documentDir(GetWikiIndexPath(CodebaseConceptIndexTitle))
 	orderedArticles := append([]starterWikiArticle(nil), articles...)
 	sort.Slice(orderedArticles, func(i, j int) bool {
 		return orderedArticles[i].Title < orderedArticles[j].Title
@@ -144,7 +147,7 @@ func renderConceptIndex(
 	for _, article := range orderedArticles {
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %s |",
-			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
+			linkFor(topic, fromDir, GetWikiConceptPath(article.Title), article.Title),
 			article.Summary,
 		))
 	}
@@ -176,6 +179,7 @@ func renderConceptIndex(
 }
 
 func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle) models.RenderedDocument {
+	fromDir := documentDir(GetWikiIndexPath(CodebaseSourceIndexTitle))
 	citedBySource := make(map[string][]string)
 
 	for _, article := range articles {
@@ -191,12 +195,12 @@ func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle
 
 		links := make([]string, 0, len(titles))
 		for _, title := range titles {
-			links = append(links, linkFor(topic, "", GetWikiConceptPath(title), title))
+			links = append(links, linkFor(topic, fromDir, GetWikiConceptPath(title), title))
 		}
 
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %s |",
-			toSourceWikiLink(topic, source, ""),
+			toSourceWikiLink(topic, fromDir, source, ""),
 			strings.Join(links, ", "),
 		))
 	}
@@ -235,6 +239,7 @@ func createCodebaseOverviewArticle(
 	filesByDirectory map[string][]models.GraphFile,
 	hotspotFiles []models.GraphFile,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Codebase Overview"))
 	languageRows := make([]string, 0, len(filesByLanguage))
 	for _, language := range sortedMapKeys(filesByLanguage) {
 		files := filesByLanguage[language]
@@ -247,7 +252,7 @@ func createCodebaseOverviewArticle(
 
 		languageRows = append(languageRows, fmt.Sprintf(
 			"| %s | %d | %d |",
-			toSourceWikiLink(topic, GetRawLanguageIndexPath(language), language),
+			toSourceWikiLink(topic, fromDir, GetRawLanguageIndexPath(language), language),
 			len(files),
 			symbolCount,
 		))
@@ -267,7 +272,7 @@ func createCodebaseOverviewArticle(
 		directoryMetric := metrics.Directories[directoryPath]
 		directoryRows = append(directoryRows, fmt.Sprintf(
 			"- %s · %d files · instability=%s",
-			toSourceWikiLink(topic, GetRawDirectoryIndexPath(directoryPath), directoryPath),
+			toSourceWikiLink(topic, fromDir, GetRawDirectoryIndexPath(directoryPath), directoryPath),
 			len(files),
 			strconv.FormatFloat(directoryMetric.Instability, 'f', -1, 64),
 		))
@@ -277,7 +282,7 @@ func createCodebaseOverviewArticle(
 	if len(hotspotFiles) > 0 {
 		hotspotLines = make([]string, 0, len(hotspotFiles))
 		for _, file := range hotspotFiles {
-			hotspotLines = append(hotspotLines, "- "+toSourceWikiLink(topic, GetRawFileDocumentPath(file.FilePath), file.FilePath))
+			hotspotLines = append(hotspotLines, "- "+toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(file.FilePath), file.FilePath))
 		}
 	}
 
@@ -295,7 +300,7 @@ func createCodebaseOverviewArticle(
 
 	sourceLines := make([]string, 0, len(sources))
 	for _, source := range sources {
-		sourceLines = append(sourceLines, "- "+toSourceWikiLink(topic, source, ""))
+		sourceLines = append(sourceLines, "- "+toSourceWikiLink(topic, fromDir, source, ""))
 	}
 
 	bodyLines := []string{
@@ -311,9 +316,9 @@ func createCodebaseOverviewArticle(
 		"",
 		fmt.Sprintf(
 			"Start with %s for coupling, %s for function-level complexity, and %s for likely cleanup candidates.",
-			linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
-			linkFor(topic, "", GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
-			linkFor(topic, "", GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
+			linkFor(topic, fromDir, GetWikiConceptPath("Module Health"), "Module Health"),
+			linkFor(topic, fromDir, GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
+			linkFor(topic, fromDir, GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
 		),
 		"",
 		"## Language Coverage",
@@ -352,6 +357,7 @@ func createDirectoryMapArticle(
 	symbolsByDirectory map[string][]models.SymbolNode,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Directory Map"))
 	rows := make([]string, 0, len(filesByDirectory))
 	sources := make([]string, 0, len(filesByDirectory))
 
@@ -361,7 +367,7 @@ func createDirectoryMapArticle(
 		directoryMetric := metrics.Directories[directoryPath]
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %d | %d | %s |",
-			toSourceWikiLink(topic, GetRawDirectoryIndexPath(directoryPath), directoryPath),
+			toSourceWikiLink(topic, fromDir, GetRawDirectoryIndexPath(directoryPath), directoryPath),
 			len(files),
 			len(symbols),
 			strconv.FormatFloat(directoryMetric.Instability, 'f', -1, 64),
@@ -392,12 +398,12 @@ func createDirectoryMapArticle(
 			"",
 			fmt.Sprintf(
 				"Cross-check unstable directories against %s and hotspots against %s.",
-				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
-				linkFor(topic, "", GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
+				linkFor(topic, fromDir, GetWikiConceptPath("Module Health"), "Module Health"),
+				linkFor(topic, fromDir, GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
 			),
 			"",
 			"## Sources and Further Reading",
-			renderSourceBulletList(topic, sources, "- No directories were extracted."),
+			renderSourceBulletList(topic, fromDir, sources, "- No directories were extracted."),
 		}, "\n"),
 	}
 }
@@ -408,6 +414,7 @@ func createSymbolTaxonomyArticle(
 	symbolsByKind map[string][]models.SymbolNode,
 	filesByLanguage map[string][]models.GraphFile,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Symbol Taxonomy"))
 	kindRows := make([]string, 0, len(symbolsByKind))
 	for _, kind := range sortedMapKeys(symbolsByKind) {
 		symbols := append([]models.SymbolNode(nil), symbolsByKind[kind]...)
@@ -415,7 +422,7 @@ func createSymbolTaxonomyArticle(
 
 		exampleLink := "None"
 		if len(symbols) > 0 {
-			exampleLink = toSourceWikiLink(topic, GetRawSymbolDocumentPath(symbols[0]), symbols[0].Name)
+			exampleLink = toSourceWikiLink(topic, fromDir, GetRawSymbolDocumentPath(symbols[0]), symbols[0].Name)
 		}
 
 		kindRows = append(kindRows, fmt.Sprintf("| `%s` | %d | %s |", kind, len(symbols), exampleLink))
@@ -458,12 +465,12 @@ func createSymbolTaxonomyArticle(
 			"",
 			fmt.Sprintf(
 				"Use %s to find bottlenecks and %s to locate function-level smells.",
-				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
-				linkFor(topic, "", GetWikiConceptPath("Code Smells"), "Code Smells"),
+				linkFor(topic, fromDir, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+				linkFor(topic, fromDir, GetWikiConceptPath("Code Smells"), "Code Smells"),
 			),
 			"",
 			"## Sources and Further Reading",
-			renderSourceBulletList(topic, sources, "- No symbol taxonomy sources were extracted."),
+			renderSourceBulletList(topic, fromDir, sources, "- No symbol taxonomy sources were extracted."),
 		}, "\n"),
 	}
 }
@@ -472,6 +479,7 @@ func createDependencyHotspotsArticle(
 	topic models.TopicMetadata,
 	graph models.GraphSnapshot,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Dependency Hotspots"))
 	relationCounts := make(map[string]int)
 	for _, relation := range graph.Relations {
 		relationCounts[relation.FromID]++
@@ -510,7 +518,7 @@ func createDependencyHotspotsArticle(
 	for _, entry := range hotspots {
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %d |",
-			toSourceWikiLink(topic, GetRawFileDocumentPath(entry.File.FilePath), entry.File.FilePath),
+			toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(entry.File.FilePath), entry.File.FilePath),
 			entry.RelationCount,
 		))
 		sources = append(sources, GetRawFileDocumentPath(entry.File.FilePath))
@@ -535,11 +543,11 @@ func createDependencyHotspotsArticle(
 			"",
 			fmt.Sprintf(
 				"A high relation count usually indicates a coordination layer, a shared utility, or an entry point. Cross-check these files against %s to distinguish stable modules from unstable ones.",
-				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
+				linkFor(topic, fromDir, GetWikiConceptPath("Module Health"), "Module Health"),
 			),
 			"",
 			"## Sources and Further Reading",
-			renderSourceBulletList(topic, sources, "- No relation hotspots were extracted."),
+			renderSourceBulletList(topic, fromDir, sources, "- No relation hotspots were extracted."),
 		}, "\n"),
 	}
 }
@@ -548,6 +556,7 @@ func createComplexityHotspotsArticle(
 	topic models.TopicMetadata,
 	graph models.GraphSnapshot,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Complexity Hotspots"))
 	functions := make([]models.SymbolNode, 0, len(graph.Symbols))
 	for _, symbol := range graph.Symbols {
 		if !isFunctionLike(symbol.SymbolKind) || symbol.CyclomaticComplexity == 0 {
@@ -586,10 +595,10 @@ func createComplexityHotspotsArticle(
 		loc := maxInt(symbol.EndLine-symbol.StartLine+1, 0)
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %d | %d | %s |",
-			toSourceWikiLink(topic, GetRawSymbolDocumentPath(symbol), symbol.Name),
+			toSourceWikiLink(topic, fromDir, GetRawSymbolDocumentPath(symbol), symbol.Name),
 			maxInt(symbol.CyclomaticComplexity, 1),
 			loc,
-			toSourceWikiLink(topic, GetRawFileDocumentPath(symbol.FilePath), symbol.FilePath),
+			toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(symbol.FilePath), symbol.FilePath),
 		))
 		sources = append(sources, GetRawSymbolDocumentPath(symbol), GetRawFileDocumentPath(symbol.FilePath))
 	}
@@ -613,7 +622,7 @@ func createComplexityHotspotsArticle(
 			"",
 			fmt.Sprintf(
 				"Compare these hotspots against %s to distinguish locally complex functions from high-blast-radius functions.",
-				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+				linkFor(topic, fromDir, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
 			),
 		}, "\n"),
 	}
@@ -624,6 +633,7 @@ func createDeadCodeReportArticle(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Dead Code Report"))
 	deadExportsByDirectory := make(map[string][]string)
 	orphanFilesByDirectory := make(map[string][]string)
 
@@ -635,7 +645,7 @@ func createDeadCodeReportArticle(
 
 		directoryPath := path.Dir(symbol.FilePath)
 		deadExportsByDirectory[directoryPath] = append(deadExportsByDirectory[directoryPath],
-			"- "+toSourceWikiLink(topic, GetRawSymbolDocumentPath(symbol), symbol.Name),
+			"- "+toSourceWikiLink(topic, fromDir, GetRawSymbolDocumentPath(symbol), symbol.Name),
 		)
 	}
 
@@ -647,7 +657,7 @@ func createDeadCodeReportArticle(
 
 		directoryPath := path.Dir(file.FilePath)
 		orphanFilesByDirectory[directoryPath] = append(orphanFilesByDirectory[directoryPath],
-			"- "+toSourceWikiLink(topic, GetRawFileDocumentPath(file.FilePath), file.FilePath),
+			"- "+toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(file.FilePath), file.FilePath),
 		)
 	}
 
@@ -694,6 +704,7 @@ func createModuleHealthArticle(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Module Health"))
 	type fileEntry struct {
 		File   models.GraphFile
 		Metric models.FileMetrics
@@ -724,7 +735,7 @@ func createModuleHealthArticle(
 	for _, entry := range fileEntries {
 		fileRows = append(fileRows, fmt.Sprintf(
 			"| %s | %d | %d | %s |",
-			toSourceWikiLink(topic, GetRawFileDocumentPath(entry.File.FilePath), entry.File.FilePath),
+			toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(entry.File.FilePath), entry.File.FilePath),
 			entry.Metric.AfferentCoupling,
 			entry.Metric.EfferentCoupling,
 			strconv.FormatFloat(entry.Metric.Instability, 'f', -1, 64),
@@ -739,7 +750,7 @@ func createModuleHealthArticle(
 		directoryMetric := metrics.Directories[directoryPath]
 		directoryRows = append(directoryRows, fmt.Sprintf(
 			"| %s | %d | %d | %s |",
-			toSourceWikiLink(topic, GetRawDirectoryIndexPath(directoryPath), directoryPath),
+			toSourceWikiLink(topic, fromDir, GetRawDirectoryIndexPath(directoryPath), directoryPath),
 			directoryMetric.AfferentCoupling,
 			directoryMetric.EfferentCoupling,
 			strconv.FormatFloat(directoryMetric.Instability, 'f', -1, 64),
@@ -786,6 +797,7 @@ func createCodeSmellsArticle(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Code Smells"))
 	smellEntries := make(map[string][]smellEntry)
 
 	for _, symbol := range graph.Symbols {
@@ -832,7 +844,7 @@ func createCodeSmellsArticle(
 		for _, entry := range entries {
 			sections = append(sections, fmt.Sprintf(
 				"- %s · %s",
-				toSourceWikiLink(topic, entry.RelativePath, entry.Label),
+				toSourceWikiLink(topic, fromDir, entry.RelativePath, entry.Label),
 				entry.FilePath,
 			))
 		}
@@ -867,6 +879,7 @@ func createCircularDependenciesArticle(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("Circular Dependencies"))
 	sources := make([]string, 0)
 	cycles := []string{"No circular dependencies detected."}
 
@@ -882,7 +895,7 @@ func createCircularDependenciesArticle(
 			links := make([]string, 0, len(group))
 			for _, filePath := range group {
 				sources = append(sources, GetRawFileDocumentPath(filePath))
-				links = append(links, toSourceWikiLink(topic, GetRawFileDocumentPath(filePath), filePath))
+				links = append(links, toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(filePath), filePath))
 			}
 			cycles = append(cycles, fmt.Sprintf("%d. %s", index+1, strings.Join(links, " · ")))
 		}
@@ -901,6 +914,7 @@ func createHighImpactSymbolsArticle(
 	graph models.GraphSnapshot,
 	metrics models.MetricsResult,
 ) starterWikiArticle {
+	fromDir := documentDir(GetWikiConceptPath("High-Impact Symbols"))
 	type symbolEntry struct {
 		Symbol models.SymbolNode
 		Metric models.SymbolMetrics
@@ -942,10 +956,10 @@ func createHighImpactSymbolsArticle(
 	for _, entry := range symbolEntries {
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %d | %d | %s |",
-			toSourceWikiLink(topic, GetRawSymbolDocumentPath(entry.Symbol), entry.Symbol.Name),
+			toSourceWikiLink(topic, fromDir, GetRawSymbolDocumentPath(entry.Symbol), entry.Symbol.Name),
 			entry.Metric.BlastRadius,
 			entry.Metric.DirectDependents,
-			toSourceWikiLink(topic, GetRawFileDocumentPath(entry.Symbol.FilePath), entry.Symbol.FilePath),
+			toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(entry.Symbol.FilePath), entry.Symbol.FilePath),
 		))
 		sources = append(sources, GetRawSymbolDocumentPath(entry.Symbol), GetRawFileDocumentPath(entry.Symbol.FilePath))
 	}
@@ -982,14 +996,14 @@ func renderGroupedLinks(groups map[string][]string, emptyMessage string) []strin
 	return lines
 }
 
-func renderSourceBulletList(topic models.TopicMetadata, sources []string, emptyMessage string) string {
+func renderSourceBulletList(topic models.TopicMetadata, fromDir string, sources []string, emptyMessage string) string {
 	if len(sources) == 0 {
 		return emptyMessage
 	}
 
 	lines := make([]string, 0, len(sources))
 	for _, source := range uniqueStrings(sources) {
-		lines = append(lines, "- "+toSourceWikiLink(topic, source, ""))
+		lines = append(lines, "- "+toSourceWikiLink(topic, fromDir, source, ""))
 	}
 
 	return strings.Join(lines, "\n")

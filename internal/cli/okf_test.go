@@ -59,6 +59,9 @@ func TestPromoteCommandResolvesTargetAndPrintsJSON(t *testing.T) {
 	if gotInput.VaultPath != "/tmp/vault" || gotInput.TargetTopic.Slug != "catalog" || gotInput.Type != "Playbook" {
 		t.Fatalf("unexpected promote input: %#v", gotInput)
 	}
+	if gotInput.SourceDocPath != "research/wiki/concepts/Alpha.md" {
+		t.Fatalf("source doc path = %q, want research/wiki/concepts/Alpha.md", gotInput.SourceDocPath)
+	}
 	if gotInput.Description != "Alpha description." {
 		t.Fatalf("description = %q", gotInput.Description)
 	}
@@ -122,6 +125,45 @@ func TestOKFCheckCommandRendersIssuesAndFailsOnErrors(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"filePath": "bad.md"`) {
 		t.Fatalf("stdout missing issue JSON:\n%s", stdout.String())
+	}
+}
+
+func TestOKFCheckCommandRejectsNonOKFTopic(t *testing.T) {
+	originalCheck := runOKFCheck
+	originalTopicInfo := runOKFTopicInfo
+	t.Cleanup(func() {
+		runOKFCheck = originalCheck
+		runOKFTopicInfo = originalTopicInfo
+	})
+	t.Setenv(kconfig.EnvConfigPath, writeCLIConfig(t, "[okf]\ntypes = [\"Playbook\"]\n"))
+
+	checkCalled := false
+	runOKFTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{
+			Slug:     slug,
+			Mode:     models.TopicModeWiki,
+			RootPath: filepath.Join(vaultPath, slug),
+		}, nil
+	}
+	runOKFCheck = func(ctx context.Context, bundlePath string, options kokf.CheckOptions) ([]models.LintIssue, error) {
+		checkCalled = true
+		return nil, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"okf", "check", "research", "--vault", "/tmp/vault"})
+
+	err := command.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected non-OKF topic rejection")
+	}
+	if err.Error() != `okf check: topic "research" is not an OKF topic` {
+		t.Fatalf("error = %q, want non-OKF topic rejection", err.Error())
+	}
+	if checkCalled {
+		t.Fatal("runOKFCheck was called for a non-OKF topic")
 	}
 }
 

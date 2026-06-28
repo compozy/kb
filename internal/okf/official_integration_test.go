@@ -13,7 +13,7 @@ func TestOfficialBundlesPassLenientConformance(t *testing.T) {
 
 	for _, bundle := range []string{"ga4", "stackoverflow", "crypto_bitcoin"} {
 		bundle := bundle
-		t.Run(bundle, func(t *testing.T) {
+		t.Run("Should pass lenient conformance for "+bundle, func(t *testing.T) {
 			t.Parallel()
 			issues, err := Check(context.Background(), filepath.Join("testdata", "official", bundle), CheckOptions{})
 			if err != nil {

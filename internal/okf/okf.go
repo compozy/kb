@@ -92,10 +92,18 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 	}
 
 	key := conceptKey(sourceRelativePath)
-	writtenPath, absoluteTargetPath, err := allocateConceptPath(input.TargetTopic.RootPath, key)
+	writtenPath, absoluteTargetPath, targetFile, err := allocateConceptPath(input.TargetTopic.RootPath, key)
 	if err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: allocate concept path: %w", err)
 	}
+	conceptWritten := false
+	defer func() {
+		if conceptWritten {
+			return
+		}
+		_ = targetFile.Close()
+		_ = os.Remove(absoluteTargetPath)
+	}()
 
 	warnings := typeWarnings(conceptType, input.Types)
 	description, descriptionWarnings := resolveDescription(input.Description, body)
@@ -125,9 +133,13 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 	if err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: generate concept frontmatter: %w", err)
 	}
-	if err := os.WriteFile(absoluteTargetPath, []byte(document), 0o644); err != nil {
+	if _, err := targetFile.Write([]byte(document)); err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: write concept %q: %w", absoluteTargetPath, err)
 	}
+	if err := targetFile.Close(); err != nil {
+		return ConceptResult{}, fmt.Errorf("promote: close concept %q: %w", absoluteTargetPath, err)
+	}
+	conceptWritten = true
 
 	if err := RegenerateIndex(input.TargetTopic.RootPath); err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: regenerate index: %w", err)
@@ -386,7 +398,7 @@ func isRegularFile(filePath string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func allocateConceptPath(bundleRoot, key string) (string, string, error) {
+func allocateConceptPath(bundleRoot, key string) (string, string, *os.File, error) {
 	for suffix := 1; ; suffix++ {
 		name := key
 		if suffix > 1 {
@@ -394,11 +406,14 @@ func allocateConceptPath(bundleRoot, key string) (string, string, error) {
 		}
 		relativePath := name + ".md"
 		absolutePath := filepath.Join(bundleRoot, filepath.FromSlash(relativePath))
-		if _, err := os.Stat(absolutePath); errors.Is(err, os.ErrNotExist) {
-			return relativePath, absolutePath, nil
-		} else if err != nil {
-			return "", "", err
+		file, err := os.OpenFile(absolutePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			return relativePath, absolutePath, file, nil
 		}
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		return "", "", nil, err
 	}
 }
 
@@ -575,7 +590,10 @@ func loadConcepts(bundlePath string) ([]conceptInfo, string, error) {
 			return err
 		}
 		values, _, err := frontmatter.Parse(string(content))
-		if err != nil || len(values) == 0 {
+		if err != nil {
+			return fmt.Errorf("parse concept %s: %w", relativePath, err)
+		}
+		if len(values) == 0 {
 			return nil
 		}
 		conceptType := strings.TrimSpace(frontmatter.GetString(values, "type"))

@@ -229,7 +229,7 @@ func newWithDateWithMode(vaultPath, slug, title, domain string, mode models.Topi
 		return models.TopicInfo{}, fmt.Errorf("new topic: inspect topic path %q: %w", topicPath, err)
 	}
 
-	if err := createTopicSkeleton(topicPath, cleanMode); err != nil {
+	if err := createTopicSkeleton(topicPath); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: create topic skeleton: %w", err)
 	}
 
@@ -249,10 +249,8 @@ func newWithDateWithMode(vaultPath, slug, title, domain string, mode models.Topi
 	if err := ensureAgentsSymlink(topicPath); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: ensure AGENTS.md symlink: %w", err)
 	}
-	if cleanMode == models.TopicModeWiki {
-		if err := ensureGitkeeps(topicPath); err != nil {
-			return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
-		}
+	if err := ensureGitkeeps(topicPath); err != nil {
+		return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
 	}
 	logPath := filepath.Join(topicPath, "log.md")
 	if cleanMode == models.TopicModeOKF {
@@ -434,10 +432,7 @@ func ensureDirectory(path string) error {
 	return nil
 }
 
-func createTopicSkeleton(topicPath string, mode models.TopicMode) error {
-	if mode == models.TopicModeOKF {
-		return os.MkdirAll(topicPath, 0o755)
-	}
+func createTopicSkeleton(topicPath string) error {
 	for _, relativePath := range currentTopicDirectories {
 		directoryPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
 		if err := os.MkdirAll(directoryPath, 0o755); err != nil {
@@ -455,7 +450,7 @@ func EnsureCurrentSkeleton(topicPath string) error {
 		return fmt.Errorf("topic path is required")
 	}
 
-	if err := createTopicSkeleton(topicPath, models.TopicModeWiki); err != nil {
+	if err := createTopicSkeleton(topicPath); err != nil {
 		return err
 	}
 	if err := ensureTopicLog(topicPath); err != nil {
@@ -554,7 +549,18 @@ func WriteMetadataFile(topicPath, slug, title, domain string) error {
 	if err != nil {
 		return fmt.Errorf("validate topic metadata slug: %w", err)
 	}
-	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, ""))
+	mode := models.TopicModeWiki
+	existing, err := readTopicYAMLMetadata(filepath.Join(topicPath, topicMetadataFileName))
+	if err != nil {
+		return fmt.Errorf("read existing topic metadata: %w", err)
+	}
+	if existing.Mode != "" {
+		mode, err = normalizeTopicMode(models.TopicMode(existing.Mode))
+		if err != nil {
+			return fmt.Errorf("validate existing topic mode: %w", err)
+		}
+	}
+	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, mode))
 }
 
 func topicMetadataForRef(topicRef TopicRef, title, domain string, mode models.TopicMode) topicMetadataFile {

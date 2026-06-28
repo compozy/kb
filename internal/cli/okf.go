@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/compozy/kb/internal/models"
 	kokf "github.com/compozy/kb/internal/okf"
 	"github.com/compozy/kb/internal/output"
 	ktopic "github.com/compozy/kb/internal/topic"
@@ -66,6 +67,9 @@ func runOKFCheckCommand(cmd *cobra.Command, options *okfCheckOptions, topicSlug 
 	topicInfo, err := runOKFTopicInfo(vaultPath, topicSlug)
 	if err != nil {
 		return fmt.Errorf("okf check: %w", err)
+	}
+	if topicInfo.Mode != models.TopicModeOKF {
+		return fmt.Errorf("okf check: topic %q is not an OKF topic", topicSlug)
 	}
 
 	issues, err := runOKFCheck(commandContext(cmd), topicInfo.RootPath, kokf.CheckOptions{

@@ -466,15 +466,16 @@ func buildTopicClaudeManagedBlock(
 }
 
 func buildTopicIndexBridgeManagedBlock(topic models.TopicMetadata) string {
+	fromDir := documentDir(GetTopicIndexPath(TopicDashboardTitle))
 	lines := []string{
 		codebaseIndexBlockStart,
 		"## Generated codebase analysis (managed)",
 		"",
 		"Latest `kb ingest codebase` output is published under `wiki/codebase/` so the top-level topic indexes can stay manually curated.",
 		"",
-		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
-		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
-		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"- " + linkFor(topic, fromDir, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+		"- " + linkFor(topic, fromDir, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- " + linkFor(topic, fromDir, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 		"",
 		codebaseIndexBlockEnd,
 	}

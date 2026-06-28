@@ -59,9 +59,11 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
 	if len(cfg.Vault.TopicGlobs) != 1 || cfg.Vault.TopicGlobs[0] != "*" {
 		t.Errorf("expected default vault.topic_globs [*], got %#v", cfg.Vault.TopicGlobs)
 	}
-	if len(cfg.OKF.Types) != 0 {
-		t.Errorf("expected default okf.types to be empty, got %#v", cfg.OKF.Types)
-	}
+	t.Run("Should default OKF types to empty", func(t *testing.T) {
+		if len(cfg.OKF.Types) != 0 {
+			t.Errorf("expected default okf.types to be empty, got %#v", cfg.OKF.Types)
+		}
+	})
 	if cfg.Firecrawl.APIURL != defaultFirecrawlAPIURL {
 		t.Errorf("expected default firecrawl.api_url %q, got %q", defaultFirecrawlAPIURL, cfg.Firecrawl.APIURL)
 	}
@@ -178,9 +180,11 @@ allow_translated_captions = true
 	if len(cfg.Vault.TopicGlobs) != 2 || cfg.Vault.TopicGlobs[1] != "harness/*" {
 		t.Errorf("expected vault.topic_globs to include harness/*, got %#v", cfg.Vault.TopicGlobs)
 	}
-	if !reflect.DeepEqual(cfg.OKF.Types, []string{"Playbook", "Reference"}) {
-		t.Errorf("expected normalized okf.types, got %#v", cfg.OKF.Types)
-	}
+	t.Run("Should normalize OKF type vocabulary", func(t *testing.T) {
+		if !reflect.DeepEqual(cfg.OKF.Types, []string{"Playbook", "Reference"}) {
+			t.Errorf("expected normalized okf.types, got %#v", cfg.OKF.Types)
+		}
+	})
 	if cfg.Firecrawl.APIKey != "firecrawl-key" {
 		t.Errorf("expected firecrawl.api_key 'firecrawl-key', got %q", cfg.Firecrawl.APIKey)
 	}

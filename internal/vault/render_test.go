@@ -276,7 +276,7 @@ func TestRenderDocumentsUseOKFMarkdownLinkSyntax(t *testing.T) {
 	if strings.Contains(rawDocument.Body, "[[") {
 		t.Fatalf("expected OKF raw document to avoid wikilinks, got:\n%s", rawDocument.Body)
 	}
-	if !strings.Contains(rawDocument.Body, "[main (function)](raw/codebase/symbols/main--commands-run-ts-l1.md)") {
+	if !strings.Contains(rawDocument.Body, "[main (function)](../../symbols/main--commands-run-ts-l1.md)") {
 		t.Fatalf("expected OKF raw document to contain relative markdown link, got:\n%s", rawDocument.Body)
 	}
 
@@ -284,7 +284,7 @@ func TestRenderDocumentsUseOKFMarkdownLinkSyntax(t *testing.T) {
 	if strings.Contains(dashboard.Body, "[[") {
 		t.Fatalf("expected OKF dashboard to avoid wikilinks, got:\n%s", dashboard.Body)
 	}
-	if !strings.Contains(dashboard.Body, "[Codebase Overview](wiki/codebase/concepts/Codebase%20Overview.md)") {
+	if !strings.Contains(dashboard.Body, "[Codebase Overview](../concepts/Codebase%20Overview.md)") {
 		t.Fatalf("expected OKF dashboard to link with escaped relative markdown path, got:\n%s", dashboard.Body)
 	}
 }
