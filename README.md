@@ -87,6 +87,9 @@ $ kb topic new rust-lang "Rust Language" programming
   "domain": "programming"
 }
 
+# scaffold an OKF bundle topic
+$ kb topic new rust-catalog "Rust Catalog" programming --mode okf
+
 # ingest a web article
 $ kb ingest url https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html --topic rust-lang
 
@@ -102,6 +105,12 @@ $ kb ingest codebase ./my-rust-project --topic rust-lang --progress never
 
 # lint the topic for structural issues
 $ kb lint rust-lang
+
+# promote a compiled wiki document into the OKF bundle
+$ kb promote .kb/vault/rust-lang/wiki/concepts/Ownership.md --to rust-catalog --type Concept
+
+# check the OKF bundle
+$ kb okf check rust-catalog --strict
 ```
 
 Analyze codebase snapshots from the terminal:
@@ -181,9 +190,27 @@ The key difference: `kb` outputs compound. A SonarQube scan from last month is s
 Scaffold and manage knowledge base topics.
 
 ```bash
-kb topic new <slug> <title> <domain>   # Create a new topic
+kb topic new <slug> <title> <domain> [--mode wiki|okf]   # Create a new topic
 kb topic list                           # List all topics in the vault
 kb topic info <slug>                    # Show metadata for a topic
+```
+
+`--mode wiki` is the default scaffold. `--mode okf` creates a root-level Open Knowledge File bundle with `index.md`, `log.md`, and OKF authoring guidance.
+
+### `kb promote`
+
+Promote a compiled wiki document into an OKF topic without modifying the source document.
+
+```bash
+kb promote <wiki-doc> --to <okf-topic> --type <type> [--description <text>]
+```
+
+### `kb okf`
+
+Check an OKF topic for bundle conformance.
+
+```bash
+kb okf check <topic> [--strict] [--format table|json|tsv]
 ```
 
 ### `kb ingest`

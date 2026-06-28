@@ -183,8 +183,20 @@ func renderMarkdownDocument(document models.RenderedDocument) string {
 	}, "\n")
 }
 
-func toSourceWikiLink(topic models.TopicMetadata, relativePath, label string) string {
-	return ToTopicWikiLink(topic.Slug, relativePath, label)
+func documentDir(relativePath string) string {
+	dir := path.Dir(ToPosixPath(relativePath))
+	if dir == "." {
+		return ""
+	}
+	return dir
+}
+
+func toSourceWikiLink(topic models.TopicMetadata, fromDir, relativePath, label string) string {
+	return linkFor(topic, fromDir, relativePath, label)
+}
+
+func linkFor(topic models.TopicMetadata, fromDir, relativePath, label string) string {
+	return LinkFormatterFor(topic).Link(fromDir, relativePath, label)
 }
 
 func createDocumentLookup(graph models.GraphSnapshot) map[string]string {
@@ -211,13 +223,14 @@ func createExternalNodeLookup(externalNodes []models.ExternalNode) map[string]mo
 
 func linkForNode(
 	topic models.TopicMetadata,
+	fromDir string,
 	nodeID string,
 	documentLookup map[string]string,
 	externalNodes map[string]models.ExternalNode,
 	fallbackLabel string,
 ) string {
 	if documentPath, exists := documentLookup[nodeID]; exists {
-		return toSourceWikiLink(topic, documentPath, fallbackLabel)
+		return linkFor(topic, fromDir, documentPath, fallbackLabel)
 	}
 
 	if externalNode, exists := externalNodes[nodeID]; exists {
@@ -233,6 +246,7 @@ func linkForNode(
 
 func renderRelationList(
 	topic models.TopicMetadata,
+	fromDir string,
 	relations []models.RelationEdge,
 	documentLookup map[string]string,
 	externalNodes map[string]models.ExternalNode,
@@ -265,7 +279,7 @@ func renderRelationList(
 			targetLabel = after
 		}
 
-		target := linkForNode(topic, relation.ToID, documentLookup, externalNodes, targetLabel)
+		target := linkForNode(topic, fromDir, relation.ToID, documentLookup, externalNodes, targetLabel)
 		lines = append(lines, fmt.Sprintf("- `%s` (%s) -> %s", relation.Type, relation.Confidence, target))
 	}
 
@@ -274,6 +288,7 @@ func renderRelationList(
 
 func renderBacklinkList(
 	topic models.TopicMetadata,
+	fromDir string,
 	relations []models.RelationEdge,
 	documentLookup map[string]string,
 	externalNodes map[string]models.ExternalNode,
@@ -303,7 +318,7 @@ func renderBacklinkList(
 			sourceLabel = after
 		}
 
-		source := linkForNode(topic, relation.FromID, documentLookup, externalNodes, sourceLabel)
+		source := linkForNode(topic, fromDir, relation.FromID, documentLookup, externalNodes, sourceLabel)
 		lines = append(lines, fmt.Sprintf("- %s via `%s` (%s)", source, relation.Type, relation.Confidence))
 	}
 
@@ -332,12 +347,15 @@ func renderRawFileDocument(
 	documentLookup map[string]string,
 	externalNodes map[string]models.ExternalNode,
 ) models.RenderedDocument {
+	relativePath := GetRawFileDocumentPath(file.FilePath)
+	fromDir := documentDir(relativePath)
 	symbolLines := []string{"None"}
 	if len(fileSymbols) > 0 {
 		symbolLines = make([]string, 0, len(fileSymbols))
 		for _, symbol := range fileSymbols {
 			symbolLink := toSourceWikiLink(
 				topic,
+				fromDir,
 				GetRawSymbolDocumentPath(symbol),
 				fmt.Sprintf("%s (%s)", symbol.Name, symbol.SymbolKind),
 			)
@@ -376,17 +394,17 @@ func renderRawFileDocument(
 		"",
 		"## Outgoing Relations",
 	)
-	sections = append(sections, renderRelationList(topic, outgoingRelations, documentLookup, externalNodes)...)
+	sections = append(sections, renderRelationList(topic, fromDir, outgoingRelations, documentLookup, externalNodes)...)
 	sections = append(sections,
 		"",
 		"## Backlinks",
 	)
-	sections = append(sections, renderBacklinkList(topic, incomingRelations, documentLookup, externalNodes)...)
+	sections = append(sections, renderBacklinkList(topic, fromDir, incomingRelations, documentLookup, externalNodes)...)
 
 	return models.RenderedDocument{
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
-		RelativePath: GetRawFileDocumentPath(file.FilePath),
+		RelativePath: relativePath,
 		Frontmatter: map[string]any{
 			"afferent_coupling":       fileMetrics.AfferentCoupling,
 			"domain":                  topic.Domain,
@@ -470,7 +488,9 @@ func renderRawSymbolDocument(
 	documentLookup map[string]string,
 	externalNodes map[string]models.ExternalNode,
 ) models.RenderedDocument {
-	fileLink := toSourceWikiLink(topic, GetRawFileDocumentPath(symbol.FilePath), symbol.FilePath)
+	relativePath := GetRawSymbolDocumentPath(symbol)
+	fromDir := documentDir(relativePath)
+	fileLink := toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(symbol.FilePath), symbol.FilePath)
 
 	signatureBlock := "None"
 	if strings.TrimSpace(symbol.Signature) != "" {
@@ -520,17 +540,17 @@ func renderRawSymbolDocument(
 		"",
 		"## Outgoing Relations",
 	)
-	sections = append(sections, renderRelationList(topic, outgoingRelations, documentLookup, externalNodes)...)
+	sections = append(sections, renderRelationList(topic, fromDir, outgoingRelations, documentLookup, externalNodes)...)
 	sections = append(sections,
 		"",
 		"## Backlinks",
 	)
-	sections = append(sections, renderBacklinkList(topic, incomingRelations, documentLookup, externalNodes)...)
+	sections = append(sections, renderBacklinkList(topic, fromDir, incomingRelations, documentLookup, externalNodes)...)
 
 	return models.RenderedDocument{
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
-		RelativePath: GetRawSymbolDocumentPath(symbol),
+		RelativePath: relativePath,
 		Frontmatter:  createSymbolFrontmatter(topic, symbol, symbolMetrics, incomingRelations, outgoingRelations),
 		Body:         strings.Join(sections, "\n"),
 	}
@@ -543,6 +563,8 @@ func renderRawDirectoryIndex(
 	symbols []models.SymbolNode,
 	directoryMetrics models.DirectoryMetrics,
 ) models.RenderedDocument {
+	relativePath := GetRawDirectoryIndexPath(directoryPath)
+	fromDir := documentDir(relativePath)
 	orderedFiles := append([]models.GraphFile(nil), files...)
 	sort.Slice(orderedFiles, func(i, j int) bool {
 		return orderedFiles[i].FilePath < orderedFiles[j].FilePath
@@ -552,7 +574,7 @@ func renderRawDirectoryIndex(
 	if len(orderedFiles) > 0 {
 		fileLinks = make([]string, 0, len(orderedFiles))
 		for _, file := range orderedFiles {
-			fileLinks = append(fileLinks, "- "+toSourceWikiLink(topic, GetRawFileDocumentPath(file.FilePath), file.FilePath))
+			fileLinks = append(fileLinks, "- "+toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(file.FilePath), file.FilePath))
 		}
 	}
 
@@ -565,6 +587,7 @@ func renderRawDirectoryIndex(
 		for _, symbol := range orderedSymbols {
 			symbolLinks = append(symbolLinks, "- "+toSourceWikiLink(
 				topic,
+				fromDir,
 				GetRawSymbolDocumentPath(symbol),
 				fmt.Sprintf("%s (%s)", symbol.Name, symbol.SymbolKind),
 			))
@@ -593,7 +616,7 @@ func renderRawDirectoryIndex(
 	return models.RenderedDocument{
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
-		RelativePath: GetRawDirectoryIndexPath(directoryPath),
+		RelativePath: relativePath,
 		Frontmatter: map[string]any{
 			"afferent_coupling": directoryMetrics.AfferentCoupling,
 			"domain":            topic.Domain,
@@ -620,6 +643,8 @@ func renderRawLanguageIndex(
 	symbols []models.SymbolNode,
 	javaDiagnostics javaDiagnosticSummary,
 ) models.RenderedDocument {
+	relativePath := GetRawLanguageIndexPath(language)
+	fromDir := documentDir(relativePath)
 	orderedFiles := append([]models.GraphFile(nil), files...)
 	sort.Slice(orderedFiles, func(i, j int) bool {
 		return orderedFiles[i].FilePath < orderedFiles[j].FilePath
@@ -629,7 +654,7 @@ func renderRawLanguageIndex(
 	if len(orderedFiles) > 0 {
 		fileLinks = make([]string, 0, len(orderedFiles))
 		for _, file := range orderedFiles {
-			fileLinks = append(fileLinks, "- "+toSourceWikiLink(topic, GetRawFileDocumentPath(file.FilePath), file.FilePath))
+			fileLinks = append(fileLinks, "- "+toSourceWikiLink(topic, fromDir, GetRawFileDocumentPath(file.FilePath), file.FilePath))
 		}
 	}
 
@@ -642,6 +667,7 @@ func renderRawLanguageIndex(
 		for _, symbol := range orderedSymbols {
 			symbolLinks = append(symbolLinks, "- "+toSourceWikiLink(
 				topic,
+				fromDir,
 				GetRawSymbolDocumentPath(symbol),
 				fmt.Sprintf("%s (%s)", symbol.Name, symbol.SymbolKind),
 			))
@@ -693,7 +719,7 @@ func renderRawLanguageIndex(
 	return models.RenderedDocument{
 		Kind:         models.DocRaw,
 		ManagedArea:  models.AreaRawCodebase,
-		RelativePath: GetRawLanguageIndexPath(language),
+		RelativePath: relativePath,
 		Frontmatter:  frontmatter,
 		Body:         strings.Join(sections, "\n"),
 	}

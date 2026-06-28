@@ -1,0 +1,2808 @@
+diff --git a/config.example.toml b/config.example.toml
+index a9ea428..0c91297 100644
+--- a/config.example.toml
++++ b/config.example.toml
+@@ -5,6 +5,7 @@
+ # - `[app]`
+ # - `[log]`
+ # - `[vault]`
++# - `[okf]`
+ # - `[firecrawl]`
+ # - `[openrouter]`
+ # - `[stt]`
+@@ -48,6 +49,11 @@ level = "info"
+ root = "."
+ topic_globs = ["*"]
+ 
++[okf]
++# Local OKF concept type vocabulary. Empty means `kb okf check` will not warn
++# about unknown types until the operator opts into a local standard.
++types = []
++
+ [firecrawl]
+ api_key = ""
+ api_url = "https://api.firecrawl.dev"
+diff --git a/internal/cli/root.go b/internal/cli/root.go
+index 2b123a6..22ab258 100644
+--- a/internal/cli/root.go
++++ b/internal/cli/root.go
+@@ -23,6 +23,8 @@ func newRootCommand() *cobra.Command {
+ 	bindRootPersistentFlags(command)
+ 	command.AddCommand(newTopicCommand())
+ 	command.AddCommand(newIngestCommand())
++	command.AddCommand(newPromoteCommand())
++	command.AddCommand(newOKFCommand())
+ 	command.AddCommand(newLintCommand())
+ 	command.AddCommand(newGenerateCommand())
+ 	command.AddCommand(newInspectCommand())
+diff --git a/internal/cli/topic.go b/internal/cli/topic.go
+index 3746632..d609335 100644
+--- a/internal/cli/topic.go
++++ b/internal/cli/topic.go
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/json"
+ 	"fmt"
+ 	"os"
++	"strings"
+ 
+ 	"github.com/spf13/cobra"
+ 
+@@ -13,6 +14,7 @@ import (
+ )
+ 
+ var runTopicNew = ktopic.New
++var runTopicNewWithMode = ktopic.NewWithMode
+ var runTopicList = ktopic.List
+ var runTopicInfo = ktopic.Info
+ var topicGetwd = os.Getwd
+@@ -37,7 +39,8 @@ func newTopicCommand() *cobra.Command {
+ }
+ 
+ func newTopicNewCommand() *cobra.Command {
+-	return &cobra.Command{
++	var mode string
++	command := &cobra.Command{
+ 		Use:   "new <slug> <title> <domain>",
+ 		Short: "Scaffold a new knowledge base topic",
+ 		Args:  cobra.ExactArgs(3),
+@@ -47,7 +50,16 @@ func newTopicNewCommand() *cobra.Command {
+ 				return err
+ 			}
+ 
+-			info, err := runTopicNew(vaultPath, args[0], args[1], args[2])
++			topicMode, err := parseTopicMode(mode)
++			if err != nil {
++				return err
++			}
++			var info models.TopicInfo
++			if topicMode == models.TopicModeWiki {
++				info, err = runTopicNew(vaultPath, args[0], args[1], args[2])
++			} else {
++				info, err = runTopicNewWithMode(vaultPath, args[0], args[1], args[2], topicMode)
++			}
+ 			if err != nil {
+ 				return err
+ 			}
+@@ -55,6 +67,8 @@ func newTopicNewCommand() *cobra.Command {
+ 			return writeTopicInfoJSON(cmd, info)
+ 		},
+ 	}
++	command.Flags().StringVar(&mode, "mode", string(models.TopicModeWiki), "Topic mode (wiki|okf)")
++	return command
+ }
+ 
+ func newTopicListCommand() *cobra.Command {
+@@ -98,6 +112,17 @@ func newTopicListCommand() *cobra.Command {
+ 	}
+ }
+ 
++func parseTopicMode(value string) (models.TopicMode, error) {
++	switch strings.TrimSpace(value) {
++	case "", string(models.TopicModeWiki):
++		return models.TopicModeWiki, nil
++	case string(models.TopicModeOKF):
++		return models.TopicModeOKF, nil
++	default:
++		return "", fmt.Errorf(`invalid --mode %q: expected "wiki" or "okf"`, value)
++	}
++}
++
+ func newTopicInfoCommand() *cobra.Command {
+ 	return &cobra.Command{
+ 		Use:   "info <slug>",
+diff --git a/internal/cli/topic_test.go b/internal/cli/topic_test.go
+index 44d7b67..1f49e4d 100644
+--- a/internal/cli/topic_test.go
++++ b/internal/cli/topic_test.go
+@@ -79,6 +79,66 @@ func TestTopicNewCommandPassesArgsAndPrintsJSON(t *testing.T) {
+ 	}
+ }
+ 
++func TestTopicNewCommandPassesOKFMode(t *testing.T) {
++	originalNewWithMode := runTopicNewWithMode
++	originalGetwd := topicGetwd
++	t.Cleanup(func() {
++		runTopicNewWithMode = originalNewWithMode
++		topicGetwd = originalGetwd
++	})
++
++	var gotMode models.TopicMode
++	runTopicNewWithMode = func(vaultPath, slug, title, domain string, mode models.TopicMode) (models.TopicInfo, error) {
++		gotMode = mode
++		return models.TopicInfo{
++			Slug:     slug,
++			Title:    title,
++			Domain:   domain,
++			Mode:     mode,
++			RootPath: filepath.Join(vaultPath, slug),
++		}, nil
++	}
++	topicGetwd = func() (string, error) {
++		return "/workspace/repo", nil
++	}
++
++	command := newRootCommand()
++	var stdout bytes.Buffer
++	command.SetOut(&stdout)
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{"topic", "new", "ops-catalog", "Ops Catalog", "ops", "--mode", "okf", "--vault", "/tmp/vault"})
++
++	if err := command.ExecuteContext(context.Background()); err != nil {
++		t.Fatalf("ExecuteContext returned error: %v", err)
++	}
++	if gotMode != models.TopicModeOKF {
++		t.Fatalf("mode = %q, want okf", gotMode)
++	}
++
++	var info models.TopicInfo
++	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
++		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
++	}
++	if info.Mode != models.TopicModeOKF {
++		t.Fatalf("payload mode = %q, want okf", info.Mode)
++	}
++}
++
++func TestTopicNewCommandRejectsInvalidMode(t *testing.T) {
++	command := newRootCommand()
++	command.SetOut(new(bytes.Buffer))
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{"topic", "new", "ops", "Ops", "ops", "--mode", "catalog", "--vault", "/tmp/vault"})
++
++	err := command.ExecuteContext(context.Background())
++	if err == nil {
++		t.Fatal("expected invalid mode error")
++	}
++	if !strings.Contains(err.Error(), "invalid --mode") {
++		t.Fatalf("unexpected error: %v", err)
++	}
++}
++
+ func TestTopicNewCommandRequiresThreeArgs(t *testing.T) {
+ 	command := newRootCommand()
+ 	command.SetOut(new(bytes.Buffer))
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 14d3417..5083362 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -47,6 +47,7 @@ type Config struct {
+ 	App        AppConfig        `toml:"app"`
+ 	Log        LogConfig        `toml:"log"`
+ 	Vault      VaultConfig      `toml:"vault"`
++	OKF        OKFConfig        `toml:"okf"`
+ 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
+ 	OpenRouter OpenRouterConfig `toml:"openrouter"`
+ 	STT        STTConfig        `toml:"stt"`
+@@ -71,6 +72,11 @@ type VaultConfig struct {
+ 	TopicGlobs []string `toml:"topic_globs"`
+ }
+ 
++// OKFConfig controls local Open Knowledge Format producer standards.
++type OKFConfig struct {
++	Types []string `toml:"types"`
++}
++
+ // FirecrawlConfig controls URL scraping API access.
+ type FirecrawlConfig struct {
+ 	APIKey string `toml:"api_key"`
+@@ -211,6 +217,7 @@ func (c *Config) applyDefaults() {
+ 	if len(c.Vault.TopicGlobs) == 0 {
+ 		c.Vault.TopicGlobs = []string{defaultTopicGlob}
+ 	}
++	c.OKF.Types = normalizeConfigStringList(c.OKF.Types)
+ 	if strings.TrimSpace(c.YouTube.YTDLPPath) == "" {
+ 		c.YouTube.YTDLPPath = defaultYouTubeYTDLPPath
+ 	}
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index 9edc0c1..e4c3c2e 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -59,6 +59,9 @@ func TestDefaultConfigHasValidDefaults(t *testing.T) {
+ 	if len(cfg.Vault.TopicGlobs) != 1 || cfg.Vault.TopicGlobs[0] != "*" {
+ 		t.Errorf("expected default vault.topic_globs [*], got %#v", cfg.Vault.TopicGlobs)
+ 	}
++	if len(cfg.OKF.Types) != 0 {
++		t.Errorf("expected default okf.types to be empty, got %#v", cfg.OKF.Types)
++	}
+ 	if cfg.Firecrawl.APIURL != defaultFirecrawlAPIURL {
+ 		t.Errorf("expected default firecrawl.api_url %q, got %q", defaultFirecrawlAPIURL, cfg.Firecrawl.APIURL)
+ 	}
+@@ -118,6 +121,9 @@ level = "debug"
+ root = "."
+ topic_globs = ["*", "harness/*"]
+ 
++[okf]
++types = ["Playbook", " Reference ", ""]
++
+ [firecrawl]
+ api_key = "firecrawl-key"
+ api_url = "https://firecrawl.internal"
+@@ -172,6 +178,9 @@ allow_translated_captions = true
+ 	if len(cfg.Vault.TopicGlobs) != 2 || cfg.Vault.TopicGlobs[1] != "harness/*" {
+ 		t.Errorf("expected vault.topic_globs to include harness/*, got %#v", cfg.Vault.TopicGlobs)
+ 	}
++	if !reflect.DeepEqual(cfg.OKF.Types, []string{"Playbook", "Reference"}) {
++		t.Errorf("expected normalized okf.types, got %#v", cfg.OKF.Types)
++	}
+ 	if cfg.Firecrawl.APIKey != "firecrawl-key" {
+ 		t.Errorf("expected firecrawl.api_key 'firecrawl-key', got %q", cfg.Firecrawl.APIKey)
+ 	}
+diff --git a/internal/generate/generate.go b/internal/generate/generate.go
+index be6a9a1..987e572 100644
+--- a/internal/generate/generate.go
++++ b/internal/generate/generate.go
+@@ -453,6 +453,7 @@ func (r runner) createTopicMetadata(target generationTarget, opts models.Generat
+ 		Title:     title,
+ 		Slug:      target.TopicSlug,
+ 		Domain:    vault.DeriveTopicDomain(domainSource),
++		Mode:      models.TopicModeWiki,
+ 		Today:     r.now().Format("2006-01-02"),
+ 		VaultPath: target.VaultPath,
+ 		TopicPath: filepath.Join(target.VaultPath, target.TopicSlug),
+diff --git a/internal/models/kb_models.go b/internal/models/kb_models.go
+index 11d0ef2..2087683 100644
+--- a/internal/models/kb_models.go
++++ b/internal/models/kb_models.go
+@@ -114,11 +114,12 @@ type LintIssue struct {
+ 
+ // TopicInfo captures topic metadata for list and info operations.
+ type TopicInfo struct {
+-	Slug         string `json:"slug"`
+-	Title        string `json:"title"`
+-	Domain       string `json:"domain"`
+-	RootPath     string `json:"rootPath"`
+-	ArticleCount int    `json:"articleCount"`
+-	SourceCount  int    `json:"sourceCount"`
+-	LastLogEntry string `json:"lastLogEntry,omitempty"`
++	Slug         string    `json:"slug"`
++	Title        string    `json:"title"`
++	Domain       string    `json:"domain"`
++	Mode         TopicMode `json:"mode"`
++	RootPath     string    `json:"rootPath"`
++	ArticleCount int       `json:"articleCount"`
++	SourceCount  int       `json:"sourceCount"`
++	LastLogEntry string    `json:"lastLogEntry,omitempty"`
+ }
+diff --git a/internal/models/models.go b/internal/models/models.go
+index 3352045..061f0aa 100644
+--- a/internal/models/models.go
++++ b/internal/models/models.go
+@@ -102,6 +102,16 @@ const (
+ 	DocIndex DocumentKind = "index"
+ )
+ 
++// TopicMode identifies the lifecycle and file contract for a topic.
++type TopicMode string
++
++const (
++	// TopicModeWiki preserves the existing LLM-wiki topic lifecycle.
++	TopicModeWiki TopicMode = "wiki"
++	// TopicModeOKF uses the Open Knowledge Format bundle lifecycle.
++	TopicModeOKF TopicMode = "okf"
++)
++
+ // ManagedArea identifies the managed subtree within a generated topic.
+ type ManagedArea string
+ 
+@@ -269,13 +279,14 @@ type RenderedDocument struct {
+ 
+ // TopicMetadata captures the derived topic information for a vault render.
+ type TopicMetadata struct {
+-	RootPath  string `json:"rootPath"`
+-	Title     string `json:"title"`
+-	Slug      string `json:"slug"`
+-	Domain    string `json:"domain"`
+-	Today     string `json:"today"`
+-	VaultPath string `json:"vaultPath"`
+-	TopicPath string `json:"topicPath"`
++	RootPath  string    `json:"rootPath"`
++	Title     string    `json:"title"`
++	Slug      string    `json:"slug"`
++	Domain    string    `json:"domain"`
++	Mode      TopicMode `json:"mode"`
++	Today     string    `json:"today"`
++	VaultPath string    `json:"vaultPath"`
++	TopicPath string    `json:"topicPath"`
+ }
+ 
+ // GenerateOptions configures a full knowledge-base generation run.
+diff --git a/internal/topic/topic.go b/internal/topic/topic.go
+index 1097c4e..f74467e 100644
+--- a/internal/topic/topic.go
++++ b/internal/topic/topic.go
+@@ -23,6 +23,7 @@ const (
+ 	conceptIndexTemplatePath = "assets/concept-index-template.md"
+ 	dashboardTemplatePath    = "assets/dashboard-template.md"
+ 	logTemplatePath          = "assets/log-template.md"
++	okfClaudeTemplatePath    = "assets/okf-claude-template.md"
+ 	sourceIndexTemplatePath  = "assets/source-index-template.md"
+ 	topicMarkerFile          = "CLAUDE.md"
+ 	topicMetadataFileName    = "topic.yaml"
+@@ -105,6 +106,7 @@ type topicMetadataFile struct {
+ 	Slug          string `yaml:"slug"`
+ 	Title         string `yaml:"title"`
+ 	Domain        string `yaml:"domain"`
++	Mode          string `yaml:"mode,omitempty"`
+ 	Category      string `yaml:"category,omitempty"`
+ 	Path          string `yaml:"path,omitempty"`
+ 	QMDCollection string `yaml:"qmd_collection,omitempty"`
+@@ -112,7 +114,12 @@ type topicMetadataFile struct {
+ 
+ // New scaffolds a new topic underneath the provided vault root.
+ func New(vaultPath, slug, title, domain string) (models.TopicInfo, error) {
+-	return newWithDate(vaultPath, slug, title, domain, time.Now())
++	return NewWithMode(vaultPath, slug, title, domain, models.TopicModeWiki)
++}
++
++// NewWithMode scaffolds a new topic with an explicit lifecycle mode.
++func NewWithMode(vaultPath, slug, title, domain string, mode models.TopicMode) (models.TopicInfo, error) {
++	return newWithDateWithMode(vaultPath, slug, title, domain, mode, time.Now())
+ }
+ 
+ // List returns the topics discovered under the provided vault root.
+@@ -184,6 +191,10 @@ func Info(vaultPath, slug string) (models.TopicInfo, error) {
+ }
+ 
+ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.TopicInfo, error) {
++	return newWithDateWithMode(vaultPath, slug, title, domain, models.TopicModeWiki, now)
++}
++
++func newWithDateWithMode(vaultPath, slug, title, domain string, mode models.TopicMode, now time.Time) (models.TopicInfo, error) {
+ 	cleanVaultPath, err := normalizeVaultPath(vaultPath)
+ 	if err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
+@@ -195,6 +206,10 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
+ 	}
+ 	cleanTitle := strings.TrimSpace(title)
+ 	cleanDomain := strings.TrimSpace(domain)
++	cleanMode, err := normalizeTopicMode(mode)
++	if err != nil {
++		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
++	}
+ 
+ 	switch {
+ 	case cleanTitle == "":
+@@ -214,7 +229,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: inspect topic path %q: %w", topicPath, err)
+ 	}
+ 
+-	if err := createTopicSkeleton(topicPath); err != nil {
++	if err := createTopicSkeleton(topicPath, cleanMode); err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: create topic skeleton: %w", err)
+ 	}
+ 
+@@ -225,19 +240,26 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
+ 		Today:  now.Format(frontmatter.DateLayout),
+ 	}
+ 
+-	if err := installTemplates(topicPath, context); err != nil {
++	if err := installTemplatesWithMode(topicPath, context, cleanMode); err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: install templates: %w", err)
+ 	}
+-	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain)); err != nil {
++	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain, cleanMode)); err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: write topic metadata: %w", err)
+ 	}
+ 	if err := ensureAgentsSymlink(topicPath); err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: ensure AGENTS.md symlink: %w", err)
+ 	}
+-	if err := ensureGitkeeps(topicPath); err != nil {
+-		return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
++	if cleanMode == models.TopicModeWiki {
++		if err := ensureGitkeeps(topicPath); err != nil {
++			return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
++		}
+ 	}
+-	if err := appendScaffoldEntry(filepath.Join(topicPath, "log.md"), context); err != nil {
++	logPath := filepath.Join(topicPath, "log.md")
++	if cleanMode == models.TopicModeOKF {
++		if err := appendOKFScaffoldEntry(logPath, context); err != nil {
++			return models.TopicInfo{}, fmt.Errorf("new topic: append scaffold log entry: %w", err)
++		}
++	} else if err := appendScaffoldEntry(logPath, context); err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("new topic: append scaffold log entry: %w", err)
+ 	}
+ 
+@@ -412,7 +434,10 @@ func ensureDirectory(path string) error {
+ 	return nil
+ }
+ 
+-func createTopicSkeleton(topicPath string) error {
++func createTopicSkeleton(topicPath string, mode models.TopicMode) error {
++	if mode == models.TopicModeOKF {
++		return os.MkdirAll(topicPath, 0o755)
++	}
+ 	for _, relativePath := range currentTopicDirectories {
+ 		directoryPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
+ 		if err := os.MkdirAll(directoryPath, 0o755); err != nil {
+@@ -430,7 +455,7 @@ func EnsureCurrentSkeleton(topicPath string) error {
+ 		return fmt.Errorf("topic path is required")
+ 	}
+ 
+-	if err := createTopicSkeleton(topicPath); err != nil {
++	if err := createTopicSkeleton(topicPath, models.TopicModeWiki); err != nil {
+ 		return err
+ 	}
+ 	if err := ensureTopicLog(topicPath); err != nil {
+@@ -485,7 +510,17 @@ func RenderSourceIndexTemplate(slug, title, domain, today string) (string, error
+ }
+ 
+ func installTemplates(topicPath string, context templateContext) error {
+-	for _, file := range topicTemplates {
++	return installTemplatesWithMode(topicPath, context, models.TopicModeWiki)
++}
++
++func installTemplatesWithMode(topicPath string, context templateContext, mode models.TopicMode) error {
++	templates := topicTemplates
++	if mode == models.TopicModeOKF {
++		templates = []templateFile{
++			{assetPath: okfClaudeTemplatePath, outputPath: "CLAUDE.md"},
++		}
++	}
++	for _, file := range templates {
+ 		rendered, err := renderTemplate(file.assetPath, context)
+ 		if err != nil {
+ 			return err
+@@ -497,6 +532,19 @@ func installTemplates(topicPath string, context templateContext) error {
+ 		}
+ 	}
+ 
++	if mode == models.TopicModeOKF {
++		index, err := frontmatter.Generate(map[string]any{"okf_version": "0.1"}, "# OKF Bundle Index\n")
++		if err != nil {
++			return fmt.Errorf("generate OKF index: %w", err)
++		}
++		if err := os.WriteFile(filepath.Join(topicPath, "index.md"), []byte(index), 0o644); err != nil {
++			return fmt.Errorf("write OKF index: %w", err)
++		}
++		if err := os.WriteFile(filepath.Join(topicPath, "log.md"), []byte("# Directory Update Log\n"), 0o644); err != nil {
++			return fmt.Errorf("write OKF log: %w", err)
++		}
++	}
++
+ 	return nil
+ }
+ 
+@@ -506,14 +554,28 @@ func WriteMetadataFile(topicPath, slug, title, domain string) error {
+ 	if err != nil {
+ 		return fmt.Errorf("validate topic metadata slug: %w", err)
+ 	}
+-	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain))
++	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, ""))
++}
++
++// WriteMetadataFileWithMode writes structured topic metadata with an explicit mode.
++func WriteMetadataFileWithMode(topicPath, slug, title, domain string, mode models.TopicMode) error {
++	topicRef, err := ParseTopicRef(slug)
++	if err != nil {
++		return fmt.Errorf("validate topic metadata slug: %w", err)
++	}
++	cleanMode, err := normalizeTopicMode(mode)
++	if err != nil {
++		return err
++	}
++	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, cleanMode))
+ }
+ 
+-func topicMetadataForRef(topicRef TopicRef, title, domain string) topicMetadataFile {
++func topicMetadataForRef(topicRef TopicRef, title, domain string, mode models.TopicMode) topicMetadataFile {
+ 	metadata := topicMetadataFile{
+ 		Slug:   topicRef.Leaf,
+ 		Title:  strings.TrimSpace(title),
+ 		Domain: strings.TrimSpace(domain),
++		Mode:   string(mode),
+ 	}
+ 	if topicRef.Category != "" {
+ 		metadata.Category = topicRef.Category
+@@ -694,6 +756,32 @@ func appendScaffoldEntry(logPath string, context templateContext) error {
+ 	return nil
+ }
+ 
++func appendOKFScaffoldEntry(logPath string, context templateContext) error {
++	content, err := os.ReadFile(logPath)
++	if err != nil {
++		return fmt.Errorf("read %q: %w", logPath, err)
++	}
++
++	entry := strings.Join([]string{
++		fmt.Sprintf("## %s", context.Today),
++		"",
++		fmt.Sprintf("* **Initialization**: Created OKF bundle `%s` for `%s`.", context.Slug, context.Domain),
++		"",
++	}, "\n")
++
++	trimmed := strings.TrimSpace(string(content))
++	var next string
++	if trimmed == "" {
++		next = "# Directory Update Log\n\n" + entry
++	} else {
++		next = trimmed + "\n\n" + entry
++	}
++	if err := os.WriteFile(logPath, []byte(next), 0o644); err != nil {
++		return fmt.Errorf("write %q: %w", logPath, err)
++	}
++	return nil
++}
++
+ func hasTopicSkeleton(topicPath string) (bool, error) {
+ 	info, err := os.Stat(topicPath)
+ 	if errors.Is(err, os.ErrNotExist) {
+@@ -719,19 +807,14 @@ func hasTopicSkeleton(topicPath string) (bool, error) {
+ }
+ 
+ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
+-	title, domain, err := readTopicMetadata(topicPath, slug)
++	title, domain, mode, err := readTopicMetadata(topicPath, slug)
+ 	if err != nil {
+ 		return models.TopicInfo{}, fmt.Errorf("read topic metadata: %w", err)
+ 	}
+ 
+-	articleCount, err := countMarkdownFiles(filepath.Join(topicPath, "wiki", "concepts"))
+-	if err != nil {
+-		return models.TopicInfo{}, fmt.Errorf("count wiki articles: %w", err)
+-	}
+-
+-	sourceCount, err := countVisibleFiles(filepath.Join(topicPath, "raw"))
++	articleCount, sourceCount, err := topicCounts(topicPath, mode)
+ 	if err != nil {
+-		return models.TopicInfo{}, fmt.Errorf("count raw sources: %w", err)
++		return models.TopicInfo{}, fmt.Errorf("count topic files: %w", err)
+ 	}
+ 
+ 	lastLogEntry, err := readLastLogEntry(filepath.Join(topicPath, "log.md"))
+@@ -743,6 +826,7 @@ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
+ 		Slug:         slug,
+ 		Title:        title,
+ 		Domain:       domain,
++		Mode:         mode,
+ 		RootPath:     topicPath,
+ 		ArticleCount: articleCount,
+ 		SourceCount:  sourceCount,
+@@ -750,21 +834,25 @@ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
+ 	}, nil
+ }
+ 
+-func readTopicMetadata(claudePath, slug string) (string, string, error) {
++func readTopicMetadata(claudePath, slug string) (string, string, models.TopicMode, error) {
+ 	yamlMetadata, err := readTopicYAMLMetadata(filepath.Join(claudePath, topicMetadataFileName))
+ 	if err != nil {
+-		return "", "", err
++		return "", "", "", err
+ 	}
+ 
+ 	claudeTitle, claudeDomain, err := readClaudeMetadata(filepath.Join(claudePath, topicMarkerFile), slug)
+ 	if err != nil {
+-		return "", "", err
++		return "", "", "", err
+ 	}
+ 
+ 	title := firstNonEmpty(yamlMetadata.Title, claudeTitle, humanizeSlug(slug))
+ 	domain := firstNonEmpty(yamlMetadata.Domain, claudeDomain, slug)
++	mode, err := normalizeTopicMode(models.TopicMode(yamlMetadata.Mode))
++	if err != nil {
++		return "", "", "", err
++	}
+ 
+-	return title, domain, nil
++	return title, domain, mode, nil
+ }
+ 
+ func readTopicYAMLMetadata(metadataPath string) (topicMetadataFile, error) {
+@@ -784,9 +872,52 @@ func readTopicYAMLMetadata(metadataPath string) (topicMetadataFile, error) {
+ 	metadata.Slug = strings.TrimSpace(metadata.Slug)
+ 	metadata.Title = strings.TrimSpace(metadata.Title)
+ 	metadata.Domain = strings.TrimSpace(metadata.Domain)
++	metadata.Mode = strings.TrimSpace(metadata.Mode)
+ 	return metadata, nil
+ }
+ 
++func normalizeTopicMode(mode models.TopicMode) (models.TopicMode, error) {
++	switch strings.TrimSpace(string(mode)) {
++	case "", string(models.TopicModeWiki):
++		return models.TopicModeWiki, nil
++	case string(models.TopicModeOKF):
++		return models.TopicModeOKF, nil
++	default:
++		return "", fmt.Errorf("topic mode must be wiki or okf: %q", mode)
++	}
++}
++
++func topicCounts(topicPath string, mode models.TopicMode) (int, int, error) {
++	if mode == models.TopicModeOKF {
++		concepts, err := countOKFConceptFiles(topicPath)
++		return concepts, 0, err
++	}
++	articleCount, err := countMarkdownFiles(filepath.Join(topicPath, "wiki", "concepts"))
++	if err != nil {
++		return 0, 0, fmt.Errorf("count wiki articles: %w", err)
++	}
++	sourceCount, err := countVisibleFiles(filepath.Join(topicPath, "raw"))
++	if err != nil {
++		return 0, 0, fmt.Errorf("count raw sources: %w", err)
++	}
++	return articleCount, sourceCount, nil
++}
++
++func countOKFConceptFiles(root string) (int, error) {
++	return countFiles(root, func(entry fs.DirEntry) bool {
++		name := entry.Name()
++		if !strings.HasSuffix(strings.ToLower(name), ".md") || strings.HasPrefix(name, ".") {
++			return false
++		}
++		switch strings.ToLower(name) {
++		case "index.md", "log.md", "claude.md", "agents.md", "readme.md", "license.md", "notice.md", "attribution.md":
++			return false
++		default:
++			return true
++		}
++	})
++}
++
+ func readClaudeMetadata(claudePath, slug string) (string, string, error) {
+ 	content, err := os.ReadFile(claudePath)
+ 	if err != nil {
+@@ -827,7 +958,7 @@ func readLastLogEntry(logPath string) (string, error) {
+ 	last := ""
+ 	for line := range strings.SplitSeq(string(content), "\n") {
+ 		trimmed := strings.TrimSpace(line)
+-		if strings.HasPrefix(trimmed, "## [") {
++		if strings.HasPrefix(trimmed, "## [") || isOKFDateHeading(trimmed) {
+ 			last = trimmed
+ 		}
+ 	}
+@@ -835,6 +966,18 @@ func readLastLogEntry(logPath string) (string, error) {
+ 	return last, nil
+ }
+ 
++func isOKFDateHeading(line string) bool {
++	if !strings.HasPrefix(line, "## ") {
++		return false
++	}
++	value := strings.TrimSpace(strings.TrimPrefix(line, "## "))
++	if len(value) != len(frontmatter.DateLayout) {
++		return false
++	}
++	_, err := time.Parse(frontmatter.DateLayout, value)
++	return err == nil
++}
++
+ func countMarkdownFiles(root string) (int, error) {
+ 	return countFiles(root, func(entry fs.DirEntry) bool {
+ 		name := entry.Name()
+diff --git a/internal/topic/topic_test.go b/internal/topic/topic_test.go
+index 2730efa..46dbcee 100644
+--- a/internal/topic/topic_test.go
++++ b/internal/topic/topic_test.go
+@@ -8,6 +8,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/compozy/kb/internal/frontmatter"
++	"github.com/compozy/kb/internal/models"
+ )
+ 
+ func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {
+@@ -35,6 +36,9 @@ func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {
+ 	if info.Domain != "rust" {
+ 		t.Fatalf("domain = %q, want rust", info.Domain)
+ 	}
++	if info.Mode != models.TopicModeWiki {
++		t.Fatalf("mode = %q, want wiki", info.Mode)
++	}
+ 	if info.ArticleCount != 0 {
+ 		t.Fatalf("article count = %d, want 0", info.ArticleCount)
+ 	}
+@@ -156,6 +160,7 @@ func TestNewCreatesCategorizedTopic(t *testing.T) {
+ 		"slug: asimov-academy",
+ 		"title: Asimov Academy",
+ 		"domain: youtube-channel",
++		"mode: wiki",
+ 		"category: yt-channels",
+ 		"path: yt-channels/asimov-academy",
+ 		"qmd_collection: asimov-academy",
+@@ -207,6 +212,7 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
+ 		"slug: distributed-systems",
+ 		"title: Distributed Systems",
+ 		"domain: distributed",
++		"mode: wiki",
+ 	} {
+ 		if !strings.Contains(metadataContent, fragment) {
+ 			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+@@ -227,6 +233,83 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
+ 	}
+ }
+ 
++func TestNewWithModeCreatesOKFTopicSkeleton(t *testing.T) {
++	t.Parallel()
++
++	vaultPath := t.TempDir()
++
++	info, err := newWithDateWithMode(
++		vaultPath,
++		"ops-catalog",
++		"Operations Catalog",
++		"operations",
++		models.TopicModeOKF,
++		time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
++	)
++	if err != nil {
++		t.Fatalf("newWithDateWithMode returned error: %v", err)
++	}
++	if info.Mode != models.TopicModeOKF {
++		t.Fatalf("mode = %q, want okf", info.Mode)
++	}
++	if info.ArticleCount != 0 || info.SourceCount != 0 {
++		t.Fatalf("counts = articles %d sources %d, want 0/0", info.ArticleCount, info.SourceCount)
++	}
++	if info.LastLogEntry != "## 2026-06-27" {
++		t.Fatalf("last log entry = %q, want OKF date heading", info.LastLogEntry)
++	}
++
++	topicPath := filepath.Join(vaultPath, "ops-catalog")
++	for _, relativePath := range []string{"CLAUDE.md", "AGENTS.md", "index.md", "log.md", "topic.yaml"} {
++		assertFileExists(t, filepath.Join(topicPath, filepath.FromSlash(relativePath)))
++	}
++	for _, relativePath := range []string{"raw", "wiki", "outputs", "bases"} {
++		if _, err := os.Stat(filepath.Join(topicPath, relativePath)); !os.IsNotExist(err) {
++			t.Fatalf("OKF scaffold should not create %s", relativePath)
++		}
++	}
++
++	metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
++	for _, fragment := range []string{
++		"slug: ops-catalog",
++		"title: Operations Catalog",
++		"domain: operations",
++		"mode: okf",
++	} {
++		if !strings.Contains(metadataContent, fragment) {
++			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
++		}
++	}
++
++	indexValues, indexBody := parseFrontmatterFile(t, filepath.Join(topicPath, "index.md"))
++	if got := indexValues["okf_version"]; got != "0.1" {
++		t.Fatalf("index okf_version = %#v, want 0.1", got)
++	}
++	if !strings.Contains(indexBody, "# OKF Bundle Index") {
++		t.Fatalf("index body missing heading:\n%s", indexBody)
++	}
++	logContent := readFile(t, filepath.Join(topicPath, "log.md"))
++	if !strings.Contains(logContent, "## 2026-06-27") || strings.Contains(logContent, "## [2026-06-27]") {
++		t.Fatalf("log.md does not use OKF date heading:\n%s", logContent)
++	}
++}
++
++func TestReadTopicMetadataDefaultsMissingModeToWiki(t *testing.T) {
++	t.Parallel()
++
++	topicPath := t.TempDir()
++	writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: old-topic\ntitle: Old Topic\ndomain: legacy\n")
++	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Old Topic\n\n**Domain:** `legacy`\n")
++
++	info, err := infoAtPath(topicPath, "old-topic")
++	if err != nil {
++		t.Fatalf("infoAtPath returned error: %v", err)
++	}
++	if info.Mode != models.TopicModeWiki {
++		t.Fatalf("mode = %q, want wiki", info.Mode)
++	}
++}
++
+ func TestNewAppendsScaffoldEntryToLog(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/vault/pathutils.go b/internal/vault/pathutils.go
+index d356e3c..002b4df 100644
+--- a/internal/vault/pathutils.go
++++ b/internal/vault/pathutils.go
+@@ -4,6 +4,7 @@ package vault
+ import (
+ 	"fmt"
+ 	"path"
++	"path/filepath"
+ 	"regexp"
+ 	"strings"
+ 
+@@ -251,6 +252,73 @@ func ToTopicWikiLink(topicSlug, documentPath, label string) string {
+ 	return fmt.Sprintf("[[%s]]", target)
+ }
+ 
++// LinkFormatter renders a link from one topic-relative document to another.
++type LinkFormatter interface {
++	Link(fromDir, targetPath, label string) string
++}
++
++// WikiLinkFormatter renders Obsidian topic-scoped wikilinks.
++type WikiLinkFormatter struct {
++	Slug string
++}
++
++// Link renders a wikilink exactly like ToTopicWikiLink.
++func (f WikiLinkFormatter) Link(_, targetPath, label string) string {
++	return ToTopicWikiLink(f.Slug, targetPath, label)
++}
++
++// OKFLinkFormatter renders relative Markdown links for OKF bundles.
++type OKFLinkFormatter struct{}
++
++// Link renders a GitHub-safe relative Markdown link.
++func (OKFLinkFormatter) Link(fromDir, targetPath, label string) string {
++	cleanTarget := strings.TrimPrefix(ToPosixPath(strings.TrimSpace(targetPath)), "/")
++	displayLabel := strings.TrimSpace(label)
++	if displayLabel == "" {
++		displayLabel = HumanizeSlug(SlugifySegment(strings.TrimSuffix(path.Base(cleanTarget), ".md")))
++	}
++
++	fragment := ""
++	if hashIndex := strings.Index(cleanTarget, "#"); hashIndex >= 0 {
++		fragment = cleanTarget[hashIndex:]
++		cleanTarget = cleanTarget[:hashIndex]
++	}
++
++	cleanFromDir := strings.TrimPrefix(ToPosixPath(strings.TrimSpace(fromDir)), "/")
++	if cleanFromDir == "" {
++		cleanFromDir = "."
++	}
++
++	relativePath, err := filepath.Rel(filepath.FromSlash(cleanFromDir), filepath.FromSlash(cleanTarget))
++	if err != nil {
++		relativePath = cleanTarget
++	}
++	relativePath = ToPosixPath(relativePath)
++	if relativePath == "." || relativePath == "" {
++		relativePath = path.Base(cleanTarget)
++	}
++	relativePath = strings.TrimPrefix(relativePath, "./")
++	relativePath = markdownLinkTarget(relativePath + fragment)
++	return fmt.Sprintf("[%s](%s)", displayLabel, relativePath)
++}
++
++// LinkFormatterFor selects the formatter from the topic mode.
++func LinkFormatterFor(topic models.TopicMetadata) LinkFormatter {
++	if topic.Mode == models.TopicModeOKF {
++		return OKFLinkFormatter{}
++	}
++	return WikiLinkFormatter{Slug: topic.Slug}
++}
++
++func markdownLinkTarget(target string) string {
++	replacer := strings.NewReplacer(
++		" ", "%20",
++		"(", "%28",
++		")", "%29",
++	)
++	return replacer.Replace(target)
++}
++
+ func stripWikiConceptFilePrefix(articleTitle string) string {
+ 	normalizedTitle := strings.TrimSpace(articleTitle)
+ 	return strings.TrimSpace(strings.TrimPrefix(normalizedTitle, legacyWikiConceptPrefix))
+diff --git a/internal/vault/pathutils_test.go b/internal/vault/pathutils_test.go
+index 927c7d4..6655604 100644
+--- a/internal/vault/pathutils_test.go
++++ b/internal/vault/pathutils_test.go
+@@ -196,6 +196,44 @@ func TestTopicWikiLinkHelpers(t *testing.T) {
+ 	}
+ }
+ 
++func TestLinkFormatters(t *testing.T) {
++	t.Parallel()
++
++	wiki := vault.WikiLinkFormatter{Slug: "topic-slug"}
++	if got := wiki.Link("ignored", "wiki/codebase/concepts/Codebase Overview.md", "Overview"); got != vault.ToTopicWikiLink("topic-slug", "wiki/codebase/concepts/Codebase Overview.md", "Overview") {
++		t.Fatalf("wiki formatter = %q", got)
++	}
++
++	okf := vault.OKFLinkFormatter{}
++	testCases := []struct {
++		name   string
++		from   string
++		target string
++		label  string
++		want   string
++	}{
++		{name: "same directory", from: "", target: "orders.md", label: "Orders", want: "[Orders](orders.md)"},
++		{name: "child", from: "", target: "tables/orders.md", label: "Orders", want: "[Orders](tables/orders.md)"},
++		{name: "parent", from: "references", target: "tables/customer orders.md#schema", label: "Customers", want: "[Customers](../tables/customer%20orders.md#schema)"},
++		{name: "sibling", from: "tables", target: "references/joins.md", label: "Joins", want: "[Joins](../references/joins.md)"},
++	}
++	for _, testCase := range testCases {
++		t.Run(testCase.name, func(t *testing.T) {
++			t.Parallel()
++			if got := okf.Link(testCase.from, testCase.target, testCase.label); got != testCase.want {
++				t.Fatalf("OKF link = %q, want %q", got, testCase.want)
++			}
++		})
++	}
++
++	if got := vault.LinkFormatterFor(models.TopicMetadata{Slug: "demo", Mode: models.TopicModeWiki}).Link("", "x.md", "X"); got != "[[demo/x|X]]" {
++		t.Fatalf("wiki LinkFormatterFor = %q", got)
++	}
++	if got := vault.LinkFormatterFor(models.TopicMetadata{Mode: models.TopicModeOKF}).Link("", "x.md", "X"); got != "[X](x.md)" {
++		t.Fatalf("OKF LinkFormatterFor = %q", got)
++	}
++}
++
+ func TestPathHelpersHandleEmptyInputs(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/vault/render.go b/internal/vault/render.go
+index 374133e..b646514 100644
+--- a/internal/vault/render.go
++++ b/internal/vault/render.go
+@@ -184,7 +184,11 @@ func renderMarkdownDocument(document models.RenderedDocument) string {
+ }
+ 
+ func toSourceWikiLink(topic models.TopicMetadata, relativePath, label string) string {
+-	return ToTopicWikiLink(topic.Slug, relativePath, label)
++	return linkFor(topic, "", relativePath, label)
++}
++
++func linkFor(topic models.TopicMetadata, fromDir, relativePath, label string) string {
++	return LinkFormatterFor(topic).Link(fromDir, relativePath, label)
+ }
+ 
+ func createDocumentLookup(graph models.GraphSnapshot) map[string]string {
+@@ -217,7 +221,7 @@ func linkForNode(
+ 	fallbackLabel string,
+ ) string {
+ 	if documentPath, exists := documentLookup[nodeID]; exists {
+-		return toSourceWikiLink(topic, documentPath, fallbackLabel)
++		return linkFor(topic, "", documentPath, fallbackLabel)
+ 	}
+ 
+ 	if externalNode, exists := externalNodes[nodeID]; exists {
+diff --git a/internal/vault/render_wiki.go b/internal/vault/render_wiki.go
+index 2c3978a..af371b9 100644
+--- a/internal/vault/render_wiki.go
++++ b/internal/vault/render_wiki.go
+@@ -105,7 +105,7 @@ func renderDashboard(
+ 	for _, article := range articles {
+ 		lines = append(lines, fmt.Sprintf(
+ 			"- %s - %s",
+-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath(article.Title), article.Title),
++			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
+ 			article.Summary,
+ 		))
+ 	}
+@@ -113,8 +113,8 @@ func renderDashboard(
+ 	lines = append(lines,
+ 		"",
+ 		"## Navigation",
+-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
++		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
++		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+ 	)
+ 
+ 	return models.RenderedDocument{
+@@ -144,7 +144,7 @@ func renderConceptIndex(
+ 	for _, article := range orderedArticles {
+ 		rows = append(rows, fmt.Sprintf(
+ 			"| %s | %s |",
+-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath(article.Title), article.Title),
++			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
+ 			article.Summary,
+ 		))
+ 	}
+@@ -191,7 +191,7 @@ func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle
+ 
+ 		links := make([]string, 0, len(titles))
+ 		for _, title := range titles {
+-			links = append(links, ToTopicWikiLink(topic.Slug, GetWikiConceptPath(title), title))
++			links = append(links, linkFor(topic, "", GetWikiConceptPath(title), title))
+ 		}
+ 
+ 		rows = append(rows, fmt.Sprintf(
+@@ -311,9 +311,9 @@ func createCodebaseOverviewArticle(
+ 		"",
+ 		fmt.Sprintf(
+ 			"Start with %s for coupling, %s for function-level complexity, and %s for likely cleanup candidates.",
+-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
+-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
+-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
++			linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
++			linkFor(topic, "", GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
++			linkFor(topic, "", GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
+ 		),
+ 		"",
+ 		"## Language Coverage",
+@@ -392,8 +392,8 @@ func createDirectoryMapArticle(
+ 			"",
+ 			fmt.Sprintf(
+ 				"Cross-check unstable directories against %s and hotspots against %s.",
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
++				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
++				linkFor(topic, "", GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
+ 			),
+ 			"",
+ 			"## Sources and Further Reading",
+@@ -458,8 +458,8 @@ func createSymbolTaxonomyArticle(
+ 			"",
+ 			fmt.Sprintf(
+ 				"Use %s to find bottlenecks and %s to locate function-level smells.",
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Code Smells"), "Code Smells"),
++				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
++				linkFor(topic, "", GetWikiConceptPath("Code Smells"), "Code Smells"),
+ 			),
+ 			"",
+ 			"## Sources and Further Reading",
+@@ -535,7 +535,7 @@ func createDependencyHotspotsArticle(
+ 			"",
+ 			fmt.Sprintf(
+ 				"A high relation count usually indicates a coordination layer, a shared utility, or an entry point. Cross-check these files against %s to distinguish stable modules from unstable ones.",
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
++				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
+ 			),
+ 			"",
+ 			"## Sources and Further Reading",
+@@ -613,7 +613,7 @@ func createComplexityHotspotsArticle(
+ 			"",
+ 			fmt.Sprintf(
+ 				"Compare these hotspots against %s to distinguish locally complex functions from high-blast-radius functions.",
+-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
++				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+ 			),
+ 		}, "\n"),
+ 	}
+diff --git a/internal/vault/writer.go b/internal/vault/writer.go
+index 571c946..c85f5f3 100644
+--- a/internal/vault/writer.go
++++ b/internal/vault/writer.go
+@@ -446,9 +446,9 @@ func buildTopicClaudeManagedBlock(
+ 		"",
+ 		"### Generated codebase navigation",
+ 		"",
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+ 		"",
+ 		"### Generated codebase articles",
+ 		"",
+@@ -457,7 +457,7 @@ func buildTopicClaudeManagedBlock(
+ 		lines = append(lines, "_None generated._")
+ 	} else {
+ 		for _, articleTitle := range conceptDocuments {
+-			lines = append(lines, "- "+ToTopicWikiLink(topic.Slug, GetWikiConceptPath(articleTitle), articleTitle))
++			lines = append(lines, "- "+linkFor(topic, "", GetWikiConceptPath(articleTitle), articleTitle))
+ 		}
+ 	}
+ 	lines = append(lines, "", codebaseManagedBlockEnd)
+@@ -472,9 +472,9 @@ func buildTopicIndexBridgeManagedBlock(topic models.TopicMetadata) string {
+ 		"",
+ 		"Latest `kb ingest codebase` output is published under `wiki/codebase/` so the top-level topic indexes can stay manually curated.",
+ 		"",
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
++		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+ 		"",
+ 		codebaseIndexBlockEnd,
+ 	}
+diff --git a/internal/topic/assets/okf-claude-template.md b/internal/topic/assets/okf-claude-template.md
+new file mode 100644
+index 0000000..3a18157
+--- /dev/null
++++ b/internal/topic/assets/okf-claude-template.md
+@@ -0,0 +1,24 @@
++# TOPIC_TITLE
++
++**Topic scope:** portable Open Knowledge Format bundle for `TOPIC_DOMAIN`.
++
++**Domain:** `TOPIC_DOMAIN`
++
++This topic is an OKF bundle, not an LLM-wiki research lab. Concepts live as typed markdown files at the bundle root for the MVP, with standard markdown links and YAML frontmatter.
++
++## Bundle contract
++
++- Every concept markdown file has `type`, `title`, `description`, and `timestamp` frontmatter.
++- `index.md` is generated by `kb` and groups concepts by type.
++- `log.md` records bundle updates using ISO date headings.
++- Links should be relative markdown links so the bundle renders in GitHub and other markdown tools.
++
++## Operations
++
++- Promote a wiki concept into this bundle with `kb promote <wiki-doc> --to TOPIC_SLUG --type <Type>`.
++- Check conformance with `kb okf check TOPIC_SLUG`.
++
++## Catalog gaps
++
++- Gap 1
++- Gap 2
+diff --git a/internal/okf/okf.go b/internal/okf/okf.go
+new file mode 100644
+index 0000000..41977b6
+--- /dev/null
++++ b/internal/okf/okf.go
+@@ -0,0 +1,760 @@
++// Package okf implements Open Knowledge Format promotion and conformance checks.
++package okf
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path"
++	"path/filepath"
++	"regexp"
++	"sort"
++	"strings"
++	"time"
++
++	"github.com/compozy/kb/internal/frontmatter"
++	"github.com/compozy/kb/internal/models"
++	"github.com/compozy/kb/internal/vault"
++)
++
++const (
++	OKFVersion = "0.1"
++)
++
++var (
++	wikilinkPattern      = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
++	nonSentenceSpace     = regexp.MustCompile(`\s+`)
++	markdownLinkPattern  = regexp.MustCompile(`\[[^\]]+\]\([^)]+\)`)
++	markdownSyntaxRunes  = strings.NewReplacer("#", "", "*", "", "`", "", "_", "", ">", "", "|", " ")
++	errTargetNotOKFTopic = errors.New("target topic must use mode okf")
++)
++
++// PromoteInput carries the data needed to promote one wiki document into an OKF bundle.
++type PromoteInput struct {
++	SourceDocPath string
++	VaultPath     string
++	TargetTopic   models.TopicInfo
++	Type          string
++	Description   string
++	Types         []string
++	Clock         func() time.Time
++}
++
++// ConceptResult reports the concept written by Promote.
++type ConceptResult struct {
++	WrittenPath     string   `json:"writtenPath"`
++	Type            string   `json:"type"`
++	LinksRewritten  int      `json:"linksRewritten"`
++	UnresolvedLinks []string `json:"unresolvedLinks"`
++	Warnings        []string `json:"warnings,omitempty"`
++}
++
++// CheckOptions configures OKF conformance checking.
++type CheckOptions struct {
++	Types  []string
++	Strict bool
++}
++
++// Promote performs a mechanical, non-destructive wiki-to-OKF conversion.
++func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	if err := ctx.Err(); err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: %w", err)
++	}
++	if input.TargetTopic.Mode != models.TopicModeOKF {
++		return ConceptResult{}, fmt.Errorf("promote: %w: %s", errTargetNotOKFTopic, input.TargetTopic.Slug)
++	}
++	conceptType := strings.TrimSpace(input.Type)
++	if conceptType == "" {
++		return ConceptResult{}, fmt.Errorf("promote: --type is required")
++	}
++	if strings.TrimSpace(input.TargetTopic.RootPath) == "" {
++		return ConceptResult{}, fmt.Errorf("promote: target topic root path is required")
++	}
++
++	sourcePath, sourceTopicRoot, sourceTopicSlug, sourceRelativePath, err := resolveSourceDocument(input)
++	if err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: %w", err)
++	}
++	_ = sourceTopicRoot
++
++	sourceBytes, err := os.ReadFile(sourcePath)
++	if err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: read source %q: %w", sourcePath, err)
++	}
++	sourceValues, body, err := frontmatter.Parse(string(sourceBytes))
++	if err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: parse source frontmatter: %w", err)
++	}
++
++	key := conceptKey(sourceRelativePath)
++	writtenPath, absoluteTargetPath, err := allocateConceptPath(input.TargetTopic.RootPath, key)
++	if err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: allocate concept path: %w", err)
++	}
++
++	warnings := typeWarnings(conceptType, input.Types)
++	description, descriptionWarnings := resolveDescription(input.Description, body)
++	warnings = append(warnings, descriptionWarnings...)
++	title := strings.TrimSpace(frontmatter.GetString(sourceValues, "title"))
++	if title == "" {
++		title = vault.HumanizeSlug(key)
++	}
++	clock := input.Clock
++	if clock == nil {
++		clock = func() time.Time { return time.Now().UTC() }
++	}
++	now := clock().UTC()
++
++	transformedBody, rewriteCount, unresolvedLinks := transformWikiLinks(body, sourceTopicSlug, input.TargetTopic.RootPath, path.Dir(writtenPath), writtenPath)
++	values := map[string]any{
++		"description": description,
++		"timestamp":   now.Format(time.RFC3339),
++		"title":       title,
++		"type":        conceptType,
++	}
++	if tags := frontmatter.GetStringSlice(sourceValues, "tags"); len(tags) > 0 {
++		values["tags"] = tags
++	}
++
++	document, err := frontmatter.Generate(values, transformedBody)
++	if err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: generate concept frontmatter: %w", err)
++	}
++	if err := os.WriteFile(absoluteTargetPath, []byte(document), 0o644); err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: write concept %q: %w", absoluteTargetPath, err)
++	}
++
++	if err := RegenerateIndex(input.TargetTopic.RootPath); err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: regenerate index: %w", err)
++	}
++	if err := InsertLogEntry(input.TargetTopic.RootPath, now, title, writtenPath, sourceRelativePath); err != nil {
++		return ConceptResult{}, fmt.Errorf("promote: update log: %w", err)
++	}
++
++	return ConceptResult{
++		WrittenPath:     writtenPath,
++		Type:            conceptType,
++		LinksRewritten:  rewriteCount,
++		UnresolvedLinks: unresolvedLinks,
++		Warnings:        warnings,
++	}, nil
++}
++
++// Check validates an OKF bundle and returns diagnostics.
++func Check(ctx context.Context, bundlePath string, options CheckOptions) ([]models.LintIssue, error) {
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	cleanBundlePath := strings.TrimSpace(bundlePath)
++	if cleanBundlePath == "" {
++		return nil, fmt.Errorf("okf check: bundle path is required")
++	}
++	info, err := os.Stat(cleanBundlePath)
++	if err != nil {
++		return nil, fmt.Errorf("okf check: stat bundle path %q: %w", cleanBundlePath, err)
++	}
++	if !info.IsDir() {
++		return nil, fmt.Errorf("okf check: bundle path must be a directory: %s", cleanBundlePath)
++	}
++
++	typeSet := normalizeTypeSet(options.Types)
++	issues := make([]models.LintIssue, 0)
++	err = filepath.WalkDir(cleanBundlePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		if currentPath == cleanBundlePath {
++			return nil
++		}
++		if entry.Type()&fs.ModeSymlink != 0 {
++			if entry.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if entry.IsDir() {
++			if strings.HasPrefix(entry.Name(), ".") {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
++			return nil
++		}
++
++		relativePath, err := filepath.Rel(cleanBundlePath, currentPath)
++		if err != nil {
++			return fmt.Errorf("derive relative path for %q: %w", currentPath, err)
++		}
++		relativePath = vault.ToPosixPath(relativePath)
++		switch {
++		case isIndexFile(relativePath):
++			issues = append(issues, checkIndexFile(cleanBundlePath, currentPath, relativePath, options.Strict)...)
++		case isLogFile(relativePath):
++			issues = append(issues, checkLogFile(currentPath, relativePath, options.Strict)...)
++		case isExcludedMarkdown(entry.Name()):
++			return nil
++		default:
++			issues = append(issues, checkConceptFile(currentPath, relativePath, typeSet, options.Strict)...)
++		}
++		return nil
++	})
++	if err != nil {
++		return nil, fmt.Errorf("okf check: %w", err)
++	}
++
++	sortIssues(issues)
++	return issues, nil
++}
++
++// Columns returns the stable output column order for OKF diagnostics.
++func Columns() []string {
++	return []string{"severity", "kind", "filePath", "target", "message"}
++}
++
++// Rows converts issues into formatter rows.
++func Rows(issues []models.LintIssue) []map[string]any {
++	rows := make([]map[string]any, 0, len(issues))
++	for _, issue := range issues {
++		rows = append(rows, map[string]any{
++			"severity": issue.Severity,
++			"kind":     issue.Kind,
++			"filePath": issue.FilePath,
++			"target":   issue.Target,
++			"message":  issue.Message,
++		})
++	}
++	return rows
++}
++
++// HasErrors reports whether any diagnostic should fail the command.
++func HasErrors(issues []models.LintIssue) bool {
++	for _, issue := range issues {
++		if issue.Severity == models.SeverityError {
++			return true
++		}
++	}
++	return false
++}
++
++// RegenerateIndex rewrites the root OKF index from concept frontmatter.
++func RegenerateIndex(bundlePath string) error {
++	concepts, okfVersion, err := loadConcepts(bundlePath)
++	if err != nil {
++		return err
++	}
++	sort.Slice(concepts, func(i, j int) bool {
++		if concepts[i].Type != concepts[j].Type {
++			return concepts[i].Type < concepts[j].Type
++		}
++		if concepts[i].Title != concepts[j].Title {
++			return concepts[i].Title < concepts[j].Title
++		}
++		return concepts[i].RelativePath < concepts[j].RelativePath
++	})
++
++	var body strings.Builder
++	body.WriteString("# OKF Bundle Index\n")
++	currentType := ""
++	for _, concept := range concepts {
++		if concept.Type != currentType {
++			currentType = concept.Type
++			body.WriteString("\n## ")
++			body.WriteString(currentType)
++			body.WriteString("\n\n")
++		}
++		body.WriteString("* ")
++		body.WriteString(vault.OKFLinkFormatter{}.Link("", concept.RelativePath, concept.Title))
++		if concept.Description != "" {
++			body.WriteString(" - ")
++			body.WriteString(concept.Description)
++		}
++		body.WriteString("\n")
++	}
++
++	values := map[string]any{"okf_version": firstNonEmpty(okfVersion, OKFVersion)}
++	content, err := frontmatter.Generate(values, body.String())
++	if err != nil {
++		return fmt.Errorf("generate index frontmatter: %w", err)
++	}
++	if err := os.WriteFile(filepath.Join(bundlePath, "index.md"), []byte(content), 0o644); err != nil {
++		return fmt.Errorf("write index.md: %w", err)
++	}
++	return nil
++}
++
++// InsertLogEntry inserts a newest-first OKF log entry at the bundle root.
++func InsertLogEntry(bundlePath string, when time.Time, title, conceptPath, sourcePath string) error {
++	logPath := filepath.Join(bundlePath, "log.md")
++	content, err := os.ReadFile(logPath)
++	if errors.Is(err, os.ErrNotExist) {
++		content = []byte("# Directory Update Log\n")
++	} else if err != nil {
++		return fmt.Errorf("read log.md: %w", err)
++	}
++	entry := fmt.Sprintf(
++		"* **Creation**: Promoted %s from `%s`.",
++		vault.OKFLinkFormatter{}.Link("", conceptPath, strings.TrimSpace(title)),
++		sourcePath,
++	)
++	next := insertLogEntry(string(content), when.UTC().Format(frontmatter.DateLayout), entry)
++	if err := os.WriteFile(logPath, []byte(next), 0o644); err != nil {
++		return fmt.Errorf("write log.md: %w", err)
++	}
++	return nil
++}
++
++type conceptInfo struct {
++	RelativePath string
++	Type         string
++	Title        string
++	Description  string
++}
++
++func resolveSourceDocument(input PromoteInput) (absolutePath, topicRoot, topicSlug, topicRelativePath string, err error) {
++	candidates := make([]string, 0, 3)
++	source := strings.TrimSpace(input.SourceDocPath)
++	if source == "" {
++		return "", "", "", "", fmt.Errorf("source document path is required")
++	}
++	if filepath.IsAbs(source) {
++		candidates = append(candidates, source)
++	} else {
++		candidates = append(candidates, source)
++		if strings.TrimSpace(input.VaultPath) != "" {
++			candidates = append(candidates, filepath.Join(input.VaultPath, filepath.FromSlash(source)))
++		}
++	}
++	for _, candidate := range candidates {
++		info, statErr := os.Stat(candidate)
++		if statErr != nil {
++			continue
++		}
++		if info.IsDir() {
++			return "", "", "", "", fmt.Errorf("source document %q must be a file", candidate)
++		}
++		absolutePath, err := filepath.Abs(candidate)
++		if err != nil {
++			return "", "", "", "", fmt.Errorf("resolve source path %q: %w", candidate, err)
++		}
++		topicRoot, topicSlug = discoverTopicRoot(input.VaultPath, absolutePath)
++		if topicRoot != "" {
++			relative, relErr := filepath.Rel(topicRoot, absolutePath)
++			if relErr != nil {
++				return "", "", "", "", fmt.Errorf("derive source topic path: %w", relErr)
++			}
++			return absolutePath, topicRoot, topicSlug, vault.ToPosixPath(relative), nil
++		}
++		return absolutePath, "", "", vault.ToPosixPath(filepath.Base(absolutePath)), nil
++	}
++	return "", "", "", "", fmt.Errorf("source document not found: %s", source)
++}
++
++func discoverTopicRoot(vaultPath, sourcePath string) (string, string) {
++	cleanVault := strings.TrimSpace(vaultPath)
++	current := filepath.Dir(sourcePath)
++	for {
++		if cleanVault != "" && !vault.IsPathInside(cleanVault, current) {
++			return "", ""
++		}
++		if isRegularFile(filepath.Join(current, "CLAUDE.md")) {
++			if cleanVault == "" {
++				return current, filepath.Base(current)
++			}
++			relative, err := filepath.Rel(cleanVault, current)
++			if err != nil {
++				return current, filepath.Base(current)
++			}
++			return current, vault.ToPosixPath(relative)
++		}
++		parent := filepath.Dir(current)
++		if parent == current {
++			break
++		}
++		current = parent
++	}
++	return "", ""
++}
++
++func isRegularFile(filePath string) bool {
++	info, err := os.Stat(filePath)
++	return err == nil && !info.IsDir()
++}
++
++func allocateConceptPath(bundleRoot, key string) (string, string, error) {
++	for suffix := 1; ; suffix++ {
++		name := key
++		if suffix > 1 {
++			name = fmt.Sprintf("%s-%d", key, suffix)
++		}
++		relativePath := name + ".md"
++		absolutePath := filepath.Join(bundleRoot, filepath.FromSlash(relativePath))
++		if _, err := os.Stat(absolutePath); errors.Is(err, os.ErrNotExist) {
++			return relativePath, absolutePath, nil
++		} else if err != nil {
++			return "", "", err
++		}
++	}
++}
++
++func conceptKey(documentPath string) string {
++	base := path.Base(vault.StripMarkdownExtension(vault.ToPosixPath(documentPath)))
++	return vault.SlugifySegment(base)
++}
++
++func typeWarnings(conceptType string, types []string) []string {
++	typeSet := normalizeTypeSet(types)
++	if len(typeSet) == 0 {
++		return nil
++	}
++	if _, ok := typeSet[conceptType]; ok {
++		return nil
++	}
++	return []string{fmt.Sprintf("type %q is outside the configured OKF vocabulary", conceptType)}
++}
++
++func normalizeTypeSet(types []string) map[string]struct{} {
++	typeSet := make(map[string]struct{})
++	for _, value := range types {
++		value = strings.TrimSpace(value)
++		if value == "" {
++			continue
++		}
++		typeSet[value] = struct{}{}
++	}
++	return typeSet
++}
++
++func resolveDescription(flagValue, body string) (string, []string) {
++	if description := strings.TrimSpace(flagValue); description != "" {
++		return description, nil
++	}
++	if sentence := firstBodySentence(body); sentence != "" {
++		return sentence, nil
++	}
++	return "", []string{"description is empty because the source body has no sentence fallback"}
++}
++
++func firstBodySentence(body string) string {
++	normalized := markdownSyntaxRunes.Replace(markdownLinkPattern.ReplaceAllString(body, " "))
++	normalized = nonSentenceSpace.ReplaceAllString(strings.TrimSpace(normalized), " ")
++	for _, delimiter := range []string{". ", "! ", "? "} {
++		if index := strings.Index(normalized, delimiter); index >= 0 {
++			return strings.TrimSpace(normalized[:index+1])
++		}
++	}
++	return strings.TrimSpace(normalized)
++}
++
++func transformWikiLinks(body, sourceTopicSlug, bundleRoot, fromDir, currentPath string) (string, int, []string) {
++	count := 0
++	unresolved := make([]string, 0)
++	formatter := vault.OKFLinkFormatter{}
++	transformed := wikilinkPattern.ReplaceAllStringFunc(body, func(match string) string {
++		inner := strings.TrimSuffix(strings.TrimPrefix(match, "[["), "]]")
++		target, label := splitWikiLink(inner)
++		targetPath := mappedTargetPath(target, sourceTopicSlug)
++		if strings.TrimSpace(label) == "" {
++			label = fallbackWikiLabel(target)
++		}
++		count++
++		if stripFragment(targetPath) != stripFragment(currentPath) && !isRegularFile(filepath.Join(bundleRoot, filepath.FromSlash(stripFragment(targetPath)))) {
++			unresolved = append(unresolved, targetPath)
++		}
++		return formatter.Link(fromDir, targetPath, label)
++	})
++	sort.Strings(unresolved)
++	return transformed, count, dedupeStrings(unresolved)
++}
++
++func splitWikiLink(inner string) (string, string) {
++	parts := strings.SplitN(inner, "|", 2)
++	target := strings.TrimSpace(parts[0])
++	if len(parts) == 1 {
++		return target, ""
++	}
++	return target, strings.TrimSpace(parts[1])
++}
++
++func mappedTargetPath(target, sourceTopicSlug string) string {
++	target = vault.ToPosixPath(strings.TrimSpace(target))
++	fragment := ""
++	if before, after, found := strings.Cut(target, "#"); found {
++		target = before
++		fragment = "#" + after
++	}
++	target = strings.TrimPrefix(target, "/")
++	if sourceTopicSlug != "" {
++		prefix := strings.Trim(sourceTopicSlug, "/") + "/"
++		target = strings.TrimPrefix(target, prefix)
++	}
++	return conceptKey(target) + ".md" + fragment
++}
++
++func stripFragment(target string) string {
++	if before, _, found := strings.Cut(target, "#"); found {
++		return before
++	}
++	return target
++}
++
++func fallbackWikiLabel(target string) string {
++	target = stripFragment(target)
++	return vault.HumanizeSlug(conceptKey(target))
++}
++
++func dedupeStrings(values []string) []string {
++	if len(values) == 0 {
++		return nil
++	}
++	deduped := values[:0]
++	var previous string
++	for index, value := range values {
++		if index > 0 && value == previous {
++			continue
++		}
++		deduped = append(deduped, value)
++		previous = value
++	}
++	return append([]string(nil), deduped...)
++}
++
++func loadConcepts(bundlePath string) ([]conceptInfo, string, error) {
++	okfVersion := OKFVersion
++	indexPath := filepath.Join(bundlePath, "index.md")
++	if content, err := os.ReadFile(indexPath); err == nil {
++		values, _, parseErr := frontmatter.Parse(string(content))
++		if parseErr != nil {
++			return nil, "", fmt.Errorf("parse index.md: %w", parseErr)
++		}
++		if version := strings.TrimSpace(frontmatter.GetString(values, "okf_version")); version != "" {
++			okfVersion = version
++		}
++	} else if !errors.Is(err, os.ErrNotExist) {
++		return nil, "", fmt.Errorf("read index.md: %w", err)
++	}
++
++	concepts := make([]conceptInfo, 0)
++	err := filepath.WalkDir(bundlePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return walkErr
++		}
++		if currentPath == bundlePath {
++			return nil
++		}
++		if entry.Type()&fs.ModeSymlink != 0 {
++			if entry.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if entry.IsDir() {
++			if strings.HasPrefix(entry.Name(), ".") {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if !strings.EqualFold(filepath.Ext(entry.Name()), ".md") || isExcludedMarkdown(entry.Name()) {
++			return nil
++		}
++		relativePath, err := filepath.Rel(bundlePath, currentPath)
++		if err != nil {
++			return err
++		}
++		relativePath = vault.ToPosixPath(relativePath)
++		if isIndexFile(relativePath) || isLogFile(relativePath) {
++			return nil
++		}
++		content, err := os.ReadFile(currentPath)
++		if err != nil {
++			return err
++		}
++		values, _, err := frontmatter.Parse(string(content))
++		if err != nil || len(values) == 0 {
++			return nil
++		}
++		conceptType := strings.TrimSpace(frontmatter.GetString(values, "type"))
++		title := strings.TrimSpace(frontmatter.GetString(values, "title"))
++		if title == "" {
++			title = vault.HumanizeSlug(conceptKey(relativePath))
++		}
++		concepts = append(concepts, conceptInfo{
++			RelativePath: relativePath,
++			Type:         firstNonEmpty(conceptType, "Concept"),
++			Title:        title,
++			Description:  strings.TrimSpace(frontmatter.GetString(values, "description")),
++		})
++		return nil
++	})
++	if err != nil {
++		return nil, "", fmt.Errorf("scan concepts: %w", err)
++	}
++	return concepts, okfVersion, nil
++}
++
++func checkConceptFile(filePath, relativePath string, typeSet map[string]struct{}, strict bool) []models.LintIssue {
++	content, err := os.ReadFile(filePath)
++	if err != nil {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "", fmt.Sprintf("read concept: %v", err))}
++	}
++	values, _, err := frontmatter.Parse(string(content))
++	if err != nil {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "", fmt.Sprintf("frontmatter is invalid: %v", err))}
++	}
++	if len(values) == 0 {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "type", "concept must start with YAML frontmatter")}
++	}
++	issues := make([]models.LintIssue, 0)
++	conceptType := strings.TrimSpace(frontmatter.GetString(values, "type"))
++	if conceptType == "" {
++		issues = append(issues, newIssue(models.SeverityError, relativePath, "type", "concept frontmatter must include non-empty type"))
++	}
++	for _, field := range []string{"title", "description", "timestamp"} {
++		if strings.TrimSpace(frontmatter.GetString(values, field)) == "" {
++			issues = append(issues, newIssue(warningSeverity(strict), relativePath, field, fmt.Sprintf("producer field %q is missing", field)))
++		}
++	}
++	if len(typeSet) > 0 && conceptType != "" {
++		if _, ok := typeSet[conceptType]; !ok {
++			issues = append(issues, newIssue(warningSeverity(strict), relativePath, "type", fmt.Sprintf("type %q is outside the configured OKF vocabulary", conceptType)))
++		}
++	}
++	return issues
++}
++
++func checkIndexFile(bundlePath, filePath, relativePath string, strict bool) []models.LintIssue {
++	content, err := os.ReadFile(filePath)
++	if err != nil {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "", fmt.Sprintf("read index: %v", err))}
++	}
++	values, _, err := frontmatter.Parse(string(content))
++	if err != nil {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "", fmt.Sprintf("index frontmatter is invalid: %v", err))}
++	}
++	if len(values) == 0 {
++		return nil
++	}
++	if relativePath != "index.md" {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "frontmatter", "only the bundle-root index.md may declare okf_version frontmatter")}
++	}
++	for key := range values {
++		if key != "okf_version" {
++			return []models.LintIssue{newIssue(models.SeverityError, relativePath, key, "root index.md frontmatter may only contain okf_version")}
++		}
++	}
++	_ = bundlePath
++	_ = strict
++	return nil
++}
++
++func checkLogFile(filePath, relativePath string, strict bool) []models.LintIssue {
++	content, err := os.ReadFile(filePath)
++	if err != nil {
++		return []models.LintIssue{newIssue(models.SeverityError, relativePath, "", fmt.Sprintf("read log: %v", err))}
++	}
++	issues := make([]models.LintIssue, 0)
++	for line := range strings.SplitSeq(string(content), "\n") {
++		trimmed := strings.TrimSpace(line)
++		if !strings.HasPrefix(trimmed, "## ") {
++			continue
++		}
++		dateValue := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
++		if _, err := time.Parse(frontmatter.DateLayout, dateValue); err != nil {
++			issues = append(issues, newIssue(models.SeverityError, relativePath, "date", fmt.Sprintf("log heading %q must use YYYY-MM-DD", trimmed)))
++		}
++	}
++	_ = strict
++	return issues
++}
++
++func newIssue(severity models.DiagnosticSeverity, filePath, target, message string) models.LintIssue {
++	return models.LintIssue{
++		Kind:     models.LintIssueKindFormat,
++		Severity: severity,
++		FilePath: filePath,
++		Target:   target,
++		Message:  message,
++	}
++}
++
++func warningSeverity(strict bool) models.DiagnosticSeverity {
++	if strict {
++		return models.SeverityError
++	}
++	return models.SeverityWarning
++}
++
++func sortIssues(issues []models.LintIssue) {
++	sort.Slice(issues, func(i, j int) bool {
++		if issues[i].Severity != issues[j].Severity {
++			return issues[i].Severity < issues[j].Severity
++		}
++		if issues[i].FilePath != issues[j].FilePath {
++			return issues[i].FilePath < issues[j].FilePath
++		}
++		if issues[i].Target != issues[j].Target {
++			return issues[i].Target < issues[j].Target
++		}
++		return issues[i].Message < issues[j].Message
++	})
++}
++
++func isIndexFile(relativePath string) bool {
++	return strings.EqualFold(path.Base(vault.ToPosixPath(relativePath)), "index.md")
++}
++
++func isLogFile(relativePath string) bool {
++	return strings.EqualFold(path.Base(vault.ToPosixPath(relativePath)), "log.md")
++}
++
++func isExcludedMarkdown(name string) bool {
++	lower := strings.ToLower(strings.TrimSpace(name))
++	switch lower {
++	case "claude.md", "agents.md", "readme.md", "license.md", "notice.md", "attribution.md":
++		return true
++	default:
++		return strings.HasPrefix(lower, "license.") || strings.HasPrefix(lower, "notice.") || strings.HasPrefix(lower, "attribution.")
++	}
++}
++
++func insertLogEntry(content, dateHeading, entry string) string {
++	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
++	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
++		lines = []string{"# Directory Update Log"}
++	}
++	heading := "## " + dateHeading
++	for index, line := range lines {
++		if strings.TrimSpace(line) != heading {
++			continue
++		}
++		next := append([]string{}, lines[:index+1]...)
++		next = append(next, entry)
++		next = append(next, lines[index+1:]...)
++		return strings.TrimRight(strings.Join(next, "\n"), "\n") + "\n"
++	}
++	next := []string{strings.TrimRight(strings.Join(lines[:1], "\n"), "\n"), "", heading, "", entry}
++	if len(lines) > 1 {
++		rest := strings.TrimSpace(strings.Join(lines[1:], "\n"))
++		if rest != "" {
++			next = append(next, "", rest)
++		}
++	}
++	return strings.TrimRight(strings.Join(next, "\n"), "\n") + "\n"
++}
++
++func firstNonEmpty(values ...string) string {
++	for _, value := range values {
++		if trimmed := strings.TrimSpace(value); trimmed != "" {
++			return trimmed
++		}
++	}
++	return ""
++}
+diff --git a/internal/okf/okf_test.go b/internal/okf/okf_test.go
+new file mode 100644
+index 0000000..92772b6
+--- /dev/null
++++ b/internal/okf/okf_test.go
+@@ -0,0 +1,218 @@
++package okf
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/compozy/kb/internal/frontmatter"
++	"github.com/compozy/kb/internal/models"
++)
++
++func TestPromoteWritesConceptIndexAndLog(t *testing.T) {
++	t.Parallel()
++
++	vaultPath := t.TempDir()
++	sourceTopic := filepath.Join(vaultPath, "research")
++	targetTopic := filepath.Join(vaultPath, "catalog")
++	mkdirAll(t, filepath.Join(sourceTopic, "wiki", "concepts"))
++	mkdirAll(t, targetTopic)
++	writeFile(t, filepath.Join(sourceTopic, "CLAUDE.md"), "# Research\n")
++	writeFile(t, filepath.Join(targetTopic, "CLAUDE.md"), "# Catalog\n")
++	writeFile(t, filepath.Join(targetTopic, "index.md"), "---\nokf_version: \"0.1\"\n---\n# Old Index\n")
++	writeFile(t, filepath.Join(targetTopic, "log.md"), "# Directory Update Log\n")
++	sourcePath := filepath.Join(sourceTopic, "wiki", "concepts", "Alpha Note.md")
++	sourceContent := strings.Join([]string{
++		"---",
++		"title: Alpha Note",
++		"type: wiki",
++		"stage: compiled",
++		"tags: [systems, alpha]",
++		"---",
++		"Alpha note explains the operational flow. See [[research/wiki/concepts/Beta Note|Beta]] and [[research/wiki/concepts/Alpha Note#details|details]].",
++		"",
++		"## Details",
++	}, "\n")
++	writeFile(t, sourcePath, sourceContent)
++
++	result, err := Promote(context.Background(), PromoteInput{
++		SourceDocPath: sourcePath,
++		VaultPath:     vaultPath,
++		TargetTopic: models.TopicInfo{
++			Slug:     "catalog",
++			Mode:     models.TopicModeOKF,
++			RootPath: targetTopic,
++		},
++		Type:        "Playbook",
++		Description: "Operational alpha note.",
++		Types:       []string{"Playbook"},
++		Clock: func() time.Time {
++			return time.Date(2026, 6, 27, 10, 11, 12, 0, time.UTC)
++		},
++	})
++	if err != nil {
++		t.Fatalf("Promote returned error: %v", err)
++	}
++	if result.WrittenPath != "alpha-note.md" {
++		t.Fatalf("written path = %q, want alpha-note.md", result.WrittenPath)
++	}
++	if result.LinksRewritten != 2 {
++		t.Fatalf("links rewritten = %d, want 2", result.LinksRewritten)
++	}
++	if len(result.UnresolvedLinks) != 1 || result.UnresolvedLinks[0] != "beta-note.md" {
++		t.Fatalf("unresolved links = %#v, want beta-note.md", result.UnresolvedLinks)
++	}
++	if got := readFile(t, sourcePath); got != sourceContent {
++		t.Fatalf("source document changed:\n%s", got)
++	}
++
++	values, body := parseMarkdown(t, filepath.Join(targetTopic, "alpha-note.md"))
++	for key, want := range map[string]any{
++		"type":        "Playbook",
++		"title":       "Alpha Note",
++		"description": "Operational alpha note.",
++		"timestamp":   "2026-06-27T10:11:12Z",
++	} {
++		if got := values[key]; got != want {
++			t.Fatalf("frontmatter[%s] = %#v, want %#v", key, got, want)
++		}
++	}
++	if _, ok := values["stage"]; ok {
++		t.Fatalf("wiki stage leaked into OKF frontmatter: %#v", values)
++	}
++	if !strings.Contains(body, "[Beta](beta-note.md)") || !strings.Contains(body, "[details](alpha-note.md#details)") {
++		t.Fatalf("body missing transformed links:\n%s", body)
++	}
++
++	index := readFile(t, filepath.Join(targetTopic, "index.md"))
++	for _, fragment := range []string{"okf_version: \"0.1\"", "## Playbook", "[Alpha Note](alpha-note.md)", "Operational alpha note."} {
++		if !strings.Contains(index, fragment) {
++			t.Fatalf("index.md missing %q:\n%s", fragment, index)
++		}
++	}
++	log := readFile(t, filepath.Join(targetTopic, "log.md"))
++	for _, fragment := range []string{"## 2026-06-27", "**Creation**", "[Alpha Note](alpha-note.md)", "`wiki/concepts/Alpha Note.md`"} {
++		if !strings.Contains(log, fragment) {
++			t.Fatalf("log.md missing %q:\n%s", fragment, log)
++		}
++	}
++}
++
++func TestPromoteRejectsNonOKFTargetBeforeWriting(t *testing.T) {
++	t.Parallel()
++
++	targetTopic := t.TempDir()
++	_, err := Promote(context.Background(), PromoteInput{
++		SourceDocPath: "missing.md",
++		TargetTopic: models.TopicInfo{
++			Slug:     "wiki-topic",
++			Mode:     models.TopicModeWiki,
++			RootPath: targetTopic,
++		},
++		Type: "Reference",
++	})
++	if err == nil || !strings.Contains(err.Error(), "target topic must use mode okf") {
++		t.Fatalf("error = %v, want non-OKF target rejection", err)
++	}
++	if entries, readErr := os.ReadDir(targetTopic); readErr != nil || len(entries) != 0 {
++		t.Fatalf("target changed before rejection: entries=%d err=%v", len(entries), readErr)
++	}
++}
++
++func TestCheckReportsConformanceAndStrictWarnings(t *testing.T) {
++	t.Parallel()
++
++	bundle := t.TempDir()
++	writeFile(t, filepath.Join(bundle, "CLAUDE.md"), "# Catalog\n")
++	writeFile(t, filepath.Join(bundle, "index.md"), "---\nokf_version: \"0.1\"\n---\n# Index\n")
++	writeFile(t, filepath.Join(bundle, "log.md"), "# Directory Update Log\n\n## 2026-06-27\n* **Creation**: Created bundle.\n")
++	writeFile(t, filepath.Join(bundle, "good.md"), "---\ntype: Playbook\ntitle: Good\ndescription: Good concept.\ntimestamp: 2026-06-27T10:00:00Z\n---\nBody with [broken](missing.md).\n")
++	writeFile(t, filepath.Join(bundle, "missing-type.md"), "---\ntitle: Missing\n---\nBody.\n")
++	writeFile(t, filepath.Join(bundle, "missing-fields.md"), "---\ntype: Unknown\n---\nBody.\n")
++
++	issues, err := Check(context.Background(), bundle, CheckOptions{
++		Types: []string{"Playbook"},
++	})
++	if err != nil {
++		t.Fatalf("Check returned error: %v", err)
++	}
++	assertIssue(t, issues, models.SeverityError, "missing-type.md", "type")
++	assertIssue(t, issues, models.SeverityWarning, "missing-fields.md", "title")
++	assertIssue(t, issues, models.SeverityWarning, "missing-fields.md", "type")
++	if !HasErrors(issues) {
++		t.Fatal("HasErrors = false, want true for missing type")
++	}
++
++	strictIssues, err := Check(context.Background(), bundle, CheckOptions{
++		Types:  []string{"Playbook"},
++		Strict: true,
++	})
++	if err != nil {
++		t.Fatalf("strict Check returned error: %v", err)
++	}
++	assertIssue(t, strictIssues, models.SeverityError, "missing-fields.md", "title")
++}
++
++func TestCheckAllowsLenientExternalBundleTraits(t *testing.T) {
++	t.Parallel()
++
++	bundle := t.TempDir()
++	writeFile(t, filepath.Join(bundle, "index.md"), "# Index\n")
++	writeFile(t, filepath.Join(bundle, "concept.md"), "---\ntype: External Type\n---\nSee [missing](missing.md).\n")
++
++	issues, err := Check(context.Background(), bundle, CheckOptions{})
++	if err != nil {
++		t.Fatalf("Check returned error: %v", err)
++	}
++	if HasErrors(issues) {
++		t.Fatalf("lenient external bundle should not have errors: %#v", issues)
++	}
++}
++
++func assertIssue(t *testing.T, issues []models.LintIssue, severity models.DiagnosticSeverity, filePath, target string) {
++	t.Helper()
++	for _, issue := range issues {
++		if issue.Severity == severity && issue.FilePath == filePath && issue.Target == target {
++			return
++		}
++	}
++	t.Fatalf("missing issue severity=%s file=%s target=%s in %#v", severity, filePath, target, issues)
++}
++
++func parseMarkdown(t *testing.T, filePath string) (map[string]any, string) {
++	t.Helper()
++	values, body, err := frontmatter.Parse(readFile(t, filePath))
++	if err != nil {
++		t.Fatalf("parse %s: %v", filePath, err)
++	}
++	return values, body
++}
++
++func mkdirAll(t *testing.T, dir string) {
++	t.Helper()
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		t.Fatalf("mkdir %s: %v", dir, err)
++	}
++}
++
++func writeFile(t *testing.T, filePath string, content string) {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
++		t.Fatalf("mkdir parent for %s: %v", filePath, err)
++	}
++	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
++		t.Fatalf("write %s: %v", filePath, err)
++	}
++}
++
++func readFile(t *testing.T, filePath string) string {
++	t.Helper()
++	content, err := os.ReadFile(filePath)
++	if err != nil {
++		t.Fatalf("read %s: %v", filePath, err)
++	}
++	return string(content)
++}
+diff --git a/internal/okf/official_integration_test.go b/internal/okf/official_integration_test.go
+new file mode 100644
+index 0000000..6331317
+--- /dev/null
++++ b/internal/okf/official_integration_test.go
+@@ -0,0 +1,27 @@
++//go:build integration
++
++package okf
++
++import (
++	"context"
++	"path/filepath"
++	"testing"
++)
++
++func TestOfficialBundlesPassLenientConformance(t *testing.T) {
++	t.Parallel()
++
++	for _, bundle := range []string{"ga4", "stackoverflow", "crypto_bitcoin"} {
++		bundle := bundle
++		t.Run(bundle, func(t *testing.T) {
++			t.Parallel()
++			issues, err := Check(context.Background(), filepath.Join("testdata", "official", bundle), CheckOptions{})
++			if err != nil {
++				t.Fatalf("Check returned error: %v", err)
++			}
++			if HasErrors(issues) {
++				t.Fatalf("official bundle %s has error issues: %#v", bundle, issues)
++			}
++		})
++	}
++}
+diff --git a/internal/okf/testdata/official/README.md b/internal/okf/testdata/official/README.md
+new file mode 100644
+index 0000000..b3caa76
+--- /dev/null
++++ b/internal/okf/testdata/official/README.md
+@@ -0,0 +1,10 @@
++# Official OKF Fixtures
++
++These fixtures are copied from the Apache-2.0 licensed Google Cloud
++`GoogleCloudPlatform/knowledge-catalog` repository:
++
++- Source repository: https://github.com/GoogleCloudPlatform/knowledge-catalog
++- Fixture source path: `okf/bundles/{ga4,stackoverflow,crypto_bitcoin}`
++- License: `LICENSE.md` in this directory
++
++They are used to verify lenient OKF v0.1 conformance against real sample bundles.
+diff --git a/internal/okf/testdata/official/LICENSE.md b/internal/okf/testdata/official/LICENSE.md
+new file mode 100644
+index 0000000..6b0b127
+--- /dev/null
++++ b/internal/okf/testdata/official/LICENSE.md
+@@ -0,0 +1,203 @@
++
++                                 Apache License
++                           Version 2.0, January 2004
++                        http://www.apache.org/licenses/
++
++   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
++
++   1. Definitions.
++
++      "License" shall mean the terms and conditions for use, reproduction,
++      and distribution as defined by Sections 1 through 9 of this document.
++
++      "Licensor" shall mean the copyright owner or entity authorized by
++      the copyright owner that is granting the License.
++
++      "Legal Entity" shall mean the union of the acting entity and all
++      other entities that control, are controlled by, or are under common
++      control with that entity. For the purposes of this definition,
++      "control" means (i) the power, direct or indirect, to cause the
++      direction or management of such entity, whether by contract or
++      otherwise, or (ii) ownership of fifty percent (50%) or more of the
++      outstanding shares, or (iii) beneficial ownership of such entity.
++
++      "You" (or "Your") shall mean an individual or Legal Entity
++      exercising permissions granted by this License.
++
++      "Source" form shall mean the preferred form for making modifications,
++      including but not limited to software source code, documentation
++      source, and configuration files.
++
++      "Object" form shall mean any form resulting from mechanical
++      transformation or translation of a Source form, including but
++      not limited to compiled object code, generated documentation,
++      and conversions to other media types.
++
++      "Work" shall mean the work of authorship, whether in Source or
++      Object form, made available under the License, as indicated by a
++      copyright notice that is included in or attached to the work
++      (an example is provided in the Appendix below).
++
++      "Derivative Works" shall mean any work, whether in Source or Object
++      form, that is based on (or derived from) the Work and for which the
++      editorial revisions, annotations, elaborations, or other modifications
++      represent, as a whole, an original work of authorship. For the purposes
++      of this License, Derivative Works shall not include works that remain
++      separable from, or merely link (or bind by name) to the interfaces of,
++      the Work and Derivative Works thereof.
++
++      "Contribution" shall mean any work of authorship, including
++      the original version of the Work and any modifications or additions
++      to that Work or Derivative Works thereof, that is intentionally
++      submitted to Licensor for inclusion in the Work by the copyright owner
++      or by an individual or Legal Entity authorized to submit on behalf of
++      the copyright owner. For the purposes of this definition, "submitted"
++      means any form of electronic, verbal, or written communication sent
++      to the Licensor or its representatives, including but not limited to
++      communication on electronic mailing lists, source code control systems,
++      and issue tracking systems that are managed by, or on behalf of, the
++      Licensor for the purpose of discussing and improving the Work, but
++      excluding communication that is conspicuously marked or otherwise
++      designated in writing by the copyright owner as "Not a Contribution."
++
++      "Contributor" shall mean Licensor and any individual or Legal Entity
++      on behalf of whom a Contribution has been received by Licensor and
++      subsequently incorporated within the Work.
++
++   2. Grant of Copyright License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      copyright license to reproduce, prepare Derivative Works of,
++      publicly display, publicly perform, sublicense, and distribute the
++      Work and such Derivative Works in Source or Object form.
++
++   3. Grant of Patent License. Subject to the terms and conditions of
++      this License, each Contributor hereby grants to You a perpetual,
++      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
++      (except as stated in this section) patent license to make, have made,
++      use, offer to sell, sell, import, and otherwise transfer the Work,
++      where such license applies only to those patent claims licensable
++      by such Contributor that are necessarily infringed by their
++      Contribution(s) alone or by combination of their Contribution(s)
++      with the Work to which such Contribution(s) was submitted. If You
++      institute patent litigation against any entity (including a
++      cross-claim or counterclaim in a lawsuit) alleging that the Work
++      or a Contribution incorporated within the Work constitutes direct
++      or contributory patent infringement, then any patent licenses
++      granted to You under this License for that Work shall terminate
++      as of the date such litigation is filed.
++
++   4. Redistribution. You may reproduce and distribute copies of the
++      Work or Derivative Works thereof in any medium, with or without
++      modifications, and in Source or Object form, provided that You
++      meet the following conditions:
++
++      (a) You must give any other recipients of the Work or
++          Derivative Works a copy of this License; and
++
++      (b) You must cause any modified files to carry prominent notices
++          stating that You changed the files; and
++
++      (c) You must retain, in the Source form of any Derivative Works
++          that You distribute, all copyright, patent, trademark, and
++          attribution notices from the Source form of the Work,
++          excluding those notices that do not pertain to any part of
++          the Derivative Works; and
++
++      (d) If the Work includes a "NOTICE" text file as part of its
++          distribution, then any Derivative Works that You distribute must
++          include a readable copy of the attribution notices contained
++          within such NOTICE file, excluding those notices that do not
++          pertain to any part of the Derivative Works, in at least one
++          of the following places: within a NOTICE text file distributed
++          as part of the Derivative Works; within the Source form or
++          documentation, if provided along with the Derivative Works; or,
++          within a display generated by the Derivative Works, if and
++          wherever such third-party notices normally appear. The contents
++          of the NOTICE file are for informational purposes only and
++          do not modify the License. You may add Your own attribution
++          notices within Derivative Works that You distribute, alongside
++          or as an addendum to the NOTICE text from the Work, provided
++          that such additional attribution notices cannot be construed
++          as modifying the License.
++
++      You may add Your own copyright statement to Your modifications and
++      may provide additional or different license terms and conditions
++      for use, reproduction, or distribution of Your modifications, or
++      for any such Derivative Works as a whole, provided Your use,
++      reproduction, and distribution of the Work otherwise complies with
++      the conditions stated in this License.
++
++   5. Submission of Contributions. Unless You explicitly state otherwise,
++      any Contribution intentionally submitted for inclusion in the Work
++      by You to the Licensor shall be under the terms and conditions of
++      this License, without any additional terms or conditions.
++      Notwithstanding the above, nothing herein shall supersede or modify
++      the terms of any separate license agreement you may have executed
++      with Licensor regarding such Contributions.
++
++   6. Trademarks. This License does not grant permission to use the trade
++      names, trademarks, service marks, or product names of the Licensor,
++      except as required for reasonable and customary use in describing the
++      origin of the Work and reproducing the content of the NOTICE file.
++
++   7. Disclaimer of Warranty. Unless required by applicable law or
++      agreed to in writing, Licensor provides the Work (and each
++      Contributor provides its Contributions) on an "AS IS" BASIS,
++      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
++      implied, including, without limitation, any warranties or conditions
++      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
++      PARTICULAR PURPOSE. You are solely responsible for determining the
++      appropriateness of using or redistributing the Work and assume any
++      risks associated with Your exercise of permissions under this License.
++
++   8. Limitation of Liability. In no event and under no legal theory,
++      whether in tort (including negligence), contract, or otherwise,
++      unless required by applicable law (such as deliberate and grossly
++      negligent acts) or agreed to in writing, shall any Contributor be
++      liable to You for damages, including any direct, indirect, special,
++      incidental, or consequential damages of any character arising as a
++      result of this License or out of the use or inability to use the
++      Work (including but not limited to damages for loss of goodwill,
++      work stoppage, computer failure or malfunction, or any and all
++      other commercial damages or losses), even if such Contributor
++      has been advised of the possibility of such damages.
++
++   9. Accepting Warranty or Additional Liability. While redistributing
++      the Work or Derivative Works thereof, You may choose to offer,
++      and charge a fee for, acceptance of support, warranty, indemnity,
++      or other liability obligations and/or rights consistent with this
++      License. However, in accepting such obligations, You may act only
++      on Your own behalf and on Your sole responsibility, not on behalf
++      of any other Contributor, and only if You agree to indemnify,
++      defend, and hold each Contributor harmless for any liability
++      incurred by, or claims asserted against, such Contributor by reason
++      of your accepting any such warranty or additional liability.
++
++   END OF TERMS AND CONDITIONS
++
++   APPENDIX: How to apply the Apache License to your work.
++
++      To apply the Apache License to your work, attach the following
++      boilerplate notice, with the fields enclosed by brackets "[]"
++      replaced with your own identifying information. (Don't include
++      the brackets!)  The text should be enclosed in the appropriate
++      comment syntax for the file format. We also recommend that a
++      file or class name and description of purpose be included on the
++      same "printed page" as the copyright notice for easier
++      identification within third-party archives.
++
++   Copyright [yyyy] [name of copyright owner]
++
++   Licensed under the Apache License, Version 2.0 (the "License");
++   you may not use this file except in compliance with the License.
++   You may obtain a copy of the License at
++
++       http://www.apache.org/licenses/LICENSE-2.0
++
++   Unless required by applicable law or agreed to in writing, software
++   distributed under the License is distributed on an "AS IS" BASIS,
++   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++   See the License for the specific language governing permissions and
++   limitations under the License.
++
+diff --git a/internal/cli/promote.go b/internal/cli/promote.go
+new file mode 100644
+index 0000000..9b332bb
+--- /dev/null
++++ b/internal/cli/promote.go
+@@ -0,0 +1,61 @@
++package cli
++
++import (
++	"fmt"
++	"os"
++
++	"github.com/spf13/cobra"
++
++	kokf "github.com/compozy/kb/internal/okf"
++	ktopic "github.com/compozy/kb/internal/topic"
++)
++
++var runPromote = kokf.Promote
++var runPromoteTopicInfo = ktopic.Info
++var promoteGetwd = os.Getwd
++
++func newPromoteCommand() *cobra.Command {
++	var targetTopic string
++	var conceptType string
++	var description string
++
++	command := &cobra.Command{
++		Use:   "promote <wiki-doc>",
++		Short: "Promote a wiki document into an OKF topic",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			vaultPath, err := resolveCommandVaultPath(cmd, promoteGetwd, "promote")
++			if err != nil {
++				return err
++			}
++			cfg, err := loadCLIConfig()
++			if err != nil {
++				return fmt.Errorf("promote: %w", err)
++			}
++			target, err := runPromoteTopicInfo(vaultPath, targetTopic)
++			if err != nil {
++				return fmt.Errorf("promote: %w", err)
++			}
++
++			result, err := runPromote(commandContext(cmd), kokf.PromoteInput{
++				SourceDocPath: args[0],
++				VaultPath:     vaultPath,
++				TargetTopic:   target,
++				Type:          conceptType,
++				Description:   description,
++				Types:         cfg.OKF.Types,
++			})
++			if err != nil {
++				return err
++			}
++			return writeJSON(cmd, result)
++		},
++	}
++
++	command.Flags().StringVar(&targetTopic, "to", "", "Target OKF topic slug")
++	command.Flags().StringVar(&conceptType, "type", "", "OKF concept type")
++	command.Flags().StringVar(&description, "description", "", "OKF concept description")
++	_ = command.MarkFlagRequired("to")
++	_ = command.MarkFlagRequired("type")
++	return command
++}
+diff --git a/internal/cli/okf.go b/internal/cli/okf.go
+new file mode 100644
+index 0000000..c3dca3a
+--- /dev/null
++++ b/internal/cli/okf.go
+@@ -0,0 +1,90 @@
++package cli
++
++import (
++	"fmt"
++	"os"
++
++	"github.com/spf13/cobra"
++
++	kokf "github.com/compozy/kb/internal/okf"
++	"github.com/compozy/kb/internal/output"
++	ktopic "github.com/compozy/kb/internal/topic"
++)
++
++type okfCheckOptions struct {
++	Format string
++	Strict bool
++}
++
++var runOKFCheck = kokf.Check
++var runOKFTopicInfo = ktopic.Info
++var okfGetwd = os.Getwd
++
++func newOKFCommand() *cobra.Command {
++	command := &cobra.Command{
++		Use:   "okf",
++		Short: "Work with Open Knowledge Format bundles",
++		Args:  cobra.NoArgs,
++		RunE: func(cmd *cobra.Command, args []string) error {
++			return cmd.Help()
++		},
++	}
++	command.AddCommand(newOKFCheckCommand())
++	return command
++}
++
++func newOKFCheckCommand() *cobra.Command {
++	options := &okfCheckOptions{
++		Format: string(output.OutputFormatTable),
++	}
++	command := &cobra.Command{
++		Use:   "check <topic>",
++		Short: "Check an OKF topic for conformance",
++		Args:  cobra.ExactArgs(1),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			return runOKFCheckCommand(cmd, options, args[0])
++		},
++	}
++	command.Flags().StringVar(&options.Format, "format", string(output.OutputFormatTable), "Output format (table|json|tsv)")
++	command.Flags().BoolVar(&options.Strict, "strict", false, "Promote local-standard warnings to errors")
++	return command
++}
++
++func runOKFCheckCommand(cmd *cobra.Command, options *okfCheckOptions, topicSlug string) error {
++	format, err := parseInspectOutputFormat(options.Format)
++	if err != nil {
++		return err
++	}
++	vaultPath, err := resolveCommandVaultPath(cmd, okfGetwd, "okf check")
++	if err != nil {
++		return err
++	}
++	cfg, err := loadCLIConfig()
++	if err != nil {
++		return fmt.Errorf("okf check: %w", err)
++	}
++	topicInfo, err := runOKFTopicInfo(vaultPath, topicSlug)
++	if err != nil {
++		return fmt.Errorf("okf check: %w", err)
++	}
++
++	issues, err := runOKFCheck(commandContext(cmd), topicInfo.RootPath, kokf.CheckOptions{
++		Types:  cfg.OKF.Types,
++		Strict: options.Strict,
++	})
++	if err != nil {
++		return err
++	}
++	_, writeErr := cmd.OutOrStdout().Write([]byte(output.FormatOutput(output.FormatOptions{
++		Format:  format,
++		Columns: kokf.Columns(),
++		Data:    kokf.Rows(issues),
++	})))
++	if writeErr != nil {
++		return fmt.Errorf("okf check: write output: %w", writeErr)
++	}
++	if kokf.HasErrors(issues) {
++		return fmt.Errorf("okf check: found %d issue(s)", len(issues))
++	}
++	return nil
++}
+diff --git a/internal/cli/okf_test.go b/internal/cli/okf_test.go
+new file mode 100644
+index 0000000..dc9d6ba
+--- /dev/null
++++ b/internal/cli/okf_test.go
+@@ -0,0 +1,135 @@
++package cli
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	kconfig "github.com/compozy/kb/internal/config"
++	"github.com/compozy/kb/internal/models"
++	kokf "github.com/compozy/kb/internal/okf"
++)
++
++func TestPromoteCommandResolvesTargetAndPrintsJSON(t *testing.T) {
++	originalPromote := runPromote
++	originalTopicInfo := runPromoteTopicInfo
++	t.Cleanup(func() {
++		runPromote = originalPromote
++		runPromoteTopicInfo = originalTopicInfo
++	})
++	t.Setenv(kconfig.EnvConfigPath, writeCLIConfig(t, "[okf]\ntypes = [\"Playbook\"]\n"))
++
++	var gotInput kokf.PromoteInput
++	runPromoteTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
++		return models.TopicInfo{
++			Slug:     slug,
++			Mode:     models.TopicModeOKF,
++			RootPath: filepath.Join(vaultPath, slug),
++		}, nil
++	}
++	runPromote = func(ctx context.Context, input kokf.PromoteInput) (kokf.ConceptResult, error) {
++		gotInput = input
++		return kokf.ConceptResult{
++			WrittenPath:    "alpha.md",
++			Type:           input.Type,
++			LinksRewritten: 1,
++		}, nil
++	}
++
++	command := newRootCommand()
++	var stdout bytes.Buffer
++	command.SetOut(&stdout)
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{
++		"promote", "research/wiki/concepts/Alpha.md",
++		"--to", "catalog",
++		"--type", "Playbook",
++		"--description", "Alpha description.",
++		"--vault", "/tmp/vault",
++	})
++
++	if err := command.ExecuteContext(context.Background()); err != nil {
++		t.Fatalf("ExecuteContext returned error: %v", err)
++	}
++	if gotInput.VaultPath != "/tmp/vault" || gotInput.TargetTopic.Slug != "catalog" || gotInput.Type != "Playbook" {
++		t.Fatalf("unexpected promote input: %#v", gotInput)
++	}
++	if gotInput.Description != "Alpha description." {
++		t.Fatalf("description = %q", gotInput.Description)
++	}
++	if len(gotInput.Types) != 1 || gotInput.Types[0] != "Playbook" {
++		t.Fatalf("types = %#v, want Playbook", gotInput.Types)
++	}
++
++	var result kokf.ConceptResult
++	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
++		t.Fatalf("stdout did not contain JSON: %v\n%s", err, stdout.String())
++	}
++	if result.WrittenPath != "alpha.md" || result.Type != "Playbook" {
++		t.Fatalf("unexpected result: %#v", result)
++	}
++}
++
++func TestOKFCheckCommandRendersIssuesAndFailsOnErrors(t *testing.T) {
++	originalCheck := runOKFCheck
++	originalTopicInfo := runOKFTopicInfo
++	t.Cleanup(func() {
++		runOKFCheck = originalCheck
++		runOKFTopicInfo = originalTopicInfo
++	})
++	t.Setenv(kconfig.EnvConfigPath, writeCLIConfig(t, "[okf]\ntypes = [\"Playbook\"]\n"))
++
++	runOKFTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
++		return models.TopicInfo{
++			Slug:     slug,
++			Mode:     models.TopicModeOKF,
++			RootPath: filepath.Join(vaultPath, slug),
++		}, nil
++	}
++	runOKFCheck = func(ctx context.Context, bundlePath string, options kokf.CheckOptions) ([]models.LintIssue, error) {
++		if bundlePath != "/tmp/vault/catalog" {
++			return nil, fmt.Errorf("bundle path = %q", bundlePath)
++		}
++		if !options.Strict || len(options.Types) != 1 || options.Types[0] != "Playbook" {
++			return nil, fmt.Errorf("unexpected options: %#v", options)
++		}
++		return []models.LintIssue{{
++			Kind:     models.LintIssueKindFormat,
++			Severity: models.SeverityError,
++			FilePath: "bad.md",
++			Target:   "type",
++			Message:  "missing type",
++		}}, nil
++	}
++
++	command := newRootCommand()
++	var stdout bytes.Buffer
++	command.SetOut(&stdout)
++	command.SetErr(new(bytes.Buffer))
++	command.SetArgs([]string{"okf", "check", "catalog", "--strict", "--format", "json", "--vault", "/tmp/vault"})
++
++	err := command.ExecuteContext(context.Background())
++	if err == nil {
++		t.Fatal("expected okf check to fail on error issues")
++	}
++	if !strings.Contains(err.Error(), "found 1 issue") {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if !strings.Contains(stdout.String(), `"filePath": "bad.md"`) {
++		t.Fatalf("stdout missing issue JSON:\n%s", stdout.String())
++	}
++}
++
++func writeCLIConfig(t *testing.T, content string) string {
++	t.Helper()
++	path := filepath.Join(t.TempDir(), "kb.toml")
++	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
++		t.Fatalf("write config: %v", err)
++	}
++	return path
++}
+diff --git a/internal/cli/okf_integration_test.go b/internal/cli/okf_integration_test.go
+new file mode 100644
+index 0000000..2f65552
+--- /dev/null
++++ b/internal/cli/okf_integration_test.go
+@@ -0,0 +1,112 @@
++//go:build integration
++
++package cli
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/compozy/kb/internal/frontmatter"
++	"github.com/compozy/kb/internal/models"
++	kokf "github.com/compozy/kb/internal/okf"
++)
++
++func TestCLIIntegrationOKFPromoteAndCheck(t *testing.T) {
++	vaultRoot := t.TempDir()
++	wikiTopic := scaffoldTopicForIntegration(t, vaultRoot, "research", "Research", "ops")
++	okfTopic := runCLIJSON[models.TopicInfo](t,
++		"topic", "new", "catalog", "Catalog", "ops",
++		"--mode", "okf",
++		"--vault", vaultRoot,
++	)
++	if okfTopic.Mode != models.TopicModeOKF {
++		t.Fatalf("OKF topic mode = %q, want okf", okfTopic.Mode)
++	}
++
++	sourcePath := filepath.Join(wikiTopic.RootPath, "wiki", "concepts", "Alpha Note.md")
++	writeFile(t, sourcePath, strings.Join([]string{
++		"---",
++		"title: Alpha Note",
++		"type: wiki",
++		"stage: compiled",
++		"tags: [ops]",
++		"---",
++		"Alpha note explains the operations flow. See [[research/wiki/concepts/Beta Note|Beta]].",
++	}, "\n"))
++
++	promoteOutput := runCLI(t,
++		"promote", sourcePath,
++		"--to", okfTopic.Slug,
++		"--type", "Playbook",
++		"--description", "Operational flow.",
++		"--vault", vaultRoot,
++	)
++	var result kokf.ConceptResult
++	if err := json.Unmarshal([]byte(promoteOutput), &result); err != nil {
++		t.Fatalf("promote output is not JSON: %v\n%s", err, promoteOutput)
++	}
++	if result.WrittenPath != "alpha-note.md" {
++		t.Fatalf("written path = %q, want alpha-note.md", result.WrittenPath)
++	}
++
++	sourceAfter := readFile(t, sourcePath)
++	if !strings.Contains(sourceAfter, "stage: compiled") {
++		t.Fatalf("source was unexpectedly changed:\n%s", sourceAfter)
++	}
++	conceptPath := filepath.Join(okfTopic.RootPath, "alpha-note.md")
++	values, body := readMarkdownDocument(t, conceptPath)
++	if values["type"] != "Playbook" || values["description"] != "Operational flow." {
++		t.Fatalf("unexpected concept frontmatter: %#v", values)
++	}
++	if !strings.Contains(body, "[Beta](beta-note.md)") {
++		t.Fatalf("body missing relative OKF link:\n%s", body)
++	}
++	if _, ok := values["stage"]; ok {
++		t.Fatalf("wiki stage leaked into OKF concept: %#v", values)
++	}
++
++	checkOutput := runCLI(t, "okf", "check", okfTopic.Slug, "--format", "json", "--vault", vaultRoot)
++	var issues []models.LintIssue
++	if err := json.Unmarshal([]byte(checkOutput), &issues); err != nil {
++		t.Fatalf("check output is not JSON: %v\n%s", err, checkOutput)
++	}
++	if len(issues) != 0 {
++		t.Fatalf("freshly promoted bundle has issues: %#v", issues)
++	}
++
++	index := readFile(t, filepath.Join(okfTopic.RootPath, "index.md"))
++	if !strings.Contains(index, "## Playbook") || !strings.Contains(index, "[Alpha Note](alpha-note.md)") {
++		t.Fatalf("index.md missing promoted concept:\n%s", index)
++	}
++	logContent := readFile(t, filepath.Join(okfTopic.RootPath, "log.md"))
++	if !strings.Contains(logContent, "## "+frontmatter.DateLayout[:4]) && !strings.Contains(logContent, "**Creation**") {
++		t.Fatalf("log.md missing promotion entry:\n%s", logContent)
++	}
++}
++
++func TestCLIIntegrationOKFCheckFailsStrictWarnings(t *testing.T) {
++	vaultRoot := t.TempDir()
++	okfTopic := runCLIJSON[models.TopicInfo](t,
++		"topic", "new", "catalog", "Catalog", "ops",
++		"--mode", "okf",
++		"--vault", vaultRoot,
++	)
++	writeFile(t, filepath.Join(okfTopic.RootPath, "concept.md"), "---\ntype: Unknown\n---\nBody.\n")
++
++	errText := runCLIError(t, "okf", "check", okfTopic.Slug, "--strict", "--vault", vaultRoot)
++	if !strings.Contains(errText, "found") {
++		t.Fatalf("strict check error = %q", errText)
++	}
++}
++
++func readFile(t *testing.T, filePath string) string {
++	t.Helper()
++	content, err := os.ReadFile(filePath)
++	if err != nil {
++		t.Fatalf("read %s: %v", filePath, err)
++	}
++	return string(content)
++}

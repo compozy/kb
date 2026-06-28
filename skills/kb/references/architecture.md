@@ -142,7 +142,7 @@ The pattern's trajectory: wiki → synthetic QA pairs → QLoRA fine-tune → do
 
 ## Multi-topic vaults
 
-Each folder matched by the vault's topic globs is a **topic** — a self-contained subject with its own `raw/`, `wiki/`, `outputs/`, `bases/` subtrees plus `CLAUDE.md`, `topic.yaml`, and `log.md` at the topic root. Topics may be direct children of the vault root (`go-best-practices/`) or nested by configured glob (`harness/goclaw/`). Use the path relative to the vault root as the topic id, e.g. `--topic harness/goclaw`.
+Each folder matched by the vault's topic globs is a **topic** — a self-contained subject with `CLAUDE.md`, `topic.yaml`, and `log.md` at the topic root. A **wiki** topic (the default, `mode: wiki`) also has `raw/`, `wiki/`, `outputs/`, and `bases/` subtrees and follows the four-phase pipeline above. An **OKF** topic (`mode: okf`) is instead a flat portable bundle of typed concepts (see `references/okf-mode.md`); the rest of this document describes the wiki lifecycle. Topics may be direct children of the vault root (`go-best-practices/`) or nested by configured glob (`harness/goclaw/`). Use the path relative to the vault root as the topic id, e.g. `--topic harness/goclaw`.
 
 All topics share one Obsidian vault at the root, so cross-topic wikilinks work naturally (e.g., a `harness/goclaw` article can link to a `go-best-practices` article). Topics stay self-contained in terms of content but contribute to a unified knowledge graph.
 

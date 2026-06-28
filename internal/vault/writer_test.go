@@ -210,6 +210,43 @@ func TestWriteVaultReportsProgressForPersistedFiles(t *testing.T) {
 	}
 }
 
+func TestWriteVaultUsesRelativeOKFTopicIndexBridgeLinks(t *testing.T) {
+	t.Run("Should use relative OKF topic index bridge links", func(t *testing.T) {
+		t.Parallel()
+
+		topic, graph, _, baseFiles := testWriteVaultInputs(t)
+		topic.Mode = models.TopicModeOKF
+		documents := vault.RenderDocuments(graph, metrics.ComputeMetrics(graph), topic)
+		if err := os.MkdirAll(topic.TopicPath, 0o755); err != nil {
+			t.Fatalf("create topic path: %v", err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(topic.TopicPath, "topic.yaml"),
+			[]byte("slug: demo-repo\ntitle: Demo Repo\ndomain: demo-repo\nmode: okf\n"),
+			0o644,
+		); err != nil {
+			t.Fatalf("write topic metadata: %v", err)
+		}
+
+		if _, err := vault.WriteVault(context.Background(), vault.WriteVaultOptions{
+			Topic:     topic,
+			Graph:     graph,
+			Documents: documents,
+			BaseFiles: baseFiles,
+		}); err != nil {
+			t.Fatalf("WriteVault returned error: %v", err)
+		}
+
+		dashboard := readFile(t, filepath.Join(topic.TopicPath, filepath.FromSlash(vault.GetTopicIndexPath(vault.TopicDashboardTitle))))
+		if !strings.Contains(dashboard, "[Codebase Dashboard](../codebase/index/Codebase%20Dashboard.md)") {
+			t.Fatalf("topic dashboard missing relative OKF bridge link:\n%s", dashboard)
+		}
+		if strings.Contains(dashboard, "(wiki/codebase/index/Codebase%20Dashboard.md)") {
+			t.Fatalf("topic dashboard contains root-scoped OKF bridge link:\n%s", dashboard)
+		}
+	})
+}
+
 func TestWriteVaultResetsManagedCodebaseSubtreeOnly(t *testing.T) {
 	t.Parallel()
 

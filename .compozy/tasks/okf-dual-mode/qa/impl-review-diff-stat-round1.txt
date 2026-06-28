@@ -1,0 +1,17 @@
+ config.example.toml              |   6 ++
+ internal/cli/root.go             |   2 +
+ internal/cli/topic.go            |  29 +++++-
+ internal/cli/topic_test.go       |  60 ++++++++++++
+ internal/config/config.go        |   7 ++
+ internal/config/config_test.go   |   9 ++
+ internal/generate/generate.go    |   1 +
+ internal/models/kb_models.go     |  15 +--
+ internal/models/models.go        |  25 +++--
+ internal/topic/topic.go          | 193 ++++++++++++++++++++++++++++++++++-----
+ internal/topic/topic_test.go     |  83 +++++++++++++++++
+ internal/vault/pathutils.go      |  68 ++++++++++++++
+ internal/vault/pathutils_test.go |  38 ++++++++
+ internal/vault/render.go         |   8 +-
+ internal/vault/render_wiki.go    |  28 +++---
+ internal/vault/writer.go         |  14 +--
+ 16 files changed, 522 insertions(+), 64 deletions(-)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/scanner"
+	ktopic "github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
 )
 
@@ -591,6 +592,30 @@ func TestResolveTargetDefaultsVaultPathAndTopicSlugFromRootPath(t *testing.T) {
 	if target.TopicSlug != "demo-app" {
 		t.Fatalf("topic slug = %q, want demo-app", target.TopicSlug)
 	}
+}
+
+func TestResolveTargetPreservesExistingTopicMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Should preserve OKF mode from existing topic metadata", func(t *testing.T) {
+		rootPath := t.TempDir()
+		vaultPath := t.TempDir()
+		if _, err := ktopic.NewWithMode(vaultPath, "catalog", "Catalog", "ops", models.TopicModeOKF); err != nil {
+			t.Fatalf("NewWithMode returned error: %v", err)
+		}
+
+		target, err := resolveTarget(models.GenerateOptions{
+			RootPath:  rootPath,
+			VaultPath: vaultPath,
+			TopicSlug: "catalog",
+		})
+		if err != nil {
+			t.Fatalf("resolveTarget returned error: %v", err)
+		}
+		if target.Mode != models.TopicModeOKF {
+			t.Fatalf("mode = %q, want okf", target.Mode)
+		}
+	})
 }
 
 func TestGenerateRespectsCanceledContext(t *testing.T) {

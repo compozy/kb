@@ -5,6 +5,7 @@
 # - `[app]`
 # - `[log]`
 # - `[vault]`
+# - `[okf]`
 # - `[firecrawl]`
 # - `[openrouter]`
 # - `[stt]`
@@ -47,6 +48,11 @@ level = "info"
 [vault]
 root = "."
 topic_globs = ["*"]
+
+[okf]
+# Local OKF concept type vocabulary. Empty means `kb okf check` will not warn
+# about unknown types until the operator opts into a local standard.
+types = []
 
 [firecrawl]
 api_key = ""

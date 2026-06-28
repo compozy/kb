@@ -196,6 +196,48 @@ func TestTopicWikiLinkHelpers(t *testing.T) {
 	}
 }
 
+func TestLinkFormatters(t *testing.T) {
+	t.Parallel()
+
+	wiki := vault.WikiLinkFormatter{Slug: "topic-slug"}
+	if got := wiki.Link("ignored", "wiki/codebase/concepts/Codebase Overview.md", "Overview"); got != vault.ToTopicWikiLink("topic-slug", "wiki/codebase/concepts/Codebase Overview.md", "Overview") {
+		t.Fatalf("wiki formatter = %q", got)
+	}
+
+	okf := vault.OKFLinkFormatter{}
+	testCases := []struct {
+		name   string
+		from   string
+		target string
+		label  string
+		want   string
+	}{
+		{name: "Should link within the same directory", from: "", target: "orders.md", label: "Orders", want: "[Orders](orders.md)"},
+		{name: "Should link to a child directory", from: "", target: "tables/orders.md", label: "Orders", want: "[Orders](tables/orders.md)"},
+		{name: "Should link to a parent sibling with fragment", from: "references", target: "tables/customer orders.md#schema", label: "Customers", want: "[Customers](../tables/customer%20orders.md#schema)"},
+		{name: "Should link to a sibling directory", from: "tables", target: "references/joins.md", label: "Joins", want: "[Joins](../references/joins.md)"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if got := okf.Link(testCase.from, testCase.target, testCase.label); got != testCase.want {
+				t.Fatalf("OKF link = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+
+	t.Run("Should select wiki formatter for wiki topics", func(t *testing.T) {
+		if got := vault.LinkFormatterFor(models.TopicMetadata{Slug: "demo", Mode: models.TopicModeWiki}).Link("", "x.md", "X"); got != "[[demo/x|X]]" {
+			t.Fatalf("wiki LinkFormatterFor = %q", got)
+		}
+	})
+	t.Run("Should select OKF formatter for OKF topics", func(t *testing.T) {
+		if got := vault.LinkFormatterFor(models.TopicMetadata{Mode: models.TopicModeOKF}).Link("", "x.md", "X"); got != "[X](x.md)" {
+			t.Fatalf("OKF LinkFormatterFor = %q", got)
+		}
+	})
+}
+
 func TestPathHelpersHandleEmptyInputs(t *testing.T) {
 	t.Parallel()
 

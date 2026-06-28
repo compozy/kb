@@ -1,13 +1,20 @@
 ---
 name: kb
-description: Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube videos and channels, Instagram reels, bookmarks, codebases), wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, or the ingest-compile-query-lint cycle. Do not use for general code review, linting, formatting, building Go projects, or writing application code.
+description: Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube videos and channels, Instagram reels, bookmarks, codebases), wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers the OKF (Open Knowledge Format) dual-mode lifecycle: per-topic `mode: wiki|okf`, scaffolding portable OKF bundles, promoting compiled wiki concepts into a typed catalog with `kb promote`, the four-producer-field + relative-link contract, a local concept-type vocabulary, and OKF v0.1 conformance checking with `kb okf check`. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, the ingest-compile-query-lint cycle, or the wiki→OKF distill loop (promote + conformance). Do not use for general code review, linting, formatting, building Go projects, or writing application code.
 ---
 
 # kb CLI and Knowledge Base Pattern
 
 Build and maintain a self-compiling Obsidian markdown knowledge base using the `kb` CLI. The LLM reads raw sources, writes cross-linked wiki articles, files Q&A results back into the corpus, and runs lint-and-heal passes. The CLI also supports codebase ingestion with deep inspection commands for code quality, architecture health, and symbol relationships.
 
-Each **topic** lives in its own folder inside the Obsidian vault, either directly at the vault root (e.g. `go-best-practices/`) or nested by configured glob (e.g. `harness/goclaw/`). A topic contains `raw/`, `wiki/`, `outputs/`, and `bases/` subtrees plus topic-level `CLAUDE.md`, `topic.yaml`, and `log.md`. All topics share a single Obsidian vault, commonly the repo root. Read `references/architecture.md` for the full rationale and the four-phase pipeline (ingest → compile → query → lint).
+Each **topic** lives in its own folder inside the Obsidian vault, either directly at the vault root (e.g. `go-best-practices/`) or nested by configured glob (e.g. `harness/goclaw/`). All topics share a single Obsidian vault, commonly the repo root. Read `references/architecture.md` for the full rationale and the four-phase pipeline (ingest → compile → query → lint).
+
+Every topic has a lifecycle **`mode`** recorded in `topic.yaml` — **`wiki`** (the default) or **`okf`**:
+
+- A **wiki topic** is the Karpathy research lab described throughout this skill. It contains `raw/`, `wiki/`, `outputs/`, and `bases/` subtrees plus topic-level `CLAUDE.md`, `topic.yaml`, and `log.md`, and follows the ingest → compile → query → lint loop.
+- An **OKF topic** is a portable Open Knowledge Format catalog (a "bundle") that other people's agents and tools consume. It is **flat**: typed concept files at the bundle root, plus a generated `index.md`, a `log.md`, an OKF-flavored `CLAUDE.md`, and the `AGENTS.md` symlink — no `raw/`/`wiki/`/`outputs/` pyramid. See the **OKF Dual-Mode** section below and `references/okf-mode.md`.
+
+Mode is opt-in per topic and invisible to existing users: absent/empty `mode` normalizes to `wiki`, so every existing topic behaves exactly as before.
 
 The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it tells the LLM the scope, conventions, current articles, and research gaps for that topic. `topic.yaml` is the structured source of truth for topic metadata (`slug`, `title`, `domain`). `AGENTS.md` may symlink to `CLAUDE.md` for Codex parity, but the valid-topic marker is `CLAUDE.md`.
 
@@ -41,6 +48,35 @@ Based on Andrej Karpathy's LLM Wiki pattern, the KB treats the LLM as a **compil
 
 Read `references/architecture.md` for the full rationale, context-window vs RAG tradeoffs, and multi-topic vault design.
 
+## OKF Dual-Mode
+
+`kb` supports two distinct knowledge lifecycles, selected per topic by `mode`:
+
+- **`wiki`** (default) — a research **lab**: `ingest → compile → query → lint`. Obsidian `[[wikilinks]]`, the wiki frontmatter schema, the `raw/`+`wiki/`+`outputs/` pyramid. This is the lifecycle the rest of this skill documents.
+- **`okf`** — a portable **catalog**: `declare → consume`. A flat bundle of typed concepts that conforms to the **Open Knowledge Format (OKF) v0.1**, meant to be shared and consumed by *other* people's agents and tools. Plain relative markdown links, the OKF producer-field contract, a generated `index.md`.
+
+The two are not derived from each other; the high-leverage move is **distilling research into the catalog** — turning a finished wiki concept into a typed OKF concept. `kb` makes that one command (`kb promote`), mechanical and non-LLM, then validates the result (`kb okf check`).
+
+**OKF bundle layout** (what `kb topic new --mode okf` scaffolds):
+
+```
+<bundle>/
+  CLAUDE.md        # OKF-flavored schema/marker (topic marker)
+  AGENTS.md        # symlink → CLAUDE.md
+  topic.yaml       # mode: okf
+  index.md         # generated; frontmatter okf_version: "0.1"; concepts grouped by type
+  log.md           # "# Directory Update Log"; ISO-date (## YYYY-MM-DD) headings, newest first
+  <concept>.md     # typed concept files, flat at the bundle root (added by promote/authoring)
+```
+
+There is no `raw/`/`wiki/`/`outputs/`/`bases/` in OKF mode. `index.md` and `log.md` are **auto-maintained by `kb`** (regenerated on scaffold and on every `promote`).
+
+**OKF concept contract** — every concept `.md` carries four producer fields in frontmatter (emitted alphabetically): `description`, `timestamp` (RFC3339, UTC), `title`, `type`, plus optional `tags`. `type` is the only field OKF v0.1 strictly requires; the other three and the relative-link style are two deliberate, documented deviations matching Google's reference tooling. Concept bodies use **relative markdown links** (`[label](other-concept.md)`), never `[[wikilinks]]`.
+
+Two deviations from the written OKF spec are intentional (ADR-002): emit the four producer fields (spec mandates only `type`) and emit relative links (spec recommends absolute `/path.md`, which breaks GitHub rendering).
+
+Read `references/okf-mode.md` for the full bundle layout, frontmatter contract, promote transform rules, conformance ruleset, and the concept-path/link model.
+
 ## Related Skills
 
 This skill orchestrates several companion skills for the LLM-driven phases:
@@ -54,10 +90,35 @@ This skill orchestrates several companion skills for the LLM-driven phases:
 ### Topic management
 
 ```bash
-kb topic new <slug> <title> <domain>     # scaffold a new topic
-kb topic list                             # list all topics in the vault
-kb topic info <topic-id>                  # topic metadata (counts, last log entry)
+kb topic new <slug> <title> <domain>              # scaffold a new wiki topic (mode: wiki, default)
+kb topic new <slug> <title> <domain> --mode okf   # scaffold a flat OKF bundle (mode: okf)
+kb topic list                                      # list all topics in the vault
+kb topic info <topic-id>                           # topic metadata (counts, last log entry)
 ```
+
+`--mode` accepts `wiki` (default) or `okf`. An OKF topic scaffolds the flat bundle layout (see the OKF Dual-Mode section), not the wiki pyramid.
+
+### OKF bundles (promote + conformance)
+
+```bash
+kb promote <wiki-doc> --to <okf-topic> --type <Type>                  # distill a wiki concept into an OKF bundle
+kb promote <wiki-doc> --to <okf-topic> --type <Type> --description "…" # override the generated description
+kb okf check <okf-topic>                                               # validate OKF v0.1 conformance (lenient)
+kb okf check <okf-topic> --strict --format json                       # promote local-standard warnings to errors (CI gate)
+```
+
+`kb promote` is **mechanical, non-LLM, and non-destructive**: it reads a compiled wiki document, remaps its frontmatter to the OKF producer contract, rewrites `[[wikilinks]]` to relative markdown links, writes a new typed concept at the bundle root, regenerates the bundle's `index.md`, and inserts a newest-first `log.md` entry. **The source wiki document is left untouched.** Both `--to` and `--type` are required, and `--to` must resolve to a `mode: okf` topic or `promote` errors before writing. The concept filename is a slug of the source document's base name (collisions get a `-2`, `-3` suffix), so its filename and every inbound link share one canonical key. `kb promote` emits the JSON `ConceptResult` (`writtenPath`, `type`, `linksRewritten`, `unresolvedLinks`, `warnings`).
+
+`kb okf check` is **lenient by default** per OKF §9 (tolerates broken cross-links, unknown `type` values, missing optional fields) so externally produced bundles pass. It emits diagnostics as `severity, kind, filePath, target, message` and exits non-zero when any **error** is present (and on **warnings** too under `--strict`). Hard errors include a concept with a missing/empty `type` and unparseable frontmatter; local-standard **warnings** include a missing producer field (`title`/`description`/`timestamp`) and a `type` outside the configured vocabulary. The type vocabulary is the local standard in `kb.toml`:
+
+```toml
+[okf]
+# Local OKF concept type vocabulary. Empty (the default) means `kb okf check`
+# never warns about unknown types until you opt into a local standard.
+types = ["Voice Profile", "Offer", "Playbook"]
+```
+
+When `[okf].types` is non-empty, a `--type` (or existing concept type) outside the list is a warning — `--strict` turns it into a CI-failing error, preventing type drift (`Voice Profile` vs `voice-profile`).
 
 ### Ingestion (auto-generates frontmatter, auto-appends to log.md)
 
@@ -149,7 +210,7 @@ kb search "<query>" --lex --topic <topic-id>  # keyword-only search
 kb search "<query>" --vec --topic <topic-id>  # vector-only search
 ```
 
-After running `kb ingest` or `kb lint --save`, the CLI auto-appends entries to `<topic>/log.md`. Manual log entries are still needed for compile, query, promote, and split operations (Procedure 5).
+After running `kb ingest` or `kb lint --save`, the CLI auto-appends entries to `<topic>/log.md`. `kb promote` (wiki→OKF) also auto-maintains the **OKF bundle's** `log.md` and `index.md`. Manual log entries are still needed for compile, query, the wiki-internal query→wiki promotion, and split operations (Procedure 5).
 
 ## Command Dispatch
 
@@ -157,7 +218,11 @@ Map the user's intent to the correct command:
 
 | Intent | Command |
 |--------|---------|
-| Scaffold a new topic | `kb topic new <slug> <title> <domain>` |
+| Scaffold a new wiki topic | `kb topic new <slug> <title> <domain>` |
+| Scaffold a new OKF bundle | `kb topic new <slug> <title> <domain> --mode okf` |
+| Distill a wiki concept into an OKF bundle | `kb promote <wiki-doc> --to <okf-topic> --type <Type>` |
+| Check an OKF bundle for conformance | `kb okf check <okf-topic>` |
+| Gate OKF conformance in CI | `kb okf check <okf-topic> --strict --format json` |
 | List all topics | `kb topic list` |
 | Scrape a web URL | `kb ingest url <url> --topic <topic-id>` |
 | Ingest a local file (PDF, DOCX, etc.) | `kb ingest file <path> --topic <topic-id>` |
@@ -436,7 +501,7 @@ After the heal pass, append `## [YYYY-MM-DD] lint | <N> issues found, <M> fixed`
 
 ### Procedure 5: Append to log.md
 
-The `kb` CLI auto-appends log entries for `ingest` and `lint --save` operations. Manual entries are needed for **compile**, **query**, **promote**, and **split** operations.
+The `kb` CLI auto-appends log entries for `ingest`, `lint --save`, and `kb promote` (the latter writes to the **target OKF bundle's** `log.md`). Manual entries are needed for **compile**, **query**, **promote** (the wiki-internal query→wiki promotion of Procedure 3, distinct from the `kb promote` CLI command), and **split** operations.
 
 **Format** -- each entry is a single H2 heading with a consistent prefix so the log stays grep-able:
 
@@ -467,6 +532,24 @@ grep "^## \[2026-04" <topic>/log.md                      # April 2026 events
 
 Keep `log.md` at the topic root (not inside `wiki/` or `outputs/`) so it sits alongside `CLAUDE.md` as a first-class topic artifact.
 
+### Procedure 6: Distill a wiki concept into an OKF bundle
+
+The wiki→OKF distill loop turns finished research into a portable, typed catalog. It is mechanical and CLI-driven; `kb` does the structural work and any intelligent rewriting/condensing is left to you or an external agent.
+
+1. **Ensure a target OKF bundle exists.** If not, scaffold one: `kb topic new <slug> <title> <domain> --mode okf`. The target of `promote` **must** be a `mode: okf` topic.
+2. **Pick the source.** Choose a compiled, durable `<topic>/wiki/concepts/<Article>.md` worth declaring in the catalog (promote operates on a single document; ingest-stage `raw/` files are not the intended source).
+3. **Choose the type.** Pass `--type <Type>` from your local vocabulary (`[okf].types` in `kb.toml`). Off-vocabulary types are allowed but warn under `kb okf check`; extend the vocabulary by editing `kb.toml` rather than inventing drifted variants.
+4. **Promote.**
+   ```bash
+   kb promote "<topic>/wiki/concepts/<Article>.md" --to <okf-topic> --type "<Type>" --description "<one-line summary>"
+   ```
+   `kb` writes the new concept (four producer fields + relative links) at the bundle root, regenerates `index.md`, and appends the bundle's `log.md`. The source wiki document is untouched. Omit `--description` to let `kb` fall back to the first body sentence (it warns if the body has none).
+5. **Resolve links.** Inspect `unresolvedLinks` in the JSON result — these are `[[wikilinks]]` whose target concept has not been promoted yet (the link is still emitted and tolerated per §9). Promote those targets too when you want the link to resolve.
+6. **Verify conformance.** Run `kb okf check <okf-topic>`; fix any errors and any warnings you care about. Use `--strict` in CI to enforce the producer fields and the type vocabulary.
+7. **No manual log entry is needed** — `kb promote` already appended the OKF bundle's `log.md`.
+
+Read `references/okf-mode.md` for the frontmatter remap table, the wikilink→markdown transform rules, the concept-path/collision model, and the full conformance ruleset.
+
 ## Output Format Selection
 
 All `inspect` and `search` commands support `--format`:
@@ -492,6 +575,10 @@ Read `references/output-formats.md` for format examples and empty result handlin
 | `--title and --domain are bootstrap-only` | Remove those flags when re-ingesting an existing topic |
 | `no symbols matched "<query>"` | Use `inspect smells` or `inspect complexity` to discover valid names |
 | `no file matched "<path>"` | Use exact source-relative path from vault frontmatter (e.g. `src/config.ts` not `./src/config.ts`) |
+| `promote: target topic must use mode okf` | `--to` points at a wiki topic. Pass an existing `mode: okf` topic, or scaffold one with `kb topic new <slug> <title> <domain> --mode okf` |
+| `promote: --type is required` / `required flag(s) "to", "type" not set` | Pass both `--to <okf-topic>` and `--type <Type>` |
+| `promote: source document not found` | Use a vault-relative path to an existing wiki document, e.g. `<topic>/wiki/concepts/<Article>.md` |
+| `okf check: found N issue(s)` (non-zero exit) | Read the diagnostics rows; fix `severity=error` concepts (missing/empty `type`, bad frontmatter). Under `--strict`, warnings (missing producer fields, off-vocabulary types) also fail |
 
 ### KB Workflow Errors
 
@@ -516,7 +603,10 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Read `references/compilation-guide.md` before writing wiki articles
 - Run backlink audits after every article compile (Procedure 1, step 7)
 - File query answers to `outputs/queries/` (Procedure 3)
-- Append manual log entries for compile, query, promote, and split operations
+- Append manual log entries for compile, query, the wiki-internal query→wiki promotion, and split operations
+- Use an existing `mode: okf` topic (or scaffold one with `--mode okf`) as the `--to` target of `kb promote`
+- Pass both `--to` and `--type` to `kb promote`; keep `--type` within `[okf].types` to avoid type drift
+- Run `kb okf check` after promoting; use `--strict` in CI to enforce producer fields and the type vocabulary
 
 ### MUST NOT DO
 - Pass both `--lex` and `--vec` to `search`
@@ -527,3 +617,6 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Answer wiki queries from general knowledge -- the wiki is the source of truth
 - Skip the backlink audit when compiling articles
 - Batch-apply lint fixes without proposing diffs first
+- Promote into a wiki topic — `kb promote --to` must be a `mode: okf` topic
+- Hand-edit an OKF bundle's `index.md` (it is regenerated by `kb promote`) or use `[[wikilinks]]`/absolute links in OKF concepts (use relative markdown links)
+- Expect `kb promote` to rewrite or condense prose — it is mechanical and non-LLM; do any intelligent distillation yourself or with an external agent

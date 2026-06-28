@@ -102,6 +102,16 @@ const (
 	DocIndex DocumentKind = "index"
 )
 
+// TopicMode identifies the lifecycle and file contract for a topic.
+type TopicMode string
+
+const (
+	// TopicModeWiki preserves the existing LLM-wiki topic lifecycle.
+	TopicModeWiki TopicMode = "wiki"
+	// TopicModeOKF uses the Open Knowledge Format bundle lifecycle.
+	TopicModeOKF TopicMode = "okf"
+)
+
 // ManagedArea identifies the managed subtree within a generated topic.
 type ManagedArea string
 
@@ -269,13 +279,14 @@ type RenderedDocument struct {
 
 // TopicMetadata captures the derived topic information for a vault render.
 type TopicMetadata struct {
-	RootPath  string `json:"rootPath"`
-	Title     string `json:"title"`
-	Slug      string `json:"slug"`
-	Domain    string `json:"domain"`
-	Today     string `json:"today"`
-	VaultPath string `json:"vaultPath"`
-	TopicPath string `json:"topicPath"`
+	RootPath  string    `json:"rootPath"`
+	Title     string    `json:"title"`
+	Slug      string    `json:"slug"`
+	Domain    string    `json:"domain"`
+	Mode      TopicMode `json:"mode"`
+	Today     string    `json:"today"`
+	VaultPath string    `json:"vaultPath"`
+	TopicPath string    `json:"topicPath"`
 }
 
 // GenerateOptions configures a full knowledge-base generation run.

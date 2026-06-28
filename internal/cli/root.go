@@ -23,6 +23,8 @@ func newRootCommand() *cobra.Command {
 	bindRootPersistentFlags(command)
 	command.AddCommand(newTopicCommand())
 	command.AddCommand(newIngestCommand())
+	command.AddCommand(newPromoteCommand())
+	command.AddCommand(newOKFCommand())
 	command.AddCommand(newLintCommand())
 	command.AddCommand(newGenerateCommand())
 	command.AddCommand(newInspectCommand())

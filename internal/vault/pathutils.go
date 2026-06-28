@@ -4,6 +4,7 @@ package vault
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -249,6 +250,73 @@ func ToTopicWikiLink(topicSlug, documentPath, label string) string {
 	}
 
 	return fmt.Sprintf("[[%s]]", target)
+}
+
+// LinkFormatter renders a link from one topic-relative document to another.
+type LinkFormatter interface {
+	Link(fromDir, targetPath, label string) string
+}
+
+// WikiLinkFormatter renders Obsidian topic-scoped wikilinks.
+type WikiLinkFormatter struct {
+	Slug string
+}
+
+// Link renders a wikilink exactly like ToTopicWikiLink.
+func (f WikiLinkFormatter) Link(_, targetPath, label string) string {
+	return ToTopicWikiLink(f.Slug, targetPath, label)
+}
+
+// OKFLinkFormatter renders relative Markdown links for OKF bundles.
+type OKFLinkFormatter struct{}
+
+// Link renders a GitHub-safe relative Markdown link.
+func (OKFLinkFormatter) Link(fromDir, targetPath, label string) string {
+	cleanTarget := strings.TrimPrefix(ToPosixPath(strings.TrimSpace(targetPath)), "/")
+	displayLabel := strings.TrimSpace(label)
+	if displayLabel == "" {
+		displayLabel = HumanizeSlug(SlugifySegment(strings.TrimSuffix(path.Base(cleanTarget), ".md")))
+	}
+
+	fragment := ""
+	if hashIndex := strings.Index(cleanTarget, "#"); hashIndex >= 0 {
+		fragment = cleanTarget[hashIndex:]
+		cleanTarget = cleanTarget[:hashIndex]
+	}
+
+	cleanFromDir := strings.TrimPrefix(ToPosixPath(strings.TrimSpace(fromDir)), "/")
+	if cleanFromDir == "" {
+		cleanFromDir = "."
+	}
+
+	relativePath, err := filepath.Rel(filepath.FromSlash(cleanFromDir), filepath.FromSlash(cleanTarget))
+	if err != nil {
+		relativePath = cleanTarget
+	}
+	relativePath = ToPosixPath(relativePath)
+	if relativePath == "." || relativePath == "" {
+		relativePath = path.Base(cleanTarget)
+	}
+	relativePath = strings.TrimPrefix(relativePath, "./")
+	relativePath = markdownLinkTarget(relativePath + fragment)
+	return fmt.Sprintf("[%s](%s)", displayLabel, relativePath)
+}
+
+// LinkFormatterFor selects the formatter from the topic mode.
+func LinkFormatterFor(topic models.TopicMetadata) LinkFormatter {
+	if topic.Mode == models.TopicModeOKF {
+		return OKFLinkFormatter{}
+	}
+	return WikiLinkFormatter{Slug: topic.Slug}
+}
+
+func markdownLinkTarget(target string) string {
+	replacer := strings.NewReplacer(
+		" ", "%20",
+		"(", "%28",
+		")", "%29",
+	)
+	return replacer.Replace(target)
 }
 
 func stripWikiConceptFilePrefix(articleTitle string) string {

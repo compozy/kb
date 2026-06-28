@@ -63,9 +63,11 @@ make help                # mage target list
 
 | Command | Purpose |
 | --- | --- |
-| `kb topic new <slug> <title> <domain>` | Scaffold a new knowledge base topic |
+| `kb topic new <slug> <title> <domain>` | Scaffold a new knowledge base topic (`--mode wiki\|okf`) |
 | `kb topic list` | List scaffolded topics |
 | `kb topic info <slug>` | Show metadata for one topic |
+| `kb promote <wiki-doc> --to <okf-topic> --type <type>` | Promote a compiled wiki document into an OKF topic |
+| `kb okf check <topic>` | Check an OKF topic for bundle conformance |
 | `kb ingest url <url> --topic <slug>` | Scrape a web URL and ingest into a topic |
 | `kb ingest file <path> --topic <slug>` | Convert a local file and ingest into a topic |
 | `kb ingest youtube <url> --topic <slug>` | Extract a YouTube transcript and ingest into a topic |
@@ -88,7 +90,9 @@ make help                # mage target list
 
 ### Command Notes
 
-- `topic` subcommands share the root `--vault` flag for vault path resolution.
+- `topic` subcommands share the root `--vault` flag for vault path resolution; `topic new --mode okf` creates a root-level OKF bundle instead of the wiki/raw scaffold.
+- `promote` requires `--to <okf-topic>` and `--type <type>`; `--description` overrides the generated concept description.
+- `okf check` accepts `--strict` and `--format table|json|tsv`.
 - `ingest` subcommands require `--topic <slug>` to identify the target topic.
 - `ingest codebase` accepts `--include`, `--exclude`, `--semantic`, `--progress`, and `--log-format`.
 - `ingest youtube` accepts `--transcribe captions|auto|stt`; `yt-dlp` is required for YouTube metadata, captions, and audio extraction.
@@ -104,6 +108,7 @@ make help                # mage target list
 - `APP_CONFIG` overrides the config file path.
 - `.env` is loaded automatically when present.
 - `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the Firecrawl client for `ingest url`.
+- `[okf].types` configures the optional OKF type vocabulary used by `promote` and `okf check`.
 - `OPENAI_API_KEY`, `OPENAI_API_URL`, `STT_PROVIDER`, and `STT_MODEL` configure the default OpenAI STT provider for `ingest youtube --transcribe auto|stt`.
 - `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model` (TOML-only) configure the optional OpenRouter STT provider when `stt.provider = "openrouter"`.
 - Generation, inspect, search, and index behavior is configured by CLI flags rather than TOML keys.

@@ -10,13 +10,13 @@ Execute the review remediation workflow in a strict sequence. The review files a
 ## Required Inputs
 
 - The scoped issue files listed in `<batch_issue_files>`.
-- The PRD review round directory and `_meta.md`.
+- The PRD review round directory and issue-file frontmatter.
 - The repository verification workflow required by `cy-final-verify`.
 
 ## Workflow
 
 1. Gather round context.
-   - Read `_meta.md` from the review round directory to understand the provider, round number, and issue counts.
+   - Read the scoped issue file frontmatter to understand the provider, round number, and issue status/severity. If multiple issue files are in scope, verify their `provider`, `pr`, `round`, and `round_created_at` values agree.
    - Read `<batch_scope>` to identify the PRD name, review round, code files in scope, and conditional flags such as auto-commit.
 
 2. Read and triage the scoped issue files.
@@ -44,7 +44,7 @@ Execute the review remediation workflow in a strict sequence. The review files a
 
 ## Critical Rules
 
-- Do not fetch or export reviews inside this workflow. `fetch-reviews` already produced the round files.
+- Do not fetch or export reviews inside this workflow. `compozy reviews fetch` already produced the round files.
 - Do not call provider-specific scripts or `gh` mutations. Compozy resolves provider threads after the batch succeeds.
 - Do not modify issue files outside the scoped batch.
 - Do not mark an issue `resolved` before the underlying work and verification are actually complete.
