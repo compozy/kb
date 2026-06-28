@@ -446,9 +446,9 @@ func buildTopicClaudeManagedBlock(
 		"",
 		"### Generated codebase navigation",
 		"",
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 		"",
 		"### Generated codebase articles",
 		"",
@@ -457,7 +457,7 @@ func buildTopicClaudeManagedBlock(
 		lines = append(lines, "_None generated._")
 	} else {
 		for _, articleTitle := range conceptDocuments {
-			lines = append(lines, "- "+ToTopicWikiLink(topic.Slug, GetWikiConceptPath(articleTitle), articleTitle))
+			lines = append(lines, "- "+linkFor(topic, "", GetWikiConceptPath(articleTitle), articleTitle))
 		}
 	}
 	lines = append(lines, "", codebaseManagedBlockEnd)
@@ -472,9 +472,9 @@ func buildTopicIndexBridgeManagedBlock(topic models.TopicMetadata) string {
 		"",
 		"Latest `kb ingest codebase` output is published under `wiki/codebase/` so the top-level topic indexes can stay manually curated.",
 		"",
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
-		"- " + ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseDashboardTitle), CodebaseDashboardTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- " + linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 		"",
 		codebaseIndexBlockEnd,
 	}

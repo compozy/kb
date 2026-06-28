@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/models"
 )
 
 func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {
@@ -34,6 +35,9 @@ func TestNewCreatesTopicSkeletonAndTemplates(t *testing.T) {
 	}
 	if info.Domain != "rust" {
 		t.Fatalf("domain = %q, want rust", info.Domain)
+	}
+	if info.Mode != models.TopicModeWiki {
+		t.Fatalf("mode = %q, want wiki", info.Mode)
 	}
 	if info.ArticleCount != 0 {
 		t.Fatalf("article count = %d, want 0", info.ArticleCount)
@@ -156,6 +160,7 @@ func TestNewCreatesCategorizedTopic(t *testing.T) {
 		"slug: asimov-academy",
 		"title: Asimov Academy",
 		"domain: youtube-channel",
+		"mode: wiki",
 		"category: yt-channels",
 		"path: yt-channels/asimov-academy",
 		"qmd_collection: asimov-academy",
@@ -207,6 +212,7 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 		"slug: distributed-systems",
 		"title: Distributed Systems",
 		"domain: distributed",
+		"mode: wiki",
 	} {
 		if !strings.Contains(metadataContent, fragment) {
 			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
@@ -224,6 +230,83 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 	}
 	if target != "CLAUDE.md" {
 		t.Fatalf("AGENTS.md target = %q, want CLAUDE.md", target)
+	}
+}
+
+func TestNewWithModeCreatesOKFTopicSkeleton(t *testing.T) {
+	t.Parallel()
+
+	vaultPath := t.TempDir()
+
+	info, err := newWithDateWithMode(
+		vaultPath,
+		"ops-catalog",
+		"Operations Catalog",
+		"operations",
+		models.TopicModeOKF,
+		time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("newWithDateWithMode returned error: %v", err)
+	}
+	if info.Mode != models.TopicModeOKF {
+		t.Fatalf("mode = %q, want okf", info.Mode)
+	}
+	if info.ArticleCount != 0 || info.SourceCount != 0 {
+		t.Fatalf("counts = articles %d sources %d, want 0/0", info.ArticleCount, info.SourceCount)
+	}
+	if info.LastLogEntry != "## 2026-06-27" {
+		t.Fatalf("last log entry = %q, want OKF date heading", info.LastLogEntry)
+	}
+
+	topicPath := filepath.Join(vaultPath, "ops-catalog")
+	for _, relativePath := range []string{"CLAUDE.md", "AGENTS.md", "index.md", "log.md", "topic.yaml"} {
+		assertFileExists(t, filepath.Join(topicPath, filepath.FromSlash(relativePath)))
+	}
+	for _, relativePath := range []string{"raw", "wiki", "outputs", "bases"} {
+		if _, err := os.Stat(filepath.Join(topicPath, relativePath)); !os.IsNotExist(err) {
+			t.Fatalf("OKF scaffold should not create %s", relativePath)
+		}
+	}
+
+	metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+	for _, fragment := range []string{
+		"slug: ops-catalog",
+		"title: Operations Catalog",
+		"domain: operations",
+		"mode: okf",
+	} {
+		if !strings.Contains(metadataContent, fragment) {
+			t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+		}
+	}
+
+	indexValues, indexBody := parseFrontmatterFile(t, filepath.Join(topicPath, "index.md"))
+	if got := indexValues["okf_version"]; got != "0.1" {
+		t.Fatalf("index okf_version = %#v, want 0.1", got)
+	}
+	if !strings.Contains(indexBody, "# OKF Bundle Index") {
+		t.Fatalf("index body missing heading:\n%s", indexBody)
+	}
+	logContent := readFile(t, filepath.Join(topicPath, "log.md"))
+	if !strings.Contains(logContent, "## 2026-06-27") || strings.Contains(logContent, "## [2026-06-27]") {
+		t.Fatalf("log.md does not use OKF date heading:\n%s", logContent)
+	}
+}
+
+func TestReadTopicMetadataDefaultsMissingModeToWiki(t *testing.T) {
+	t.Parallel()
+
+	topicPath := t.TempDir()
+	writeFile(t, filepath.Join(topicPath, "topic.yaml"), "slug: old-topic\ntitle: Old Topic\ndomain: legacy\n")
+	writeFile(t, filepath.Join(topicPath, "CLAUDE.md"), "# Old Topic\n\n**Domain:** `legacy`\n")
+
+	info, err := infoAtPath(topicPath, "old-topic")
+	if err != nil {
+		t.Fatalf("infoAtPath returned error: %v", err)
+	}
+	if info.Mode != models.TopicModeWiki {
+		t.Fatalf("mode = %q, want wiki", info.Mode)
 	}
 }
 

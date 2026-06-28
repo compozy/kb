@@ -15,8 +15,9 @@ Key characteristics:
 
 - **Agent-agnostic.** Supports claude, codex, copilot, cursor-agent, droid, gemini, opencode, and pi as ACP runtimes.
 - **Skills-based.** Bundled skills (installed via `compozy setup`) teach agents how to execute each workflow phase.
-- **Artifact-driven.** All workflow state lives in markdown files under `.compozy/tasks/<slug>/`, versioned alongside the codebase.
-- **Single binary, local-first.** No sidecars, no external control planes.
+- **Artifact-driven.** Planning and review artifacts live as markdown under `.compozy/tasks/<slug>/`, versioned alongside the codebase.
+- **Daemon-backed runtime.** A home-scoped daemon owns run state, workspace registration, snapshots, streams, and the synced `global.db` catalog under `~/.compozy/`.
+- **Single binary, local-first.** The daemon is launched from the same binary; there are no external control planes.
 
 ## Workflow Pipeline Overview
 
@@ -26,10 +27,10 @@ The standard development pipeline follows these phases in order. Each phase prod
 2. **Ideation** (optional) -- install and enable the first-party `cy-idea-factory` extension, run `compozy setup`, then use `/cy-idea-factory` to expand a raw idea into a structured, research-backed spec at `.compozy/tasks/<slug>/_idea.md`.
 3. **Requirements** -- `/cy-create-prd` creates a business-focused Product Requirements Document at `.compozy/tasks/<slug>/_prd.md` with ADRs.
 4. **Technical Design** -- `/cy-create-techspec` translates the PRD into a technical specification at `.compozy/tasks/<slug>/_techspec.md` with ADRs.
-5. **Task Decomposition** -- `/cy-create-tasks` breaks down the PRD and TechSpec into independently implementable task files (`task_01.md`, `task_02.md`, etc.) and a master list at `_tasks.md`.
-6. **Execution** -- `compozy start --name <slug> --ide <runtime>` dispatches task files sequentially to the configured AI agent for implementation.
-7. **Review** -- `/cy-review-round` (manual AI review) or `compozy fetch-reviews --provider coderabbit --pr <N>` (external provider) produces review issue files under `reviews-NNN/`.
-8. **Remediation** -- `compozy fix-reviews --name <slug>` processes review issues, triages, fixes, and verifies each one.
+5. **Task Decomposition** -- `/cy-create-tasks` breaks down the PRD and TechSpec into independently implementable task files (`task_01.md`, `task_02.md`, etc.) and a canonical task graph manifest at `_tasks.md`.
+6. **Execution** -- `compozy tasks run <slug> --ide <runtime>` dispatches task files to the configured AI agent for implementation. Use `--parallel-tasks` to run one workflow by dependency waves from `_tasks.md` graph edges.
+7. **Review** -- `/cy-review-round` (manual AI review) or `compozy reviews fetch <slug> --provider coderabbit --pr <N>` (external provider) produces review issue files under `reviews-NNN/`.
+8. **Remediation** -- `compozy reviews fix <slug>` processes review issues, triages, fixes, and verifies each one.
 9. **Archive** -- `compozy archive --name <slug>` moves fully completed workflows to `.compozy/tasks/_archived/`.
 
 Repeat phases 7-8 until the review is clean, then merge.
@@ -41,9 +42,9 @@ digraph compozy_pipeline {
     "/cy-create-prd" [shape=box];
     "/cy-create-techspec" [shape=box];
     "/cy-create-tasks" [shape=box];
-    "compozy start" [shape=box];
+    "compozy tasks run" [shape=box];
     "Review (manual or provider)" [shape=box];
-    "compozy fix-reviews" [shape=box];
+    "compozy reviews fix" [shape=box];
     "Reviews clean?" [shape=diamond];
     "compozy archive" [shape=doublecircle];
 
@@ -51,10 +52,10 @@ digraph compozy_pipeline {
     "/cy-idea-factory (optional)" -> "/cy-create-prd";
     "/cy-create-prd" -> "/cy-create-techspec";
     "/cy-create-techspec" -> "/cy-create-tasks";
-    "/cy-create-tasks" -> "compozy start";
-    "compozy start" -> "Review (manual or provider)";
-    "Review (manual or provider)" -> "compozy fix-reviews";
-    "compozy fix-reviews" -> "Reviews clean?";
+    "/cy-create-tasks" -> "compozy tasks run";
+    "compozy tasks run" -> "Review (manual or provider)";
+    "Review (manual or provider)" -> "compozy reviews fix";
+    "compozy reviews fix" -> "Reviews clean?";
     "Reviews clean?" -> "Review (manual or provider)" [label="no"];
     "Reviews clean?" -> "compozy archive" [label="yes"];
 }
@@ -70,15 +71,18 @@ For a detailed step-by-step walkthrough of each phase, read `references/workflow
 | `compozy setup` | Install core skills and enabled extension assets | `--agent`, `--skill`, `--global`, `--copy`, `--list`, `--all`, `--yes` |
 | `compozy upgrade` | Update CLI to latest release | |
 | **Workflow Execution** | | |
-| `compozy start` | Execute PRD task files sequentially | `--name`, `--ide`, `--model`, `--auto-commit`, `--dry-run` |
+| `compozy daemon` | Manage the home-scoped daemon lifecycle | `start`, `status`, `stop` |
+| `compozy workspaces` | Inspect and manage daemon workspace registrations | `list`, `show`, `register`, `unregister`, `resolve` |
+| `compozy tasks run` | Execute PRD task files through the daemon | `--name`, `--multiple`, `--parallel`, `--parallel-limit`, `--parallel-tasks`, `--recursive` / `-r`, `--attach`, `--ui`, `--stream`, `--detach`, `--task-runtime` |
 | `compozy exec` | Execute an ad hoc prompt | `--agent`, `--format`, `--prompt-file`, `--tui`, `--persist`, `--run-id` |
+| `compozy runs` | Attach, watch, and purge daemon-managed runs | `attach`, `watch`, `purge` |
 | **Review** | | |
-| `compozy fetch-reviews` | Fetch provider review comments | `--provider`, `--pr`, `--name`, `--round` |
-| `compozy fix-reviews` | Process review issue files | `--name`, `--round`, `--concurrent`, `--batch-size`, `--ide` |
+| `compozy reviews fetch` | Fetch provider review comments | `--provider`, `--pr`, `--name`, `--round` |
+| `compozy reviews fix` | Process review issue files | `--name`, `--round`, `--concurrent`, `--batch-size`, `--ide` |
 | **Utilities** | | |
-| `compozy validate-tasks` | Validate task file metadata | `--name`, `--tasks-dir`, `--format` |
-| `compozy sync` | Refresh task workflow metadata | `--name`, `--root-dir`, `--tasks-dir` |
-| `compozy archive` | Move completed workflows to archive | `--name`, `--root-dir`, `--tasks-dir` |
+| `compozy tasks validate` | Validate task file metadata | `--name`, `--tasks-dir`, `--format` |
+| `compozy sync` | Reconcile workflow artifacts into daemon `global.db` | `--name`, `--root-dir`, `--tasks-dir` |
+| `compozy archive` | Move daemon-eligible completed workflows to archive | `--name`, `--root-dir`, `--tasks-dir` |
 | `compozy migrate` | Convert legacy artifacts to frontmatter | `--name`, `--dry-run`, `--reviews-dir` |
 | **Agent Management** | | |
 | `compozy agents list` | List resolved reusable agents | |
@@ -91,7 +95,7 @@ For a detailed step-by-step walkthrough of each phase, read `references/workflow
 | `compozy ext enable/disable` | Toggle extension | `<name>` |
 | `compozy ext doctor` | Diagnose extension issues | |
 
-Common flags shared by `start`, `exec`, and `fix-reviews`: `--ide`, `--model`, `--reasoning-effort`, `--add-dir`, `--auto-commit`, `--dry-run`.
+Common flags shared by `tasks run`, `exec`, and `reviews fix`: `--ide`, `--model`, `--reasoning-effort`, `--add-dir`, `--auto-commit`, `--dry-run`.
 
 For complete flag documentation, read `references/cli-reference.md`.
 
@@ -102,9 +106,9 @@ For complete flag documentation, read `references/cli-reference.md`.
 | `cy-create-prd` | `/cy-create-prd` | Building a Product Requirements Document | TechSpec, task breakdown, coding |
 | `cy-create-techspec` | `/cy-create-techspec` | Translating PRD into technical design | PRD creation, task execution |
 | `cy-create-tasks` | `/cy-create-tasks` | Decomposing PRD+TechSpec into task files | Execution, review |
-| `cy-execute-task` | (internal) | Executing a single PRD task (called by `compozy start`) | Direct invocation, review work |
+| `cy-execute-task` | (internal) | Executing a single PRD task (called by `compozy tasks run`) | Direct invocation, review work |
 | `cy-review-round` | `/cy-review-round` | Performing comprehensive code review | Fetching external reviews, fixing |
-| `cy-fix-reviews` | (internal) | Remediating review issues (called by `compozy fix-reviews`) | Fetching reviews, task execution |
+| `cy-fix-reviews` | (internal) | Remediating review issues (called by `compozy reviews fix`) | Fetching reviews, task execution |
 | `cy-final-verify` | `/cy-final-verify` | Enforcing verification before completion claims | Early planning, brainstorming |
 | `cy-workflow-memory` | (internal) | Maintaining cross-task workflow memory | PR reviews, user preferences |
 | `compozy` | `/compozy` | Learning how to use Compozy | Executing workflow steps |
@@ -127,21 +131,17 @@ For detailed skill descriptions and inputs/outputs, read `references/skills-refe
       _idea.md                         # Idea spec (from cy-idea-factory)
       _prd.md                          # Product Requirements Document
       _techspec.md                     # Technical Specification
-      _tasks.md                        # Master task list
-      _meta.md                         # Workflow metadata
+      _tasks.md                        # Task graph manifest
       task_01.md ... task_N.md         # Individual task files
       adrs/
         adr-001.md ... adr-NNN.md      # Architecture Decision Records
       reviews-NNN/
-        _meta.md                       # Review round metadata
-        issue_001.md ... issue_N.md    # Review issue files
+        issue_001.md ... issue_N.md    # Review issues with round metadata in frontmatter
       memory/
         MEMORY.md                      # Shared workflow memory
         task_01.md ... task_N.md       # Per-task memory
     _archived/
       <timestamp>-<slug>/             # Archived completed workflows
-  runs/
-    <run-id>/                          # Persisted exec session artifacts
   agents/
     <name>/                            # Workspace-scoped reusable agents
       AGENT.md                         # Agent definition
@@ -152,6 +152,8 @@ For detailed skill descriptions and inputs/outputs, read `references/skills-refe
 Global paths:
 - `~/.compozy/agents/<name>/` -- global reusable agents (workspace overrides global)
 - `~/.compozy/extensions/` -- user-scoped extensions
+- `~/.compozy/runs/<run-id>/` -- daemon-managed run artifacts and persisted exec sessions
+- `~/.compozy/global.db` -- daemon workspace, workflow, task, and review catalog
 
 ## Configuration
 
@@ -165,11 +167,12 @@ auto_commit = true
 reasoning_effort = "high"
 add_dirs = ["../shared-lib"]
 
-[start]
-include_completed = false
-
 [tasks]
 types = ["frontend", "backend", "docs", "test", "infra", "refactor", "chore", "bugfix"]
+
+[tasks.run]
+include_completed = false
+recursive = false
 
 [fix_reviews]
 concurrent = 2
@@ -227,18 +230,18 @@ Management: `compozy ext list`, `compozy ext inspect <name>`, `compozy ext insta
 ## Common Patterns
 
 - Run `compozy setup` before starting any workflow to ensure core skills and enabled extension assets are installed.
-- Follow the pipeline in order: idea (optional) -> PRD -> TechSpec -> Tasks -> Start -> Review -> Fix.
+- Follow the pipeline in order: idea (optional) -> PRD -> TechSpec -> Tasks -> Execution -> Review -> Fix.
 - Configure workspace defaults in `.compozy/config.toml` to reduce repetitive CLI flags.
-- Run `compozy validate-tasks --name <slug>` before `compozy start` to catch metadata issues early.
+- Run `compozy tasks validate --name <slug>` before `compozy tasks run` to catch metadata issues early.
 - Use `compozy archive` to clean up fully completed workflows and keep the tasks directory focused.
 - Use `compozy exec --agent <name>` for ad hoc prompts with a specific advisor perspective.
 - Use `compozy exec --persist` to save session artifacts for later resumption with `--run-id`.
 
 ## Anti-Patterns
 
-- **Skipping pipeline stages.** Running `compozy start` without a PRD and task files produces poor results.
-- **Invoking `cy-execute-task` directly.** Use `compozy start`, which handles dispatch, sequencing, memory, and tracking.
+- **Skipping pipeline stages.** Running `compozy tasks run` without a PRD and task files produces poor results.
+- **Invoking `cy-execute-task` directly.** Use `compozy tasks run`, which handles dispatch, sequencing, memory, and tracking.
 - **Mixing workflow skills out of order.** Running `/cy-create-tasks` without a PRD and TechSpec leads to shallow task decomposition.
-- **Editing task file frontmatter manually.** Use `compozy migrate` or `compozy validate-tasks` to fix metadata issues programmatically.
-- **Confusing skills with CLI commands.** Skills (slash commands like `/cy-create-prd`) run inside an agent session. CLI commands (`compozy start`) run in the terminal.
+- **Editing task file frontmatter manually.** Use `compozy migrate` or `compozy tasks validate` to fix metadata issues programmatically.
+- **Confusing skills with CLI commands.** Skills (slash commands like `/cy-create-prd`) run inside an agent session. CLI commands (`compozy tasks run`) run in the terminal.
 - **Skipping verification.** Always use `cy-final-verify` before claiming task completion or creating commits.

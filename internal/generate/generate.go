@@ -453,6 +453,7 @@ func (r runner) createTopicMetadata(target generationTarget, opts models.Generat
 		Title:     title,
 		Slug:      target.TopicSlug,
 		Domain:    vault.DeriveTopicDomain(domainSource),
+		Mode:      models.TopicModeWiki,
 		Today:     r.now().Format("2006-01-02"),
 		VaultPath: target.VaultPath,
 		TopicPath: filepath.Join(target.VaultPath, target.TopicSlug),

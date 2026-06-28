@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,7 @@ import (
 )
 
 var runTopicNew = ktopic.New
+var runTopicNewWithMode = ktopic.NewWithMode
 var runTopicList = ktopic.List
 var runTopicInfo = ktopic.Info
 var topicGetwd = os.Getwd
@@ -37,7 +39,8 @@ func newTopicCommand() *cobra.Command {
 }
 
 func newTopicNewCommand() *cobra.Command {
-	return &cobra.Command{
+	var mode string
+	command := &cobra.Command{
 		Use:   "new <slug> <title> <domain>",
 		Short: "Scaffold a new knowledge base topic",
 		Args:  cobra.ExactArgs(3),
@@ -47,7 +50,16 @@ func newTopicNewCommand() *cobra.Command {
 				return err
 			}
 
-			info, err := runTopicNew(vaultPath, args[0], args[1], args[2])
+			topicMode, err := parseTopicMode(mode)
+			if err != nil {
+				return err
+			}
+			var info models.TopicInfo
+			if topicMode == models.TopicModeWiki {
+				info, err = runTopicNew(vaultPath, args[0], args[1], args[2])
+			} else {
+				info, err = runTopicNewWithMode(vaultPath, args[0], args[1], args[2], topicMode)
+			}
 			if err != nil {
 				return err
 			}
@@ -55,6 +67,8 @@ func newTopicNewCommand() *cobra.Command {
 			return writeTopicInfoJSON(cmd, info)
 		},
 	}
+	command.Flags().StringVar(&mode, "mode", string(models.TopicModeWiki), "Topic mode (wiki|okf)")
+	return command
 }
 
 func newTopicListCommand() *cobra.Command {
@@ -95,6 +109,17 @@ func newTopicListCommand() *cobra.Command {
 
 			return nil
 		},
+	}
+}
+
+func parseTopicMode(value string) (models.TopicMode, error) {
+	switch strings.TrimSpace(value) {
+	case "", string(models.TopicModeWiki):
+		return models.TopicModeWiki, nil
+	case string(models.TopicModeOKF):
+		return models.TopicModeOKF, nil
+	default:
+		return "", fmt.Errorf(`invalid --mode %q: expected "wiki" or "okf"`, value)
 	}
 }
 

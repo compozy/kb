@@ -47,6 +47,7 @@ type Config struct {
 	App        AppConfig        `toml:"app"`
 	Log        LogConfig        `toml:"log"`
 	Vault      VaultConfig      `toml:"vault"`
+	OKF        OKFConfig        `toml:"okf"`
 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
 	OpenRouter OpenRouterConfig `toml:"openrouter"`
 	STT        STTConfig        `toml:"stt"`
@@ -69,6 +70,11 @@ type LogConfig struct {
 type VaultConfig struct {
 	Root       string   `toml:"root"`
 	TopicGlobs []string `toml:"topic_globs"`
+}
+
+// OKFConfig controls local Open Knowledge Format producer standards.
+type OKFConfig struct {
+	Types []string `toml:"types"`
 }
 
 // FirecrawlConfig controls URL scraping API access.
@@ -211,6 +217,7 @@ func (c *Config) applyDefaults() {
 	if len(c.Vault.TopicGlobs) == 0 {
 		c.Vault.TopicGlobs = []string{defaultTopicGlob}
 	}
+	c.OKF.Types = normalizeConfigStringList(c.OKF.Types)
 	if strings.TrimSpace(c.YouTube.YTDLPPath) == "" {
 		c.YouTube.YTDLPPath = defaultYouTubeYTDLPPath
 	}

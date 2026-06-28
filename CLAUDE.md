@@ -78,7 +78,9 @@ make help
 
 ## CLI Surface
 
-- `kb topic {new,list,info}`
+- `kb topic {new,list,info}` (`topic new --mode wiki|okf`)
+- `kb promote <wiki-doc> --to <okf-topic> --type <type>`
+- `kb okf check <topic>`
 - `kb ingest {url,file,youtube,channel,instagram,codebase,bookmarks}`
 - `kb lint [<slug>]`
 - `kb inspect {smells|dead-code|complexity|blast-radius|coupling|symbol|file|backlinks|deps|circular-deps}`
@@ -89,7 +91,7 @@ make help
 
 ## Runtime Config Notes
 
-- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[log]`, `[vault]`, `[firecrawl]`, `[openrouter]`, `[stt]`, `[youtube]`, and `[instagram]`.
+- `config.example.toml` documents every TOML section currently accepted by `internal/config`: `[app]`, `[log]`, `[vault]`, `[firecrawl]`, `[openrouter]`, `[stt]`, `[youtube]`, `[instagram]`, and `[okf]`.
 - `APP_CONFIG` selects the TOML file path.
 - `kb ingest youtube` requires `yt-dlp` for metadata, captions, and audio extraction. `[youtube].yt_dlp_path`, `[youtube].proxy`, `[youtube].cookies_file`, `[youtube].user_agent`, `[youtube].retry_attempts`, `[youtube].retry_backoff`, and `[youtube].transcription` configure that path.
 - YouTube transcription policy is `captions|auto|stt`: `captions` uses YouTube captions only, `auto` uses manual captions when present and STT when only automatic captions or no captions are available, and `stt` forces audio transcription.
@@ -97,6 +99,7 @@ make help
 - OpenAI is the default STT provider through `/v1/audio/transcriptions`. Configure it with `[stt]` plus `OPENAI_API_KEY`, `OPENAI_API_URL`, `STT_PROVIDER`, and `STT_MODEL`.
 - OpenRouter is an optional STT provider when `stt.provider = "openrouter"`; configure it with `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model`.
 - Long STT audio is segmented with `ffmpeg`; keep `[stt].ffmpeg_path`, `[stt].chunk_duration`, `[stt].max_chunk_bytes`, and `[stt].concurrency` aligned with provider upload limits.
+- `[okf].types` configures the optional OKF type vocabulary used by `kb promote` and `kb okf check`.
 
 ## Testing Conventions
 

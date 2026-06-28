@@ -1,0 +1,60 @@
+ M .agents/skills/compozy/SKILL.md
+ M .agents/skills/compozy/references/cli-reference.md
+ M .agents/skills/compozy/references/config-reference.md
+ M .agents/skills/compozy/references/skills-reference.md
+ M .agents/skills/compozy/references/workflow-guide.md
+ M .agents/skills/cy-create-prd/SKILL.md
+ M .agents/skills/cy-create-prd/references/question-protocol.md
+ M .agents/skills/cy-create-tasks/SKILL.md
+ M .agents/skills/cy-create-tasks/references/task-context-schema.md
+ M .agents/skills/cy-create-tasks/references/task-template.md
+ M .agents/skills/cy-create-techspec/SKILL.md
+ M .agents/skills/cy-execute-task/SKILL.md
+ M .agents/skills/cy-execute-task/references/tracking-checklist.md
+ M .agents/skills/cy-fix-reviews/SKILL.md
+ D .agents/skills/cy-idea-factory/SKILL.md
+ D .agents/skills/cy-idea-factory/references/adr-template.md
+ D .agents/skills/cy-idea-factory/references/business-analyst.md
+ D .agents/skills/cy-idea-factory/references/council.md
+ D .agents/skills/cy-idea-factory/references/idea-template.md
+ D .agents/skills/cy-idea-factory/references/product-strategist.md
+ D .agents/skills/cy-idea-factory/references/question-protocol.md
+ M .agents/skills/cy-review-round/SKILL.md
+ M .agents/skills/git-rebase/SKILL.md
+ D .agents/skills/git-rebase/references/automation.md
+ D .agents/skills/git-rebase/references/resolution-patterns.md
+ D .agents/skills/git-rebase/references/scripts-tools.md
+ D .agents/skills/git-rebase/references/strategies.md
+ D .agents/skills/git-rebase/references/troubleshooting.md
+ D .agents/skills/git-rebase/scripts/analyze-conflicts.sh
+ D .agents/skills/git-rebase/scripts/pre-rebase-backup.sh
+ D .agents/skills/git-rebase/scripts/validate-merge.sh
+ M AGENTS.md
+ M CLAUDE.md
+ M README.md
+ M config.example.toml
+ M internal/cli/root.go
+ M internal/cli/topic.go
+ M internal/cli/topic_test.go
+ M internal/config/config.go
+ M internal/config/config_test.go
+ M internal/generate/generate.go
+ M internal/models/kb_models.go
+ M internal/models/models.go
+ M internal/topic/topic.go
+ M internal/topic/topic_test.go
+ M internal/vault/pathutils.go
+ M internal/vault/pathutils_test.go
+ M internal/vault/render.go
+ M internal/vault/render_test.go
+ M internal/vault/render_wiki.go
+ M internal/vault/writer.go
+?? .claude/ledger/2026-06-27-MEMORY-okf-dual-mode-prd.md
+?? .codex/plans/20260627-220335-okf-dual-mode.md
+?? .compozy/tasks/okf-dual-mode/
+?? internal/cli/okf.go
+?? internal/cli/okf_integration_test.go
+?? internal/cli/okf_test.go
+?? internal/cli/promote.go
+?? internal/okf/
+?? internal/topic/assets/okf-claude-template.md

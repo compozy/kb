@@ -4,12 +4,12 @@ Complete reference for all Compozy CLI commands, flags, and usage examples.
 
 ## Common Flags
 
-These flags are shared by `start`, `exec`, and `fix-reviews`:
+These flags are shared by `tasks run`, `exec`, and `reviews fix`:
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--ide` | string | `codex` | ACP runtime: claude, codex, copilot, cursor-agent, droid, gemini, opencode, pi |
-| `--model` | string | per-IDE | Model override (codex/droid=gpt-5.4, claude=opus, copilot=claude-sonnet-4.6, cursor-agent=composer-1, opencode/pi=anthropic/claude-opus-4-6, gemini=gemini-2.5-pro) |
+| `--model` | string | per-IDE | Model override (codex/droid=gpt-5.5, claude=opus, copilot=claude-sonnet-4.6, cursor-agent=composer-1, opencode/pi=anthropic/claude-opus-4-6, gemini=gemini-2.5-pro) |
 | `--reasoning-effort` | string | | Reasoning effort: low, medium, high, xhigh |
 | `--add-dir` | string[] | | Additional directories for ACP runtimes (claude and codex only; repeatable or comma-separated) |
 | `--auto-commit` | bool | false | Include automatic commit instructions at task/batch completion |
@@ -49,23 +49,35 @@ Update the Compozy CLI to the latest release. No flags.
 
 ## Workflow Execution
 
-### `compozy start`
+### `compozy tasks run`
 
-Execute PRD task files sequentially from a workflow directory.
+Execute PRD task files from a workflow directory through the shared daemon. By default one workflow runs sequentially; `--parallel-tasks` runs a single workflow by dependency waves from `_tasks.md` graph edges.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--name` | string | | Task workflow name (resolves to `.compozy/tasks/<name>`) |
-| `--tasks-dir` | string | | Path to tasks directory (overrides `--name`) |
+| `--multiple` | string | | Comma-separated task workflow slugs to run through one daemon-owned parent queue |
+| `--parallel` | bool | false | With `--multiple`, run child workflows concurrently instead of as an ordered queue |
+| `--parallel-limit` | int | 2 | With `--multiple --parallel`, maximum child workflows running at once |
+| `--parallel-tasks` | bool | false | Run one workflow by dependency waves from `_tasks.md` graph edges |
 | `--include-completed` | bool | false | Include tasks already marked as completed |
+| `--recursive`, `-r` | bool | false | Discover `task_NNN.md` files in nested subdirectories of the workflow root |
 | `--skip-validation` | bool | false | Skip task metadata preflight check |
 | `--force` | bool | false | Continue after validation fails in non-interactive mode |
+| `--attach` | string | auto | Attach mode: auto, ui, stream, detach |
+| `--ui` | bool | false | Force interactive TUI attach mode |
+| `--stream` | bool | false | Force textual stream attach mode |
+| `--detach` | bool | false | Start the run without attaching a client |
+| `--task-runtime` | string[] | | Per-task runtime override rules |
 | + common flags | | | `--ide`, `--model`, `--reasoning-effort`, `--add-dir`, `--auto-commit`, `--dry-run` |
 
 ```
-compozy start --name multi-repo --ide claude
-compozy start --tasks-dir .compozy/tasks/multi-repo --ide codex --auto-commit
-compozy start
+compozy tasks run multi-repo --ide claude
+compozy tasks run --name multi-repo --ide codex --auto-commit
+compozy tasks run --multiple alpha,beta --stream
+compozy tasks run --multiple alpha,beta --parallel --parallel-limit 2
+compozy tasks run multi-repo --parallel-tasks
+compozy tasks run multi-repo --stream
 ```
 
 ### `compozy exec [prompt]`
@@ -79,7 +91,7 @@ Execute a single ad hoc prompt through the ACP runtime. Provide prompt as argume
 | `--format` | string | text | Output format: text, json, raw-json |
 | `--verbose` | bool | false | Emit operational runtime logs to stderr |
 | `--tui` | bool | false | Open the interactive TUI |
-| `--persist` | bool | false | Save artifacts under `.compozy/runs/<run-id>/` |
+| `--persist` | bool | false | Save artifacts under `~/.compozy/runs/<run-id>/` |
 | `--extensions` | bool | false | Enable executable extensions for this run |
 | `--run-id` | string | | Resume a previously persisted session |
 | + common flags | | | `--ide`, `--model`, `--reasoning-effort`, `--add-dir`, `--auto-commit`, `--dry-run` |
@@ -97,7 +109,7 @@ compozy exec --run-id exec-20260405-120000-000000000 "Continue"
 
 ## Review
 
-### `compozy fetch-reviews`
+### `compozy reviews fetch`
 
 Fetch review comments from a provider and write them into `.compozy/tasks/<name>/reviews-NNN/`.
 
@@ -105,44 +117,50 @@ Fetch review comments from a provider and write them into `.compozy/tasks/<name>
 | --- | --- | --- | --- |
 | `--provider` | string | | Review provider name (e.g., coderabbit) |
 | `--pr` | string | | Pull request number |
+| `[slug]` | string | | Workflow name (positional) |
 | `--name` | string | | Workflow name |
 | `--round` | int | next | Review round number (default: next available) |
 
 ```
-compozy fetch-reviews --provider coderabbit --pr 259 --name my-feature
-compozy fetch-reviews --provider coderabbit --pr 259 --name my-feature --round 2
-compozy fetch-reviews
+compozy reviews fetch my-feature --provider coderabbit --pr 259
+compozy reviews fetch --name my-feature --provider coderabbit --pr 259 --round 2
+compozy reviews fetch --name my-feature
 ```
 
-By default, `fetch-reviews` imports CodeRabbit review-body comments for `nitpick`, `minor`, and `major`.
+By default, `reviews fetch` imports CodeRabbit review-body comments for `nitpick`, `minor`, and `major`.
 Use `[fetch_reviews].nitpicks = false` in `.compozy/config.toml` to disable that import.
 
-### `compozy fix-reviews`
+### `compozy reviews fix`
 
 Process review issue files and dispatch agents to remediate feedback.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
+| `[slug]` | string | | Workflow name (positional) |
 | `--name` | string | | Workflow name |
 | `--round` | int | latest | Review round number (default: latest existing) |
 | `--reviews-dir` | string | | Path to a review round directory |
 | `--batch-size` | int | 1 | Number of file groups per batch |
 | `--include-resolved` | bool | false | Include already-resolved issues |
 | `--concurrent` | int | 1 | Number of batches to process in parallel |
+| `--attach` | string | auto | Attach mode: auto, ui, stream, detach |
+| `--ui` | bool | false | Force interactive TUI attach mode |
+| `--stream` | bool | false | Force textual stream attach mode |
+| `--detach` | bool | false | Start the run without attaching a client |
 | + common flags | | | `--ide`, `--model`, `--reasoning-effort`, `--add-dir`, `--auto-commit`, `--dry-run` |
 
 ```
-compozy fix-reviews --name my-feature --ide codex --concurrent 2 --batch-size 3
-compozy fix-reviews --name my-feature --round 2
-compozy fix-reviews --reviews-dir .compozy/tasks/my-feature/reviews-001
-compozy fix-reviews
+compozy reviews fix my-feature --ide codex --concurrent 2 --batch-size 3
+compozy reviews fix --name my-feature --round 2
+compozy reviews fix --reviews-dir .compozy/tasks/my-feature/reviews-001
+compozy reviews fix --name my-feature
 ```
 
 ---
 
 ## Utilities
 
-### `compozy validate-tasks`
+### `compozy tasks validate`
 
 Validate task file metadata before execution.
 
@@ -153,12 +171,12 @@ Validate task file metadata before execution.
 | `--format` | string | | Output format |
 
 ```
-compozy validate-tasks --name my-feature
+compozy tasks validate --name my-feature
 ```
 
 ### `compozy sync`
 
-Refresh task workflow `_meta.md` files under `.compozy/tasks/`.
+Reconcile authored workflow artifacts under `.compozy/tasks/` into the daemon `global.db` catalog.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -173,7 +191,7 @@ compozy sync --name my-feature
 
 ### `compozy archive`
 
-Move fully completed workflows to `.compozy/tasks/_archived/<timestamp>-<name>`.
+Move workflows that synced daemon state marks as complete to `.compozy/tasks/_archived/<timestamp>-<name>`.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |

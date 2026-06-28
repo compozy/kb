@@ -105,7 +105,7 @@ func renderDashboard(
 	for _, article := range articles {
 		lines = append(lines, fmt.Sprintf(
 			"- %s - %s",
-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath(article.Title), article.Title),
+			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
 			article.Summary,
 		))
 	}
@@ -113,8 +113,8 @@ func renderDashboard(
 	lines = append(lines,
 		"",
 		"## Navigation",
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
-		"- "+ToTopicWikiLink(topic.Slug, GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
+		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseConceptIndexTitle), CodebaseConceptIndexTitle),
+		"- "+linkFor(topic, "", GetWikiIndexPath(CodebaseSourceIndexTitle), CodebaseSourceIndexTitle),
 	)
 
 	return models.RenderedDocument{
@@ -144,7 +144,7 @@ func renderConceptIndex(
 	for _, article := range orderedArticles {
 		rows = append(rows, fmt.Sprintf(
 			"| %s | %s |",
-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath(article.Title), article.Title),
+			linkFor(topic, "", GetWikiConceptPath(article.Title), article.Title),
 			article.Summary,
 		))
 	}
@@ -191,7 +191,7 @@ func renderSourceIndex(topic models.TopicMetadata, articles []starterWikiArticle
 
 		links := make([]string, 0, len(titles))
 		for _, title := range titles {
-			links = append(links, ToTopicWikiLink(topic.Slug, GetWikiConceptPath(title), title))
+			links = append(links, linkFor(topic, "", GetWikiConceptPath(title), title))
 		}
 
 		rows = append(rows, fmt.Sprintf(
@@ -311,9 +311,9 @@ func createCodebaseOverviewArticle(
 		"",
 		fmt.Sprintf(
 			"Start with %s for coupling, %s for function-level complexity, and %s for likely cleanup candidates.",
-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
-			ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
+			linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
+			linkFor(topic, "", GetWikiConceptPath("Complexity Hotspots"), "Complexity Hotspots"),
+			linkFor(topic, "", GetWikiConceptPath("Dead Code Report"), "Dead Code Report"),
 		),
 		"",
 		"## Language Coverage",
@@ -392,8 +392,8 @@ func createDirectoryMapArticle(
 			"",
 			fmt.Sprintf(
 				"Cross-check unstable directories against %s and hotspots against %s.",
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
+				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
+				linkFor(topic, "", GetWikiConceptPath("Dependency Hotspots"), "Dependency Hotspots"),
 			),
 			"",
 			"## Sources and Further Reading",
@@ -458,8 +458,8 @@ func createSymbolTaxonomyArticle(
 			"",
 			fmt.Sprintf(
 				"Use %s to find bottlenecks and %s to locate function-level smells.",
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Code Smells"), "Code Smells"),
+				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+				linkFor(topic, "", GetWikiConceptPath("Code Smells"), "Code Smells"),
 			),
 			"",
 			"## Sources and Further Reading",
@@ -535,7 +535,7 @@ func createDependencyHotspotsArticle(
 			"",
 			fmt.Sprintf(
 				"A high relation count usually indicates a coordination layer, a shared utility, or an entry point. Cross-check these files against %s to distinguish stable modules from unstable ones.",
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("Module Health"), "Module Health"),
+				linkFor(topic, "", GetWikiConceptPath("Module Health"), "Module Health"),
 			),
 			"",
 			"## Sources and Further Reading",
@@ -613,7 +613,7 @@ func createComplexityHotspotsArticle(
 			"",
 			fmt.Sprintf(
 				"Compare these hotspots against %s to distinguish locally complex functions from high-blast-radius functions.",
-				ToTopicWikiLink(topic.Slug, GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
+				linkFor(topic, "", GetWikiConceptPath("High-Impact Symbols"), "High-Impact Symbols"),
 			),
 		}, "\n"),
 	}

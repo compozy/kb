@@ -23,6 +23,7 @@ const (
 	conceptIndexTemplatePath = "assets/concept-index-template.md"
 	dashboardTemplatePath    = "assets/dashboard-template.md"
 	logTemplatePath          = "assets/log-template.md"
+	okfClaudeTemplatePath    = "assets/okf-claude-template.md"
 	sourceIndexTemplatePath  = "assets/source-index-template.md"
 	topicMarkerFile          = "CLAUDE.md"
 	topicMetadataFileName    = "topic.yaml"
@@ -105,6 +106,7 @@ type topicMetadataFile struct {
 	Slug          string `yaml:"slug"`
 	Title         string `yaml:"title"`
 	Domain        string `yaml:"domain"`
+	Mode          string `yaml:"mode,omitempty"`
 	Category      string `yaml:"category,omitempty"`
 	Path          string `yaml:"path,omitempty"`
 	QMDCollection string `yaml:"qmd_collection,omitempty"`
@@ -112,7 +114,12 @@ type topicMetadataFile struct {
 
 // New scaffolds a new topic underneath the provided vault root.
 func New(vaultPath, slug, title, domain string) (models.TopicInfo, error) {
-	return newWithDate(vaultPath, slug, title, domain, time.Now())
+	return NewWithMode(vaultPath, slug, title, domain, models.TopicModeWiki)
+}
+
+// NewWithMode scaffolds a new topic with an explicit lifecycle mode.
+func NewWithMode(vaultPath, slug, title, domain string, mode models.TopicMode) (models.TopicInfo, error) {
+	return newWithDateWithMode(vaultPath, slug, title, domain, mode, time.Now())
 }
 
 // List returns the topics discovered under the provided vault root.
@@ -184,6 +191,10 @@ func Info(vaultPath, slug string) (models.TopicInfo, error) {
 }
 
 func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.TopicInfo, error) {
+	return newWithDateWithMode(vaultPath, slug, title, domain, models.TopicModeWiki, now)
+}
+
+func newWithDateWithMode(vaultPath, slug, title, domain string, mode models.TopicMode, now time.Time) (models.TopicInfo, error) {
 	cleanVaultPath, err := normalizeVaultPath(vaultPath)
 	if err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
@@ -195,6 +206,10 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 	}
 	cleanTitle := strings.TrimSpace(title)
 	cleanDomain := strings.TrimSpace(domain)
+	cleanMode, err := normalizeTopicMode(mode)
+	if err != nil {
+		return models.TopicInfo{}, fmt.Errorf("new topic: %w", err)
+	}
 
 	switch {
 	case cleanTitle == "":
@@ -214,7 +229,7 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 		return models.TopicInfo{}, fmt.Errorf("new topic: inspect topic path %q: %w", topicPath, err)
 	}
 
-	if err := createTopicSkeleton(topicPath); err != nil {
+	if err := createTopicSkeleton(topicPath, cleanMode); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: create topic skeleton: %w", err)
 	}
 
@@ -225,19 +240,26 @@ func newWithDate(vaultPath, slug, title, domain string, now time.Time) (models.T
 		Today:  now.Format(frontmatter.DateLayout),
 	}
 
-	if err := installTemplates(topicPath, context); err != nil {
+	if err := installTemplatesWithMode(topicPath, context, cleanMode); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: install templates: %w", err)
 	}
-	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain)); err != nil {
+	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain, cleanMode)); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: write topic metadata: %w", err)
 	}
 	if err := ensureAgentsSymlink(topicPath); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: ensure AGENTS.md symlink: %w", err)
 	}
-	if err := ensureGitkeeps(topicPath); err != nil {
-		return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
+	if cleanMode == models.TopicModeWiki {
+		if err := ensureGitkeeps(topicPath); err != nil {
+			return models.TopicInfo{}, fmt.Errorf("new topic: ensure gitkeep files: %w", err)
+		}
 	}
-	if err := appendScaffoldEntry(filepath.Join(topicPath, "log.md"), context); err != nil {
+	logPath := filepath.Join(topicPath, "log.md")
+	if cleanMode == models.TopicModeOKF {
+		if err := appendOKFScaffoldEntry(logPath, context); err != nil {
+			return models.TopicInfo{}, fmt.Errorf("new topic: append scaffold log entry: %w", err)
+		}
+	} else if err := appendScaffoldEntry(logPath, context); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: append scaffold log entry: %w", err)
 	}
 
@@ -412,7 +434,10 @@ func ensureDirectory(path string) error {
 	return nil
 }
 
-func createTopicSkeleton(topicPath string) error {
+func createTopicSkeleton(topicPath string, mode models.TopicMode) error {
+	if mode == models.TopicModeOKF {
+		return os.MkdirAll(topicPath, 0o755)
+	}
 	for _, relativePath := range currentTopicDirectories {
 		directoryPath := filepath.Join(topicPath, filepath.FromSlash(relativePath))
 		if err := os.MkdirAll(directoryPath, 0o755); err != nil {
@@ -430,7 +455,7 @@ func EnsureCurrentSkeleton(topicPath string) error {
 		return fmt.Errorf("topic path is required")
 	}
 
-	if err := createTopicSkeleton(topicPath); err != nil {
+	if err := createTopicSkeleton(topicPath, models.TopicModeWiki); err != nil {
 		return err
 	}
 	if err := ensureTopicLog(topicPath); err != nil {
@@ -485,7 +510,17 @@ func RenderSourceIndexTemplate(slug, title, domain, today string) (string, error
 }
 
 func installTemplates(topicPath string, context templateContext) error {
-	for _, file := range topicTemplates {
+	return installTemplatesWithMode(topicPath, context, models.TopicModeWiki)
+}
+
+func installTemplatesWithMode(topicPath string, context templateContext, mode models.TopicMode) error {
+	templates := topicTemplates
+	if mode == models.TopicModeOKF {
+		templates = []templateFile{
+			{assetPath: okfClaudeTemplatePath, outputPath: "CLAUDE.md"},
+		}
+	}
+	for _, file := range templates {
 		rendered, err := renderTemplate(file.assetPath, context)
 		if err != nil {
 			return err
@@ -494,6 +529,19 @@ func installTemplates(topicPath string, context templateContext) error {
 		targetPath := filepath.Join(topicPath, filepath.FromSlash(file.outputPath))
 		if err := os.WriteFile(targetPath, []byte(rendered), 0o644); err != nil {
 			return fmt.Errorf("write %q: %w", targetPath, err)
+		}
+	}
+
+	if mode == models.TopicModeOKF {
+		index, err := frontmatter.Generate(map[string]any{"okf_version": "0.1"}, "# OKF Bundle Index\n")
+		if err != nil {
+			return fmt.Errorf("generate OKF index: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(topicPath, "index.md"), []byte(index), 0o644); err != nil {
+			return fmt.Errorf("write OKF index: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(topicPath, "log.md"), []byte("# Directory Update Log\n"), 0o644); err != nil {
+			return fmt.Errorf("write OKF log: %w", err)
 		}
 	}
 
@@ -506,14 +554,15 @@ func WriteMetadataFile(topicPath, slug, title, domain string) error {
 	if err != nil {
 		return fmt.Errorf("validate topic metadata slug: %w", err)
 	}
-	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain))
+	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, ""))
 }
 
-func topicMetadataForRef(topicRef TopicRef, title, domain string) topicMetadataFile {
+func topicMetadataForRef(topicRef TopicRef, title, domain string, mode models.TopicMode) topicMetadataFile {
 	metadata := topicMetadataFile{
 		Slug:   topicRef.Leaf,
 		Title:  strings.TrimSpace(title),
 		Domain: strings.TrimSpace(domain),
+		Mode:   string(mode),
 	}
 	if topicRef.Category != "" {
 		metadata.Category = topicRef.Category
@@ -694,6 +743,32 @@ func appendScaffoldEntry(logPath string, context templateContext) error {
 	return nil
 }
 
+func appendOKFScaffoldEntry(logPath string, context templateContext) error {
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return fmt.Errorf("read %q: %w", logPath, err)
+	}
+
+	entry := strings.Join([]string{
+		fmt.Sprintf("## %s", context.Today),
+		"",
+		fmt.Sprintf("* **Initialization**: Created OKF bundle `%s` for `%s`.", context.Slug, context.Domain),
+		"",
+	}, "\n")
+
+	trimmed := strings.TrimSpace(string(content))
+	var next string
+	if trimmed == "" {
+		next = "# Directory Update Log\n\n" + entry
+	} else {
+		next = trimmed + "\n\n" + entry
+	}
+	if err := os.WriteFile(logPath, []byte(next), 0o644); err != nil {
+		return fmt.Errorf("write %q: %w", logPath, err)
+	}
+	return nil
+}
+
 func hasTopicSkeleton(topicPath string) (bool, error) {
 	info, err := os.Stat(topicPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -719,19 +794,14 @@ func hasTopicSkeleton(topicPath string) (bool, error) {
 }
 
 func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
-	title, domain, err := readTopicMetadata(topicPath, slug)
+	title, domain, mode, err := readTopicMetadata(topicPath, slug)
 	if err != nil {
 		return models.TopicInfo{}, fmt.Errorf("read topic metadata: %w", err)
 	}
 
-	articleCount, err := countMarkdownFiles(filepath.Join(topicPath, "wiki", "concepts"))
+	articleCount, sourceCount, err := topicCounts(topicPath, mode)
 	if err != nil {
-		return models.TopicInfo{}, fmt.Errorf("count wiki articles: %w", err)
-	}
-
-	sourceCount, err := countVisibleFiles(filepath.Join(topicPath, "raw"))
-	if err != nil {
-		return models.TopicInfo{}, fmt.Errorf("count raw sources: %w", err)
+		return models.TopicInfo{}, fmt.Errorf("count topic files: %w", err)
 	}
 
 	lastLogEntry, err := readLastLogEntry(filepath.Join(topicPath, "log.md"))
@@ -743,6 +813,7 @@ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
 		Slug:         slug,
 		Title:        title,
 		Domain:       domain,
+		Mode:         mode,
 		RootPath:     topicPath,
 		ArticleCount: articleCount,
 		SourceCount:  sourceCount,
@@ -750,21 +821,25 @@ func infoAtPath(topicPath, slug string) (models.TopicInfo, error) {
 	}, nil
 }
 
-func readTopicMetadata(claudePath, slug string) (string, string, error) {
+func readTopicMetadata(claudePath, slug string) (string, string, models.TopicMode, error) {
 	yamlMetadata, err := readTopicYAMLMetadata(filepath.Join(claudePath, topicMetadataFileName))
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	claudeTitle, claudeDomain, err := readClaudeMetadata(filepath.Join(claudePath, topicMarkerFile), slug)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	title := firstNonEmpty(yamlMetadata.Title, claudeTitle, humanizeSlug(slug))
 	domain := firstNonEmpty(yamlMetadata.Domain, claudeDomain, slug)
+	mode, err := normalizeTopicMode(models.TopicMode(yamlMetadata.Mode))
+	if err != nil {
+		return "", "", "", err
+	}
 
-	return title, domain, nil
+	return title, domain, mode, nil
 }
 
 func readTopicYAMLMetadata(metadataPath string) (topicMetadataFile, error) {
@@ -784,7 +859,50 @@ func readTopicYAMLMetadata(metadataPath string) (topicMetadataFile, error) {
 	metadata.Slug = strings.TrimSpace(metadata.Slug)
 	metadata.Title = strings.TrimSpace(metadata.Title)
 	metadata.Domain = strings.TrimSpace(metadata.Domain)
+	metadata.Mode = strings.TrimSpace(metadata.Mode)
 	return metadata, nil
+}
+
+func normalizeTopicMode(mode models.TopicMode) (models.TopicMode, error) {
+	switch strings.TrimSpace(string(mode)) {
+	case "", string(models.TopicModeWiki):
+		return models.TopicModeWiki, nil
+	case string(models.TopicModeOKF):
+		return models.TopicModeOKF, nil
+	default:
+		return "", fmt.Errorf("topic mode must be wiki or okf: %q", mode)
+	}
+}
+
+func topicCounts(topicPath string, mode models.TopicMode) (int, int, error) {
+	if mode == models.TopicModeOKF {
+		concepts, err := countOKFConceptFiles(topicPath)
+		return concepts, 0, err
+	}
+	articleCount, err := countMarkdownFiles(filepath.Join(topicPath, "wiki", "concepts"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("count wiki articles: %w", err)
+	}
+	sourceCount, err := countVisibleFiles(filepath.Join(topicPath, "raw"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("count raw sources: %w", err)
+	}
+	return articleCount, sourceCount, nil
+}
+
+func countOKFConceptFiles(root string) (int, error) {
+	return countFiles(root, func(entry fs.DirEntry) bool {
+		name := entry.Name()
+		if !strings.HasSuffix(strings.ToLower(name), ".md") || strings.HasPrefix(name, ".") {
+			return false
+		}
+		switch strings.ToLower(name) {
+		case "index.md", "log.md", "claude.md", "agents.md", "readme.md", "license.md", "notice.md", "attribution.md":
+			return false
+		default:
+			return true
+		}
+	})
 }
 
 func readClaudeMetadata(claudePath, slug string) (string, string, error) {
@@ -827,12 +945,24 @@ func readLastLogEntry(logPath string) (string, error) {
 	last := ""
 	for line := range strings.SplitSeq(string(content), "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## [") {
+		if strings.HasPrefix(trimmed, "## [") || isOKFDateHeading(trimmed) {
 			last = trimmed
 		}
 	}
 
 	return last, nil
+}
+
+func isOKFDateHeading(line string) bool {
+	if !strings.HasPrefix(line, "## ") {
+		return false
+	}
+	value := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+	if len(value) != len(frontmatter.DateLayout) {
+		return false
+	}
+	_, err := time.Parse(frontmatter.DateLayout, value)
+	return err == nil
 }
 
 func countMarkdownFiles(root string) (int, error) {

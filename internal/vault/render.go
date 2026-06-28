@@ -184,7 +184,11 @@ func renderMarkdownDocument(document models.RenderedDocument) string {
 }
 
 func toSourceWikiLink(topic models.TopicMetadata, relativePath, label string) string {
-	return ToTopicWikiLink(topic.Slug, relativePath, label)
+	return linkFor(topic, "", relativePath, label)
+}
+
+func linkFor(topic models.TopicMetadata, fromDir, relativePath, label string) string {
+	return LinkFormatterFor(topic).Link(fromDir, relativePath, label)
 }
 
 func createDocumentLookup(graph models.GraphSnapshot) map[string]string {
@@ -217,7 +221,7 @@ func linkForNode(
 	fallbackLabel string,
 ) string {
 	if documentPath, exists := documentLookup[nodeID]; exists {
-		return toSourceWikiLink(topic, documentPath, fallbackLabel)
+		return linkFor(topic, "", documentPath, fallbackLabel)
 	}
 
 	if externalNode, exists := externalNodes[nodeID]; exists {

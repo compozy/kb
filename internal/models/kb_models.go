@@ -114,11 +114,12 @@ type LintIssue struct {
 
 // TopicInfo captures topic metadata for list and info operations.
 type TopicInfo struct {
-	Slug         string `json:"slug"`
-	Title        string `json:"title"`
-	Domain       string `json:"domain"`
-	RootPath     string `json:"rootPath"`
-	ArticleCount int    `json:"articleCount"`
-	SourceCount  int    `json:"sourceCount"`
-	LastLogEntry string `json:"lastLogEntry,omitempty"`
+	Slug         string    `json:"slug"`
+	Title        string    `json:"title"`
+	Domain       string    `json:"domain"`
+	Mode         TopicMode `json:"mode"`
+	RootPath     string    `json:"rootPath"`
+	ArticleCount int       `json:"articleCount"`
+	SourceCount  int       `json:"sourceCount"`
+	LastLogEntry string    `json:"lastLogEntry,omitempty"`
 }
