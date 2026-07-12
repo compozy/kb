@@ -49,6 +49,7 @@ type Config struct {
 	Vault      VaultConfig      `toml:"vault"`
 	OKF        OKFConfig        `toml:"okf"`
 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
+	Browser    BrowserConfig    `toml:"browser"`
 	OpenRouter OpenRouterConfig `toml:"openrouter"`
 	STT        STTConfig        `toml:"stt"`
 	YouTube    YouTubeConfig    `toml:"youtube"`
@@ -81,6 +82,11 @@ type OKFConfig struct {
 type FirecrawlConfig struct {
 	APIKey string `toml:"api_key"`
 	APIURL string `toml:"api_url"`
+}
+
+// BrowserConfig controls the optional local headless browser provider.
+type BrowserConfig struct {
+	Command string `toml:"command"`
 }
 
 // OpenRouterConfig controls the optional OpenRouter STT provider.

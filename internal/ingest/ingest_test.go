@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -81,6 +82,39 @@ func TestIngestFileUsesRegistryAndWritesArticleDocument(t *testing.T) {
 	logContent := readFile(t, filepath.Join(vaultPath, topicSlug, "log.md"))
 	if !strings.Contains(logContent, "## [2026-04-11] ingest | latency-budget.md (article)") {
 		t.Fatalf("log.md missing ingest entry:\n%s", logContent)
+	}
+}
+
+func TestResolveMarkdownConvertsInMemoryURLContent(t *testing.T) {
+	t.Parallel()
+
+	registry := &stubRegistry{result: &models.ConvertResult{Title: "Local Fetch", Markdown: "# Local Fetch\n"}}
+	title, markdown, err := resolveMarkdown(context.Background(), Options{
+		SourceKind:      models.SourceKindArticle,
+		SourceURL:       "https://example.com/guide",
+		SourceContent:   []byte("<html>guide</html>"),
+		ConvertFilePath: "guide.html",
+		ConvertOptions:  map[string]any{"content_type": "text/html"},
+		Registry:        registry,
+	})
+	if err != nil {
+		t.Fatalf("resolve markdown: %v", err)
+	}
+	if title != "Local Fetch" || markdown != "# Local Fetch\n" {
+		t.Fatalf("result = (%q, %q)", title, markdown)
+	}
+	if registry.lastInput.FilePath != "guide.html" || registry.lastInput.URL != "https://example.com/guide" {
+		t.Fatalf("converter input = %#v", registry.lastInput)
+	}
+	if got := registry.lastInput.Options["content_type"]; got != "text/html" {
+		t.Fatalf("content type = %#v", got)
+	}
+	content, err := io.ReadAll(registry.lastInput.Reader)
+	if err != nil {
+		t.Fatalf("read converter content: %v", err)
+	}
+	if string(content) != "<html>guide</html>" {
+		t.Fatalf("converter content = %q", content)
 	}
 }
 

@@ -59,14 +59,14 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
+> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. `ingest url` uses a built-in HTTPS client by default; [Firecrawl](https://firecrawl.dev) is optional and requires an API key, while browser rendering requires a configured Chrome or Chromium executable. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
 
 <details>
 <summary><strong>What it touches</strong></summary>
 
 - **Creates files** in `.kb/vault/` inside the target repository (or a custom `--vault` path)
 - **Reads** source files in the target repository (never modifies them)
-- **Network calls** -- `ingest url` calls the Firecrawl API; `ingest youtube` calls YouTube through `yt-dlp`; `ingest youtube --transcribe auto|stt` also calls the configured STT provider. All other commands are fully local.
+- **Network calls** -- `ingest url` fetches the target HTTPS URL directly by default; the optional Firecrawl and browser providers make additional network/process calls. `ingest youtube` calls YouTube through `yt-dlp`; `ingest youtube --transcribe auto|stt` also calls the configured STT provider. All other commands are fully local.
 - **No telemetry** -- nothing is sent anywhere
 - **Uninstall:** Remove the `kb` binary from your `PATH` and delete the `.kb/` directory
 
@@ -151,7 +151,7 @@ $ kb search "error handling patterns" --limit 3
 
 **Topic-based knowledge bases** -- `kb` organizes knowledge into topics, each with its own `raw/`, `wiki/`, `outputs/`, and `bases/` directories. Use `kb topic new` for manual scaffolding, or let `kb ingest codebase` bootstrap a new topic directly on first run.
 
-**Multi-source ingestion** -- Ingest web articles via Firecrawl, local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube captions or STT transcripts, codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
+**Multi-source ingestion** -- Ingest web articles directly over HTTPS (with optional browser rendering or Firecrawl), local files (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, plain text, images with OCR), YouTube captions or STT transcripts, codebases, and bookmark clusters. Each source type goes through a converter registry that normalizes content to frontmatter-annotated markdown.
 
 **Codebase analysis** -- Point `kb ingest codebase` at a repository and it generates an [Obsidian](https://obsidian.md) vault layer with every symbol, file, and dependency relationship mapped into interconnected markdown notes. It computes cyclomatic complexity, blast radius, coupling, instability, and dead code detection, then compiles wiki articles and interactive [Base](https://obsidian.md/blog/bases/) views.
 
@@ -218,7 +218,9 @@ kb okf check <topic> [--strict] [--format table|json|tsv]
 Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` require an existing topic; `codebase` can bootstrap one on first run.
 
 ```bash
-kb ingest url <url> --topic <slug>                # Scrape a web URL (requires Firecrawl)
+kb ingest url <url> --topic <slug>                # Fetch a public HTTPS URL locally
+kb ingest url <url> --provider browser --topic <slug> # Render a JavaScript page with Chromium
+kb ingest url <url> --provider firecrawl --topic <slug> # Use Firecrawl when configured
 kb ingest file <path> --topic <slug>              # Convert and ingest a local file
 kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt] [--sub-langs orig,pt]
 kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
@@ -437,8 +439,9 @@ The scanner:
 | Variable | Source | Description |
 | --- | --- | --- |
 | `APP_CONFIG` | env | Path to TOML config file |
-| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url` |
+| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url --provider firecrawl` |
 | `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint |
+| `browser.command` | TOML | Chrome/Chromium executable for `ingest url --provider browser` or `--render` |
 | `OPENAI_API_KEY` | env / TOML | OpenAI STT API key for the default `openai` provider |
 | `OPENAI_API_URL` | env / TOML | OpenAI-compatible STT API base URL |
 | `STT_PROVIDER` | env / TOML | STT provider: `openai` or `openrouter` |

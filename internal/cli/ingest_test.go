@@ -19,6 +19,7 @@ import (
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
 	ktopic "github.com/compozy/kb/internal/topic"
+	"github.com/compozy/kb/internal/urlfetch"
 	"github.com/compozy/kb/internal/youtube"
 )
 
@@ -189,7 +190,7 @@ func TestIngestURLCommandScrapesAndWritesJSON(t *testing.T) {
 	var stdout bytes.Buffer
 	command.SetOut(&stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"ingest", "url", "https://example.com/latency-budget", "--topic", "systems-design", "--vault", "/tmp/vault"})
+	command.SetArgs([]string{"ingest", "url", "https://example.com/latency-budget", "--provider", "firecrawl", "--topic", "systems-design", "--vault", "/tmp/vault"})
 
 	if err := command.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext returned error: %v", err)
@@ -229,6 +230,84 @@ func TestIngestURLCommandScrapesAndWritesJSON(t *testing.T) {
 	}
 	if result.FilePath != "systems-design/raw/articles/latency-budget.md" || result.Title != "Latency Budget" {
 		t.Fatalf("unexpected result payload: %#v", result)
+	}
+}
+
+func TestIngestURLCommandUsesHTTPLocalByDefaultAndPreservesProvenance(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	var gotIngest kingest.Options
+	fetchedAt := time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC)
+	newHTTPLocalFetcher = func() urlContentFetcher {
+		return fakeURLContentFetcher{fetch: func(context.Context, string) (*urlfetch.Result, error) {
+			return &urlfetch.Result{
+				SourceURL:   "https://example.com/start",
+				FinalURL:    "https://www.example.com/article",
+				ContentType: "text/html",
+				FileName:    "article.html",
+				Body:        []byte("<html><title>Article</title><body>Body</body></html>"),
+				FetchedAt:   fetchedAt,
+				ContentHash: "sha256:abc123",
+			}, nil
+		}}
+	}
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{Slug: slug, Title: "Systems Design", Domain: "systems", RootPath: filepath.Join(vaultPath, slug)}, nil
+	}
+	runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
+		gotIngest = options
+		return models.IngestResult{Topic: options.Topic, SourceType: options.SourceKind, FilePath: "systems-design/raw/articles/article.md", Title: "Article"}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"ingest", "url", "https://example.com/start", "--topic", "systems-design", "--vault", "/tmp/vault"})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext: %v", err)
+	}
+
+	if gotIngest.SourceURL != "https://example.com/start" || gotIngest.ConvertFilePath != "article.html" {
+		t.Fatalf("ingest URL input = %#v", gotIngest)
+	}
+	if string(gotIngest.SourceContent) == "" || gotIngest.ConvertOptions["content_type"] != "text/html" {
+		t.Fatalf("ingest conversion input = %#v", gotIngest)
+	}
+	for key, want := range map[string]any{
+		"final_url": "https://www.example.com/article", "fetched_at": fetchedAt.Format(time.RFC3339), "content_type": "text/html", "content_hash": "sha256:abc123",
+	} {
+		if got := gotIngest.ExtraFrontmatter[key]; got != want {
+			t.Fatalf("frontmatter %s = %#v, want %#v", key, got, want)
+		}
+	}
+}
+
+func TestIngestURLCommandRenderUsesBrowserProvider(t *testing.T) {
+	restoreIngestGlobals(t)
+
+	called := false
+	newBrowserFetcher = func(cfg browserConfig) urlContentFetcher {
+		called = true
+		return fakeURLContentFetcher{fetch: func(context.Context, string) (*urlfetch.Result, error) {
+			return &urlfetch.Result{SourceURL: "https://example.com", FinalURL: "https://example.com", ContentType: "text/html", FileName: "page.html", Body: []byte("<html></html>"), FetchedAt: time.Now(), ContentHash: "sha256:rendered"}, nil
+		}}
+	}
+	runIngestTopicInfo = func(vaultPath, slug string) (models.TopicInfo, error) {
+		return models.TopicInfo{Slug: slug, RootPath: filepath.Join(vaultPath, slug)}, nil
+	}
+	runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
+		return models.IngestResult{Topic: options.Topic, SourceType: options.SourceKind}, nil
+	}
+
+	command := newRootCommand()
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"ingest", "url", "https://example.com", "--render", "--topic", "systems-design", "--vault", "/tmp/vault"})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext: %v", err)
+	}
+	if !called {
+		t.Fatal("expected --render to use the browser provider")
 	}
 }
 
@@ -966,6 +1045,8 @@ func restoreIngestGlobals(t *testing.T) {
 	originalIngestGetwd := ingestGetwd
 	originalLoadIngestConfig := loadIngestConfig
 	originalFirecrawlScraper := newFirecrawlScraper
+	originalHTTPLocalFetcher := newHTTPLocalFetcher
+	originalBrowserFetcher := newBrowserFetcher
 	originalYouTubeExtractor := newYouTubeTranscriptExtractor
 	originalYouTubeChannelExtractor := newYouTubeChannelExtractor
 	originalInstagramExtractor := newInstagramTranscriptExtractor
@@ -980,6 +1061,8 @@ func restoreIngestGlobals(t *testing.T) {
 		ingestGetwd = originalIngestGetwd
 		loadIngestConfig = originalLoadIngestConfig
 		newFirecrawlScraper = originalFirecrawlScraper
+		newHTTPLocalFetcher = originalHTTPLocalFetcher
+		newBrowserFetcher = originalBrowserFetcher
 		newYouTubeTranscriptExtractor = originalYouTubeExtractor
 		newYouTubeChannelExtractor = originalYouTubeChannelExtractor
 		newInstagramTranscriptExtractor = originalInstagramExtractor
@@ -991,6 +1074,14 @@ func restoreIngestGlobals(t *testing.T) {
 
 type fakeFirecrawlScraper struct {
 	scrape func(ctx context.Context, sourceURL string) (*firecrawl.ScrapeResult, error)
+}
+
+type fakeURLContentFetcher struct {
+	fetch func(ctx context.Context, sourceURL string) (*urlfetch.Result, error)
+}
+
+func (fetcher fakeURLContentFetcher) Fetch(ctx context.Context, sourceURL string) (*urlfetch.Result, error) {
+	return fetcher.fetch(ctx, sourceURL)
 }
 
 func (scraper fakeFirecrawlScraper) Scrape(ctx context.Context, sourceURL string) (*firecrawl.ScrapeResult, error) {

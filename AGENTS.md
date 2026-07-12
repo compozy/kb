@@ -42,7 +42,9 @@ make help                # mage target list
 | `internal/topic` | Topic scaffolding, listing, and topic metadata lookup |
 | `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
 | `internal/convert` | Converter registry and format-specific file converters |
-| `internal/firecrawl` | Firecrawl REST client for `kb ingest url` |
+| `internal/urlfetch` | Safe built-in HTTPS fetcher for `kb ingest url` |
+| `internal/browser` | Optional Chromium renderer for dynamic URL ingestion |
+| `internal/firecrawl` | Optional Firecrawl REST client for `kb ingest url` |
 | `internal/youtube` | YouTube caption extraction through `yt-dlp` and STT providers |
 | `internal/frontmatter` | Shared frontmatter parsing and generation helpers |
 | `internal/lint` | KB structural lint engine and report rendering |
@@ -68,7 +70,7 @@ make help                # mage target list
 | `kb topic info <slug>` | Show metadata for one topic |
 | `kb promote <wiki-doc> --to <okf-topic> --type <type>` | Promote a compiled wiki document into an OKF topic |
 | `kb okf check <topic>` | Check an OKF topic for bundle conformance |
-| `kb ingest url <url> --topic <slug>` | Scrape a web URL and ingest into a topic |
+| `kb ingest url <url> --topic <slug>` | Fetch a public HTTPS URL and ingest it into a topic |
 | `kb ingest file <path> --topic <slug>` | Convert a local file and ingest into a topic |
 | `kb ingest youtube <url> --topic <slug>` | Extract a YouTube transcript and ingest into a topic |
 | `kb ingest codebase <path> --topic <slug>` | Analyze a codebase and ingest artifacts into a topic |
@@ -107,7 +109,8 @@ make help                # mage target list
 - `config.example.toml` documents the TOML keys currently supported by `internal/config`.
 - `APP_CONFIG` overrides the config file path.
 - `.env` is loaded automatically when present.
-- `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the Firecrawl client for `ingest url`.
+- `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the optional `ingest url --provider firecrawl` client.
+- `[browser].command` configures the optional Chromium executable used by `ingest url --provider browser` or `--render`.
 - `[okf].types` configures the optional OKF type vocabulary used by `promote` and `okf check`.
 - `OPENAI_API_KEY`, `OPENAI_API_URL`, `STT_PROVIDER`, and `STT_MODEL` configure the default OpenAI STT provider for `ingest youtube --transcribe auto|stt`.
 - `OPENROUTER_API_KEY`, `OPENROUTER_API_URL`, and `openrouter.stt_model` (TOML-only) configure the optional OpenRouter STT provider when `stt.provider = "openrouter"`.
@@ -118,7 +121,7 @@ make help                # mage target list
 - `internal/generate` is the codebase pipeline orchestration layer. Keep Cobra commands thin and push behavior into internal packages.
 - The codebase pipeline is: scan -> adapter parse -> graph normalize -> metrics compute -> vault render -> vault write -> inspect/search/index read paths.
 - `kb ingest file` routes through a converter registry (`internal/convert`) that matches file extensions to format-specific converters (PDF, DOCX, XLSX, PPTX, EPUB, HTML, CSV, JSON, XML, text, images with OCR).
-- `kb ingest url` uses `internal/firecrawl` for web scraping, then writes through `internal/ingest`.
+- `kb ingest url` uses `internal/urlfetch` by default, then routes HTML and document bytes through the normal converter registry. Optional `browser` and `firecrawl` providers preserve the same ingest contract.
 - `kb ingest youtube` uses `internal/youtube` for `yt-dlp` caption/audio extraction, with OpenAI STT by default and OpenRouter as an optional provider.
 - Raw KB documents must include frontmatter before being written; use `internal/frontmatter` helpers instead of hand-assembling YAML.
 - `vault.RenderDocuments` returns markdown bodies that already include frontmatter. Base definitions are rendered separately and written as YAML `.base` files.

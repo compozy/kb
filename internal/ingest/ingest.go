@@ -2,9 +2,11 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path"
@@ -33,6 +35,8 @@ type Options struct {
 	Topic            string
 	SourceKind       models.SourceKind
 	SourcePath       string
+	SourceContent    []byte
+	ConvertFilePath  string
 	SourceURL        string
 	Title            string
 	Markdown         string
@@ -119,18 +123,29 @@ func resolveMarkdown(ctx context.Context, options Options) (string, string, erro
 		return title, options.Markdown, nil
 	}
 
-	sourcePath := strings.TrimSpace(options.SourcePath)
-	if sourcePath == "" {
+	reader := bytes.NewReader(options.SourceContent)
+	convertFilePath := strings.TrimSpace(options.ConvertFilePath)
+	if convertFilePath == "" {
+		convertFilePath = strings.TrimSpace(options.SourcePath)
+	}
+	if len(options.SourceContent) == 0 && strings.TrimSpace(options.SourcePath) == "" {
 		return "", "", errors.New("source path or markdown content is required")
 	}
 
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return "", "", fmt.Errorf("open source file %q: %w", sourcePath, err)
+	if len(options.SourceContent) == 0 {
+		sourceFile, err := os.Open(options.SourcePath)
+		if err != nil {
+			return "", "", fmt.Errorf("open source file %q: %w", options.SourcePath, err)
+		}
+		defer func() {
+			_ = sourceFile.Close()
+		}()
+		data, err := io.ReadAll(sourceFile)
+		if err != nil {
+			return "", "", fmt.Errorf("read source file %q: %w", options.SourcePath, err)
+		}
+		reader = bytes.NewReader(data)
 	}
-	defer func() {
-		_ = sourceFile.Close()
-	}()
 
 	registry := options.Registry
 	if registry == nil {
@@ -138,8 +153,8 @@ func resolveMarkdown(ctx context.Context, options Options) (string, string, erro
 	}
 
 	result, err := registry.Convert(ctx, models.ConvertInput{
-		Reader:   sourceFile,
-		FilePath: sourcePath,
+		Reader:   reader,
+		FilePath: convertFilePath,
 		URL:      strings.TrimSpace(options.SourceURL),
 		Options:  cloneMap(options.ConvertOptions),
 	})
