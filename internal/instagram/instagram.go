@@ -38,6 +38,7 @@ type Extractor struct {
 func NewExtractorWithConfig(
 	sttConfig config.STTConfig,
 	openRouterConfig config.OpenRouterConfig,
+	whisperCPPConfig config.WhisperCPPConfig,
 	instagramConfig config.InstagramConfig,
 ) *Extractor {
 	backendConfig := mediadl.BackendConfig{
@@ -49,7 +50,7 @@ func NewExtractorWithConfig(
 		RetryAttempts: instagramConfig.RetryAttempts,
 		RetryBackoff:  instagramConfig.RetryBackoff,
 	}
-	return &Extractor{core: mediadl.NewExtractor(backendConfig, sttConfig, openRouterConfig)}
+	return &Extractor{core: mediadl.NewExtractor(backendConfig, sttConfig, openRouterConfig, whisperCPPConfig)}
 }
 
 // Extract fetches metadata, caption, and transcript for an Instagram video URL.

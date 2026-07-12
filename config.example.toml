@@ -9,6 +9,7 @@
 # - `[firecrawl]`
 # - `[browser]`
 # - `[openrouter]`
+# - `[whispercpp]`
 # - `[stt]`
 # - `[youtube]`
 # - `[instagram]`
@@ -70,6 +71,9 @@ api_url = "https://openrouter.ai/api"
 stt_model = "google/gemini-2.5-flash"
 
 [stt]
+# Supported providers: `openai`, `openrouter`, and `whispercpp`. The local
+# whisper.cpp provider starts (or reuses) its configured server automatically
+# and does not use `api_key` or `api_url`.
 provider = "openai"
 api_key = ""
 api_url = "https://api.openai.com"
@@ -81,6 +85,15 @@ chunk_duration = "10m"
 max_chunk_bytes = 24000000
 concurrency = 2
 ffmpeg_path = "ffmpeg"
+
+[whispercpp]
+# Used only when `stt.provider = "whispercpp"`. `kb` starts this executable on
+# demand when STT is needed and reuses a server already listening on host:port.
+server_path = "whisper-server"
+model_path = ""
+host = "127.0.0.1"
+port = 8188
+startup_timeout = "30s"
 
 [youtube]
 yt_dlp_path = "yt-dlp"

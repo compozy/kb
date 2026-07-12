@@ -82,66 +82,96 @@ func (client *OpenAITranscriber) Transcribe(ctx context.Context, audio []byte, f
 	if client == nil {
 		return "", errors.New("openai transcribe: client is nil")
 	}
+	return transcribeMultipart(
+		ctx,
+		"openai",
+		client.apiKey,
+		true,
+		client.endpointURL(),
+		client.model,
+		client.language,
+		client.prompt,
+		client.httpClient,
+		audio,
+		format,
+	)
+}
+
+func transcribeMultipart(
+	ctx context.Context,
+	provider string,
+	apiKey string,
+	requireAPIKey bool,
+	endpoint string,
+	model string,
+	language string,
+	prompt string,
+	httpClient *http.Client,
+	audio []byte,
+	format string,
+) (string, error) {
+	prefix := provider + " transcribe"
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(client.apiKey) == "" {
-		return "", errors.New("openai transcribe: missing API key; set stt.api_key or OPENAI_API_KEY")
+	if requireAPIKey && strings.TrimSpace(apiKey) == "" {
+		return "", fmt.Errorf("%s: missing API key; set stt.api_key or OPENAI_API_KEY", prefix)
 	}
 	if len(audio) == 0 {
-		return "", errors.New("openai transcribe: audio is required")
+		return "", fmt.Errorf("%s: audio is required", prefix)
 	}
 	format = strings.TrimSpace(strings.ToLower(format))
 	if format == "" {
-		return "", errors.New("openai transcribe: audio format is required")
+		return "", fmt.Errorf("%s: audio format is required", prefix)
 	}
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	fileWriter, err := writer.CreateFormFile("file", "audio."+format)
 	if err != nil {
-		return "", fmt.Errorf("openai transcribe: create file part: %w", err)
+		return "", fmt.Errorf("%s: create file part: %w", prefix, err)
 	}
 	if _, err := fileWriter.Write(audio); err != nil {
-		return "", fmt.Errorf("openai transcribe: write file part: %w", err)
+		return "", fmt.Errorf("%s: write file part: %w", prefix, err)
 	}
-	if err := writer.WriteField("model", client.model); err != nil {
-		return "", fmt.Errorf("openai transcribe: write model field: %w", err)
+	if err := writer.WriteField("model", model); err != nil {
+		return "", fmt.Errorf("%s: write model field: %w", prefix, err)
 	}
 	if err := writer.WriteField("response_format", "json"); err != nil {
-		return "", fmt.Errorf("openai transcribe: write response format field: %w", err)
+		return "", fmt.Errorf("%s: write response format field: %w", prefix, err)
 	}
-	if language := strings.TrimSpace(client.language); language != "" && !strings.EqualFold(language, "auto") {
+	if language := strings.TrimSpace(language); language != "" && !strings.EqualFold(language, "auto") {
 		if err := writer.WriteField("language", language); err != nil {
-			return "", fmt.Errorf("openai transcribe: write language field: %w", err)
+			return "", fmt.Errorf("%s: write language field: %w", prefix, err)
 		}
 	}
-	if client.prompt != "" {
-		if err := writer.WriteField("prompt", client.prompt); err != nil {
-			return "", fmt.Errorf("openai transcribe: write prompt field: %w", err)
+	if prompt != "" {
+		if err := writer.WriteField("prompt", prompt); err != nil {
+			return "", fmt.Errorf("%s: write prompt field: %w", prefix, err)
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("openai transcribe: close multipart body: %w", err)
+		return "", fmt.Errorf("%s: close multipart body: %w", prefix, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, client.endpointURL(), &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
-		return "", fmt.Errorf("openai transcribe: build request: %w", err)
+		return "", fmt.Errorf("%s: build request: %w", prefix, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+client.apiKey)
+	if requireAPIKey {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	httpClient := client.httpClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return "", fmt.Errorf("openai transcribe: request canceled: %w", ctxErr)
+			return "", fmt.Errorf("%s: request canceled: %w", prefix, ctxErr)
 		}
-		return "", fmt.Errorf("openai transcribe: request failed: %w", err)
+		return "", fmt.Errorf("%s: request failed: %w", prefix, err)
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -149,22 +179,22 @@ func (client *OpenAITranscriber) Transcribe(ctx context.Context, audio []byte, f
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("openai transcribe: read response: %w", err)
+		return "", fmt.Errorf("%s: read response: %w", prefix, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("openai transcribe: request failed with status %d: %s", resp.StatusCode, parseOpenAIError(responseBody))
+		return "", fmt.Errorf("%s: request failed with status %d: %s", prefix, resp.StatusCode, parseOpenAIError(responseBody))
 	}
 
 	var payload openAITranscriptionResponse
 	if err := json.Unmarshal(responseBody, &payload); err != nil {
-		return "", fmt.Errorf("openai transcribe: parse response: %w", err)
+		return "", fmt.Errorf("%s: parse response: %w", prefix, err)
 	}
 	if payload.Error != nil && strings.TrimSpace(payload.Error.Message) != "" {
-		return "", fmt.Errorf("openai transcribe: api error: %s", payload.Error.Message)
+		return "", fmt.Errorf("%s: api error: %s", prefix, payload.Error.Message)
 	}
 	text := strings.TrimSpace(payload.Text)
 	if text == "" {
-		return "", errors.New("openai transcribe: empty transcription response")
+		return "", fmt.Errorf("%s: empty transcription response", prefix)
 	}
 	return text, nil
 }

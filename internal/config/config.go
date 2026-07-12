@@ -17,6 +17,10 @@ const (
 	defaultOpenAIAPIURL           = "https://api.openai.com"
 	defaultOpenRouterAPIURL       = "https://openrouter.ai/api"
 	defaultOpenRouterSTTModel     = "google/gemini-2.5-flash"
+	defaultWhisperCPPHost         = "127.0.0.1"
+	defaultWhisperCPPPort         = 8188
+	defaultWhisperCPPServerPath   = "whisper-server"
+	defaultWhisperCPPStartupWait  = "30s"
 	defaultSTTProvider            = "openai"
 	defaultSTTModel               = "gpt-4o-transcribe"
 	defaultSTTLanguage            = "auto"
@@ -51,6 +55,7 @@ type Config struct {
 	Firecrawl  FirecrawlConfig  `toml:"firecrawl"`
 	Browser    BrowserConfig    `toml:"browser"`
 	OpenRouter OpenRouterConfig `toml:"openrouter"`
+	WhisperCPP WhisperCPPConfig `toml:"whispercpp"`
 	STT        STTConfig        `toml:"stt"`
 	YouTube    YouTubeConfig    `toml:"youtube"`
 	Instagram  InstagramConfig  `toml:"instagram"`
@@ -94,6 +99,15 @@ type OpenRouterConfig struct {
 	APIKey   string `toml:"api_key"`
 	APIURL   string `toml:"api_url"`
 	STTModel string `toml:"stt_model"`
+}
+
+// WhisperCPPConfig controls the local whisper.cpp server used for STT.
+type WhisperCPPConfig struct {
+	ServerPath     string `toml:"server_path"`
+	ModelPath      string `toml:"model_path"`
+	Host           string `toml:"host"`
+	Port           int    `toml:"port"`
+	StartupTimeout string `toml:"startup_timeout"`
 }
 
 // STTConfig controls speech-to-text provider selection and audio chunking.
@@ -166,6 +180,12 @@ func Default() Config {
 			APIURL:   defaultOpenRouterAPIURL,
 			STTModel: defaultOpenRouterSTTModel,
 		},
+		WhisperCPP: WhisperCPPConfig{
+			ServerPath:     defaultWhisperCPPServerPath,
+			Host:           defaultWhisperCPPHost,
+			Port:           defaultWhisperCPPPort,
+			StartupTimeout: defaultWhisperCPPStartupWait,
+		},
 		STT: STTConfig{
 			Provider:      defaultSTTProvider,
 			APIURL:        defaultOpenAIAPIURL,
@@ -236,6 +256,18 @@ func (c *Config) applyDefaults() {
 	}
 	if strings.TrimSpace(c.STT.Provider) == "" {
 		c.STT.Provider = defaultSTTProvider
+	}
+	if strings.TrimSpace(c.WhisperCPP.ServerPath) == "" {
+		c.WhisperCPP.ServerPath = defaultWhisperCPPServerPath
+	}
+	if strings.TrimSpace(c.WhisperCPP.Host) == "" {
+		c.WhisperCPP.Host = defaultWhisperCPPHost
+	}
+	if c.WhisperCPP.Port == 0 {
+		c.WhisperCPP.Port = defaultWhisperCPPPort
+	}
+	if strings.TrimSpace(c.WhisperCPP.StartupTimeout) == "" {
+		c.WhisperCPP.StartupTimeout = defaultWhisperCPPStartupWait
 	}
 	if strings.TrimSpace(c.STT.APIURL) == "" {
 		c.STT.APIURL = defaultOpenAIAPIURL
@@ -329,6 +361,11 @@ func (c Config) Validate() error {
 	if err := c.STT.Validate(); err != nil {
 		return err
 	}
+	if strings.EqualFold(strings.TrimSpace(c.STT.Provider), "whispercpp") {
+		if err := c.WhisperCPP.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := c.YouTube.Validate(); err != nil {
 		return err
 	}
@@ -386,11 +423,11 @@ func (c VaultConfig) Validate() error {
 // Validate ensures STT provider and chunking settings are usable.
 func (c STTConfig) Validate() error {
 	switch strings.ToLower(strings.TrimSpace(c.Provider)) {
-	case "openai", "openrouter":
+	case "openai", "openrouter", "whispercpp":
 	default:
-		return fmt.Errorf("stt.provider must be openai or openrouter: %q", c.Provider)
+		return fmt.Errorf("stt.provider must be openai, openrouter, or whispercpp: %q", c.Provider)
 	}
-	if strings.TrimSpace(c.APIURL) == "" {
+	if !strings.EqualFold(strings.TrimSpace(c.Provider), "whispercpp") && strings.TrimSpace(c.APIURL) == "" {
 		return errors.New("stt.api_url is required")
 	}
 	if strings.TrimSpace(c.Model) == "" {
@@ -417,6 +454,42 @@ func (c STTConfig) Validate() error {
 		return errors.New("stt.ffmpeg_path is required")
 	}
 	return nil
+}
+
+// Validate ensures the local whisper.cpp server configuration is usable.
+func (c WhisperCPPConfig) Validate() error {
+	if strings.TrimSpace(c.ServerPath) == "" {
+		return errors.New("whispercpp.server_path is required")
+	}
+	if strings.TrimSpace(c.ModelPath) == "" {
+		return errors.New("whispercpp.model_path is required")
+	}
+	if strings.TrimSpace(c.Host) == "" {
+		return errors.New("whispercpp.host is required")
+	}
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("whispercpp.port must be between 1 and 65535: %d", c.Port)
+	}
+	if _, err := c.StartupTimeoutValue(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// StartupTimeoutValue parses the local whisper.cpp startup timeout.
+func (c WhisperCPPConfig) StartupTimeoutValue() (time.Duration, error) {
+	value := strings.TrimSpace(c.StartupTimeout)
+	if value == "" {
+		value = defaultWhisperCPPStartupWait
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("whispercpp.startup_timeout must be a Go duration: %q", c.StartupTimeout)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("whispercpp.startup_timeout must be positive: %q", c.StartupTimeout)
+	}
+	return duration, nil
 }
 
 // ChunkDurationValue parses the configured STT chunk duration.

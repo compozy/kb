@@ -29,11 +29,21 @@ type transcribedChunk struct {
 }
 
 // NewTranscriber constructs the configured STT backend.
-func NewTranscriber(sttConfig config.STTConfig, openRouterConfig config.OpenRouterConfig) sttClient {
+func NewTranscriber(
+	sttConfig config.STTConfig,
+	openRouterConfig config.OpenRouterConfig,
+	whisperCPPConfigs ...config.WhisperCPPConfig,
+) sttClient {
 	sttConfig = normalizeSTTConfig(sttConfig)
+	whisperCPPConfig := config.Default().WhisperCPP
+	if len(whisperCPPConfigs) > 0 {
+		whisperCPPConfig = whisperCPPConfigs[0]
+	}
 	switch strings.ToLower(strings.TrimSpace(sttConfig.Provider)) {
 	case "openrouter":
 		return NewOpenRouterClientWithPrompt(openRouterConfigForSTT(sttConfig, openRouterConfig), openRouterPrompt(sttConfig))
+	case "whispercpp":
+		return NewWhisperCPPTranscriber(sttConfig, whisperCPPConfig)
 	default:
 		return NewOpenAITranscriber(sttConfig)
 	}

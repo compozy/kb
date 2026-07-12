@@ -20,7 +20,7 @@ type youtubeTranscriptExtractor interface {
 }
 
 var newYouTubeTranscriptExtractor = func(cfg kconfig.Config) youtubeTranscriptExtractor {
-	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.YouTube)
+	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.WhisperCPP, cfg.YouTube)
 }
 
 func newIngestYouTubeCommand() *cobra.Command {

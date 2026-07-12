@@ -209,6 +209,7 @@ func NewExtractor(
 	backendConfig BackendConfig,
 	sttConfig config.STTConfig,
 	openRouterConfig config.OpenRouterConfig,
+	whisperCPPConfigs ...config.WhisperCPPConfig,
 ) *Extractor {
 	backoff, err := parseRetryBackoff(backendConfig.RetryBackoff)
 	attempts := max(backendConfig.RetryAttempts, 1)
@@ -220,7 +221,7 @@ func NewExtractor(
 
 	return &Extractor{
 		ytDLP:     newYTDLPBackend(backendConfig, retry),
-		stt:       NewTranscriber(sttConfig, openRouterConfig),
+		stt:       NewTranscriber(sttConfig, openRouterConfig, whisperCPPConfigs...),
 		sttConfig: normalizeSTTConfig(sttConfig),
 		setupErr:  err,
 	}

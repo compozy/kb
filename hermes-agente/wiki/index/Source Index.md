@@ -1,0 +1,35 @@
+---
+domain: ai-agents
+title: Source Index
+type: index
+updated: "2026-07-12"
+---
+
+# Hermes Agent — Source Index
+
+All raw sources that inform this topic's wiki, with the articles that cite them.
+
+## Articles (raw/articles/)
+
+| Source | Scraped | Cited by |
+|--------|---------|----------|
+| _None yet._ | — | — |
+
+## GitHub (raw/github/)
+
+| Source | Scraped | Cited by |
+|--------|---------|----------|
+
+## Bookmark clusters (raw/bookmarks/)
+
+| Cluster | Updated | Cited by |
+|---------|---------|----------|
+
+## Orphan sources
+
+Raw files in `raw/` that no wiki article currently cites. These are candidates for:
+
+- Adding to an existing article's Sources section
+- Seeding a new article (Procedure 3 in the karpathy-kb skill)
+
+_No orphan sources yet._

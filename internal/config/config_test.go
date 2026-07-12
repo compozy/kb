@@ -268,6 +268,40 @@ func TestLoadEmptyPathUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadWhisperCPPConfig(t *testing.T) {
+	clearServiceEnv(t)
+
+	path := writeConfigFile(t, `
+[stt]
+provider = "whispercpp"
+model = "whisper.cpp-small"
+
+[whispercpp]
+server_path = "/opt/whisper.cpp/whisper-server"
+model_path = "/opt/whisper.cpp/models/ggml-small.bin"
+host = "127.0.0.1"
+port = 8188
+startup_timeout = "45s"
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.WhisperCPP.ServerPath != "/opt/whisper.cpp/whisper-server" {
+		t.Fatalf("server path = %q", cfg.WhisperCPP.ServerPath)
+	}
+	if cfg.WhisperCPP.ModelPath != "/opt/whisper.cpp/models/ggml-small.bin" {
+		t.Fatalf("model path = %q", cfg.WhisperCPP.ModelPath)
+	}
+	if cfg.WhisperCPP.Host != "127.0.0.1" || cfg.WhisperCPP.Port != 8188 {
+		t.Fatalf("endpoint config = %#v", cfg.WhisperCPP)
+	}
+	if cfg.WhisperCPP.StartupTimeout != "45s" {
+		t.Fatalf("startup timeout = %q", cfg.WhisperCPP.StartupTimeout)
+	}
+}
+
 func TestLoadRejectsUnknownKeys(t *testing.T) {
 	clearServiceEnv(t)
 
@@ -324,6 +358,14 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		{
 			name:   "invalid stt provider",
 			mutate: func(c *Config) { c.STT.Provider = "local" },
+		},
+		{
+			name: "whispercpp provider without model path",
+			mutate: func(c *Config) {
+				c.STT.Provider = "whispercpp"
+				c.WhisperCPP.ModelPath = ""
+			},
+			wantErrContains: "whispercpp.model_path",
 		},
 		{
 			name:   "invalid stt audio format",

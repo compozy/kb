@@ -59,7 +59,7 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. `ingest url` uses a built-in HTTPS client by default; [Firecrawl](https://firecrawl.dev) is optional and requires an API key, while browser rendering requires a configured Chrome or Chromium executable. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
+> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. `ingest url` uses a built-in HTTPS client by default; [Firecrawl](https://firecrawl.dev) is optional and requires an API key, while browser rendering requires a configured Chrome or Chromium executable. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI is the default and requires `OPENAI_API_KEY`, while `whispercpp` runs locally without an API key. Long audio is segmented with `ffmpeg`.
 
 <details>
 <summary><strong>What it touches</strong></summary>
@@ -444,7 +444,7 @@ The scanner:
 | `browser.command` | TOML | Chrome/Chromium executable for `ingest url --provider browser` or `--render` |
 | `OPENAI_API_KEY` | env / TOML | OpenAI STT API key for the default `openai` provider |
 | `OPENAI_API_URL` | env / TOML | OpenAI-compatible STT API base URL |
-| `STT_PROVIDER` | env / TOML | STT provider: `openai` or `openrouter` |
+| `STT_PROVIDER` | env / TOML | STT provider: `openai`, `openrouter`, or local `whispercpp` |
 | `STT_MODEL` | env / TOML | STT model override, for example `gpt-4o-transcribe` |
 | `OPENROUTER_API_KEY` | env / TOML | OpenRouter API key when `stt.provider = "openrouter"` |
 | `OPENROUTER_API_URL` | env / TOML | OpenRouter API endpoint |
@@ -462,6 +462,30 @@ Caption selection defaults to `caption_languages = ["orig"]`, so non-English vid
 YouTube ingests also persist video metadata from `yt-dlp` in the transcript frontmatter for sorting and filtering: engagement counts (`view_count`, `like_count`, `comment_count`), publication context (`upload_date`, `duration`, `duration_string`, `channel`, `channel_id`, `uploader_id`, `channel_follower_count`), and classification fields (`categories`, `youtube_tags`, `language`, `live_status`, `was_live`, `chapter_count`). Hidden or omitted scalar fields are written as `null`; `categories` and `youtube_tags` are empty lists when absent; `chapter_count` is `0` when no chapter metadata is returned. Video keywords use `youtube_tags` because `tags` remains the KB taxonomy field, and only the chapter count is stored, not full chapter content.
 
 STT has real cost and latency. Prefer `captions` for normal ingestion, and use `auto` or `stt` when YouTube captions are unavailable or unsuitable.
+
+### Local whisper.cpp transcription
+
+Set `stt.provider` to `whispercpp` to run transcription locally. When STT is
+needed, `kb` reuses a server already listening on the configured address or
+starts `whisper-server` itself; no PowerShell wrapper, API key, or audio upload
+is required.
+
+```toml
+[stt]
+provider = "whispercpp"
+model = "whisper.cpp-small"
+
+[whispercpp]
+server_path = "C:/Users/me/.local/whisper.cpp/cuda/Release/whisper-server.exe"
+model_path = "C:/Users/me/.local/whisper.cpp/models/ggml-small.bin"
+host = "127.0.0.1"
+port = 8188
+startup_timeout = "30s"
+```
+
+The local installation still needs `whisper-server` and a compatible GGML model.
+`kb` starts the server with `--convert` and the compatible
+`/v1/audio/transcriptions` route, then leaves it running for later ingests.
 
 See [`config.example.toml`](config.example.toml) for the full TOML schema.
 

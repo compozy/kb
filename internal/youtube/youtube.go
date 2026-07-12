@@ -66,6 +66,7 @@ type Extractor struct {
 func NewExtractorWithConfig(
 	sttConfig config.STTConfig,
 	openRouterConfig config.OpenRouterConfig,
+	whisperCPPConfig config.WhisperCPPConfig,
 	youtubeConfigs ...config.YouTubeConfig,
 ) *Extractor {
 	youtubeConfig := config.Default().YouTube
@@ -81,7 +82,7 @@ func NewExtractorWithConfig(
 		RetryAttempts: youtubeConfig.RetryAttempts,
 		RetryBackoff:  youtubeConfig.RetryBackoff,
 	}
-	return &Extractor{core: mediadl.NewExtractor(backendConfig, sttConfig, openRouterConfig)}
+	return &Extractor{core: mediadl.NewExtractor(backendConfig, sttConfig, openRouterConfig, whisperCPPConfig)}
 }
 
 // Extract fetches video metadata and transcript markdown from a YouTube URL.

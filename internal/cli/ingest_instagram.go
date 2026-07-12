@@ -19,7 +19,7 @@ type instagramTranscriptExtractor interface {
 }
 
 var newInstagramTranscriptExtractor = func(cfg kconfig.Config) instagramTranscriptExtractor {
-	return instagram.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.Instagram)
+	return instagram.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.WhisperCPP, cfg.Instagram)
 }
 
 func newIngestInstagramCommand() *cobra.Command {

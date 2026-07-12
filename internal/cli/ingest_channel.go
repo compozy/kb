@@ -28,7 +28,7 @@ type youtubeChannelExtractor interface {
 }
 
 var newYouTubeChannelExtractor = func(cfg kconfig.Config) youtubeChannelExtractor {
-	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.YouTube)
+	return youtube.NewExtractorWithConfig(cfg.STT, cfg.OpenRouter, cfg.WhisperCPP, cfg.YouTube)
 }
 
 type channelVideoSummary struct {
