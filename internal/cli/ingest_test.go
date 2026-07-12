@@ -302,7 +302,7 @@ func TestIngestURLCommandRenderUsesBrowserProvider(t *testing.T) {
 	command := newRootCommand()
 	command.SetOut(new(bytes.Buffer))
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"ingest", "url", "https://example.com", "--render", "--topic", "systems-design", "--vault", "/tmp/vault"})
+	command.SetArgs([]string{"ingest", "url", "https://example.com", "--provider", "browser", "--render", "--topic", "systems-design", "--vault", "/tmp/vault"})
 	if err := command.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext: %v", err)
 	}

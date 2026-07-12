@@ -123,28 +123,27 @@ func resolveMarkdown(ctx context.Context, options Options) (string, string, erro
 		return title, options.Markdown, nil
 	}
 
-	reader := bytes.NewReader(options.SourceContent)
+	var reader io.ReadSeeker
 	convertFilePath := strings.TrimSpace(options.ConvertFilePath)
 	if convertFilePath == "" {
 		convertFilePath = strings.TrimSpace(options.SourcePath)
 	}
-	if len(options.SourceContent) == 0 && strings.TrimSpace(options.SourcePath) == "" {
+	sourcePath := strings.TrimSpace(options.SourcePath)
+	if len(options.SourceContent) == 0 && sourcePath == "" {
 		return "", "", errors.New("source path or markdown content is required")
 	}
 
-	if len(options.SourceContent) == 0 {
-		sourceFile, err := os.Open(options.SourcePath)
+	if len(options.SourceContent) > 0 {
+		reader = bytes.NewReader(options.SourceContent)
+	} else {
+		sourceFile, err := os.Open(sourcePath)
 		if err != nil {
-			return "", "", fmt.Errorf("open source file %q: %w", options.SourcePath, err)
+			return "", "", fmt.Errorf("open source file %q: %w", sourcePath, err)
 		}
 		defer func() {
 			_ = sourceFile.Close()
 		}()
-		data, err := io.ReadAll(sourceFile)
-		if err != nil {
-			return "", "", fmt.Errorf("read source file %q: %w", options.SourcePath, err)
-		}
-		reader = bytes.NewReader(data)
+		reader = sourceFile
 	}
 
 	registry := options.Registry

@@ -61,7 +61,7 @@ func newIngestURLCommand() *cobra.Command {
 
 			selectedProvider := strings.ToLower(strings.TrimSpace(provider))
 			if render {
-				if cmd.Flags().Changed("provider") && selectedProvider != urlProviderHTTPLocal {
+				if cmd.Flags().Changed("provider") && selectedProvider != urlProviderHTTPLocal && selectedProvider != urlProviderBrowser {
 					return fmt.Errorf("ingest url: --render cannot be combined with --provider %s", selectedProvider)
 				}
 				selectedProvider = urlProviderBrowser

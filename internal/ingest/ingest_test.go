@@ -118,6 +118,24 @@ func TestResolveMarkdownConvertsInMemoryURLContent(t *testing.T) {
 	}
 }
 
+func TestResolveMarkdownTrimsSourcePathBeforeOpening(t *testing.T) {
+	t.Parallel()
+
+	sourcePath := writeSourceFile(t, filepath.Join(t.TempDir(), "source.txt"), "content")
+	registry := &stubRegistry{result: &models.ConvertResult{Title: "Source", Markdown: "# Source\n"}}
+	_, _, err := resolveMarkdown(context.Background(), Options{
+		SourceKind: models.SourceKindArticle,
+		SourcePath: "  " + sourcePath + "  ",
+		Registry:   registry,
+	})
+	if err != nil {
+		t.Fatalf("resolve markdown: %v", err)
+	}
+	if registry.lastInput.FilePath != sourcePath {
+		t.Fatalf("converter file path = %q, want trimmed %q", registry.lastInput.FilePath, sourcePath)
+	}
+}
+
 func TestIngestReturnsErrorWhenTopicDoesNotExist(t *testing.T) {
 	t.Parallel()
 

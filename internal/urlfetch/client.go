@@ -75,11 +75,10 @@ func (client *Client) Fetch(ctx context.Context, sourceURL string) (*Result, err
 		return nil, err
 	}
 
-	httpClient := client.httpClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultTimeout}
+	requestClient, err := client.requestClient()
+	if err != nil {
+		return nil, err
 	}
-	requestClient := *httpClient
 	previousRedirect := requestClient.CheckRedirect
 	requestClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if _, err := client.validateURL(request.Context(), request.URL.String()); err != nil {
@@ -168,26 +167,89 @@ func (client *Client) validateURL(ctx context.Context, rawURL string) (*url.URL,
 		return parsed, nil
 	}
 
-	lookupIP := client.lookupIP
-	if lookupIP == nil {
-		lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
-			return net.DefaultResolver.LookupIP(ctx, "ip", host)
-		}
-	}
-	addresses, err := lookupIP(ctx, host)
-	if err != nil {
-		return nil, fmt.Errorf("url fetch: resolve host %q: %w", host, err)
-	}
-	if len(addresses) == 0 {
-		return nil, fmt.Errorf("url fetch: host %q did not resolve to an IP address", host)
-	}
-	for _, address := range addresses {
-		if parsedAddress, ok := netip.AddrFromSlice(address); ok && isPrivateAddress(parsedAddress.Unmap()) {
-			return nil, fmt.Errorf("url fetch: host %q resolves to a non-public IP address", host)
-		}
+	if _, err := client.publicAddresses(ctx, host); err != nil {
+		return nil, err
 	}
 
 	return parsed, nil
+}
+
+func (client *Client) requestClient() (*http.Client, error) {
+	base := client.httpClient
+	if base == nil {
+		base = &http.Client{Timeout: defaultTimeout}
+	}
+
+	var transport *http.Transport
+	switch configured := base.Transport.(type) {
+	case nil:
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	case *http.Transport:
+		transport = configured.Clone()
+	default:
+		return nil, errors.New("url fetch: HTTP client transport must be *http.Transport")
+	}
+	previousDial := transport.DialContext
+	transport.Proxy = nil
+	transport.DialContext = client.dialPublicIP(previousDial)
+
+	requestClient := *base
+	requestClient.Transport = transport
+	return &requestClient, nil
+}
+
+func (client *Client) dialPublicIP(previous func(context.Context, string, string) (net.Conn, error)) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network string, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("url fetch: split dial address %q: %w", address, err)
+		}
+		addresses, err := client.publicAddresses(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		dialAddress := net.JoinHostPort(addresses[0].String(), port)
+		if previous != nil {
+			return previous(ctx, network, dialAddress)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, dialAddress)
+	}
+}
+
+func (client *Client) publicAddresses(ctx context.Context, host string) ([]netip.Addr, error) {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return nil, fmt.Errorf("url fetch: host %q is not allowed", host)
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		if isPrivateAddress(address) {
+			return nil, fmt.Errorf("url fetch: host %q resolves to a non-public IP address", host)
+		}
+		return []netip.Addr{address}, nil
+	}
+
+	lookupIP := client.lookupIP
+	if lookupIP == nil {
+		lookupIP = func(ctx context.Context, hostname string) ([]net.IP, error) {
+			return net.DefaultResolver.LookupIP(ctx, "ip", hostname)
+		}
+	}
+	resolved, err := lookupIP(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("url fetch: resolve host %q: %w", host, err)
+	}
+	if len(resolved) == 0 {
+		return nil, fmt.Errorf("url fetch: host %q did not resolve to an IP address", host)
+	}
+	addresses := make([]netip.Addr, 0, len(resolved))
+	for _, resolvedAddress := range resolved {
+		address, ok := netip.AddrFromSlice(resolvedAddress)
+		if !ok || isPrivateAddress(address.Unmap()) {
+			return nil, fmt.Errorf("url fetch: host %q resolves to a non-public IP address", host)
+		}
+		addresses = append(addresses, address.Unmap())
+	}
+	return addresses, nil
 }
 
 func isPrivateAddress(address netip.Addr) bool {

@@ -87,6 +87,39 @@ func TestFetchRejectsRedirectToPrivateAddress(t *testing.T) {
 	}
 }
 
+func TestFetchDialsValidatedIPAddressInsteadOfResolvingHostnameAgain(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := server.Client().Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // test server only
+	var dialAddress string
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialAddress = address
+		return (&net.Dialer{}).DialContext(ctx, network, target.Host)
+	}
+
+	client := NewClient()
+	client.httpClient = &http.Client{Transport: transport}
+	client.lookupIP = func(_ context.Context, _ string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	}
+	if _, err := client.Fetch(context.Background(), "https://rebind.example/document"); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if dialAddress != "93.184.216.34:443" {
+		t.Fatalf("dial address = %q, want validated IP", dialAddress)
+	}
+}
+
 func TestFetchRejectsStatusAndOversizedResponse(t *testing.T) {
 	t.Parallel()
 
