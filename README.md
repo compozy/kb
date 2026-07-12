@@ -467,8 +467,8 @@ STT has real cost and latency. Prefer `captions` for normal ingestion, and use `
 
 Set `stt.provider` to `whispercpp` to run transcription locally. When STT is
 needed, `kb` reuses a server already listening on the configured address or
-starts `whisper-server` itself; no PowerShell wrapper, API key, or audio upload
-is required.
+starts `whisper-server` itself; no PowerShell wrapper, API key, or external
+audio upload is required.
 
 ```toml
 [stt]

@@ -10,7 +10,7 @@ Chronological, append-only record of every knowledge-base operation on this topi
 (optional) one short paragraph of context, findings, or decisions
 ```
 
-**Ops:** `ingest` · `compile` · `query` · `promote` · `split` · `lint`
+**Ops:** `bootstrap` · `ingest` · `compile` · `query` · `promote` · `split` · `lint`
 
 **Quick queries:**
 
