@@ -3,7 +3,9 @@ package mediadl
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -95,17 +97,18 @@ func TestTranscribeAudioPathSegmentsLongAudioAndPreservesOffsets(t *testing.T) {
 		t.Fatalf("write audio: %v", err)
 	}
 	ffmpegPath := filepath.Join(dir, "ffmpeg")
-	if err := os.WriteFile(ffmpegPath, []byte(strings.Join([]string{
-		"#!/bin/sh",
-		"set -eu",
-		"last=\"\"",
-		"for arg in \"$@\"; do last=\"$arg\"; done",
-		"out_dir=$(dirname \"$last\")",
-		"mkdir -p \"$out_dir\"",
-		"printf '%s' 'first audio' > \"$out_dir/chunk-000.mp3\"",
-		"printf '%s' 'second audio' > \"$out_dir/chunk-001.mp3\"",
-	}, "\n")+"\n"), 0o755); err != nil {
-		t.Fatalf("write fake ffmpeg: %v", err)
+	if runtime.GOOS == "windows" {
+		ffmpegPath += ".exe"
+	}
+	ffmpegSource := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(ffmpegSource, []byte(`package main
+import ("os"; "path/filepath")
+func main() { out := filepath.Dir(os.Args[len(os.Args)-1]); _ = os.MkdirAll(out, 0o755); _ = os.WriteFile(filepath.Join(out, "chunk-000.mp3"), []byte("first audio"), 0o644); _ = os.WriteFile(filepath.Join(out, "chunk-001.mp3"), []byte("second audio"), 0o644) }
+`), 0o644); err != nil {
+		t.Fatalf("write fake ffmpeg source: %v", err)
+	}
+	if output, err := exec.Command("go", "build", "-o", ffmpegPath, ffmpegSource).CombinedOutput(); err != nil {
+		t.Fatalf("build fake ffmpeg: %v\n%s", err, output)
 	}
 	stt := &stubSTTClient{
 		transcripts: []string{"First transcript", "Second transcript"},

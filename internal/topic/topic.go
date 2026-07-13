@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -417,6 +418,15 @@ func topicGlobsForVault(vaultPath string) ([]string, error) {
 }
 
 func ensureDirectory(path string) error {
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%q is not a directory", path)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %q: %w", path, err)
+	}
+
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return fmt.Errorf("create %q: %w", path, err)
 	}
@@ -665,6 +675,12 @@ func ensureAgentsSymlink(topicPath string) error {
 		return fmt.Errorf("remove existing AGENTS.md: %w", err)
 	}
 	if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
+		if runtime.GOOS == "windows" {
+			if copyErr := copyClaudeToAgents(topicPath, agentsPath); copyErr != nil {
+				return fmt.Errorf("create AGENTS.md fallback file: %w", copyErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("create AGENTS.md symlink: %w", err)
 	}
 
@@ -680,7 +696,25 @@ func ensureAgentsFile(topicPath string) error {
 	}
 
 	if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
+		if runtime.GOOS == "windows" {
+			if copyErr := copyClaudeToAgents(topicPath, agentsPath); copyErr != nil {
+				return fmt.Errorf("create AGENTS.md fallback file: %w", copyErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("create AGENTS.md symlink: %w", err)
+	}
+	return nil
+}
+
+func copyClaudeToAgents(topicPath string, agentsPath string) error {
+	claudePath := filepath.Join(topicPath, "CLAUDE.md")
+	content, err := os.ReadFile(claudePath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read %q: %w", claudePath, err)
+	}
+	if err := os.WriteFile(agentsPath, content, 0o644); err != nil {
+		return fmt.Errorf("write %q: %w", agentsPath, err)
 	}
 	return nil
 }

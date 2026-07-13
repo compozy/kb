@@ -3,6 +3,7 @@ package topic
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -224,12 +225,17 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 		}
 	}
 
-	target, err := os.Readlink(filepath.Join(topicPath, "AGENTS.md"))
-	if err != nil {
-		t.Fatalf("expected AGENTS.md symlink: %v", err)
-	}
-	if target != "CLAUDE.md" {
-		t.Fatalf("AGENTS.md target = %q, want CLAUDE.md", target)
+	agentsPath := filepath.Join(topicPath, "AGENTS.md")
+	if runtime.GOOS != "windows" {
+		target, err := os.Readlink(agentsPath)
+		if err != nil {
+			t.Fatalf("expected AGENTS.md symlink: %v", err)
+		}
+		if target != "CLAUDE.md" {
+			t.Fatalf("AGENTS.md target = %q, want CLAUDE.md", target)
+		}
+	} else if got := readFile(t, agentsPath); got != claudeContent {
+		t.Fatalf("AGENTS.md fallback content differs from CLAUDE.md")
 	}
 }
 
@@ -435,6 +441,7 @@ func TestNewValidatesInputs(t *testing.T) {
 	if err := os.WriteFile(filePath, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write file-backed vault path: %v", err)
 	}
+	absoluteTopicPath := filepath.Join(t.TempDir(), "absolute-topic")
 
 	for _, tt := range []struct {
 		name     string
@@ -463,7 +470,7 @@ func TestNewValidatesInputs(t *testing.T) {
 		{
 			name:     "absolute topic ref",
 			vault:    t.TempDir(),
-			slug:     "/abs",
+			slug:     absoluteTopicPath,
 			title:    "Valid Topic",
 			domain:   "valid",
 			contains: "topic slug must be relative",
@@ -550,8 +557,6 @@ func TestNewValidatesInputs(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			_, err := newWithDate(
 				tt.vault,
 				tt.slug,

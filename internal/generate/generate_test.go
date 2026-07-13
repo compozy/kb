@@ -2,6 +2,7 @@ package generate
 
 import (
 	"context"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,6 +20,15 @@ type fakeAdapter struct {
 	parseResult []models.ParsedFile
 	parseErr    error
 	calls       *[]string
+}
+
+func mustAbsolutePath(t testing.TB, path string) string {
+	t.Helper()
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("absolute path %q: %v", path, err)
+	}
+	return absolute
 }
 
 func (a fakeAdapter) Supports(language models.SupportedLanguage) bool {
@@ -93,7 +103,7 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 					opt(&scanOptions)
 				}
 			}
-			if scanOptions.OutputPath != "/vault/fixture" {
+			if scanOptions.OutputPath != mustAbsolutePath(t, "/vault/fixture") {
 				t.Fatalf("scan output path = %q, want /vault/fixture", scanOptions.OutputPath)
 			}
 			return scannedWorkspace, nil
@@ -137,10 +147,10 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 		},
 		writeVault: func(ctx context.Context, options vault.WriteVaultOptions) (vault.WriteVaultResult, error) {
 			calls = append(calls, "write")
-			if options.Topic.VaultPath != "/vault" {
+			if options.Topic.VaultPath != mustAbsolutePath(t, "/vault") {
 				t.Fatalf("topic vault path = %q, want /vault", options.Topic.VaultPath)
 			}
-			if options.Topic.TopicPath != "/vault/fixture" {
+			if options.Topic.TopicPath != mustAbsolutePath(t, "/vault/fixture") {
 				t.Fatalf("topic path = %q, want /vault/fixture", options.Topic.TopicPath)
 			}
 			if options.Topic.Slug != "fixture" {
@@ -184,7 +194,7 @@ func TestRunnerGenerateCallsPipelineStagesInOrder(t *testing.T) {
 	if summary.FilesScanned != 1 || summary.FilesParsed != 1 || summary.SymbolsExtracted != 1 {
 		t.Fatalf("unexpected summary counts: %#v", summary)
 	}
-	if summary.VaultPath != "/vault" || summary.TopicPath != "/vault/fixture" || summary.TopicSlug != "fixture" {
+	if summary.VaultPath != mustAbsolutePath(t, "/vault") || summary.TopicPath != mustAbsolutePath(t, "/vault/fixture") || summary.TopicSlug != "fixture" {
 		t.Fatalf("unexpected summary paths: %#v", summary)
 	}
 	if summary.Timings.TotalMillis <= 0 {
@@ -567,10 +577,10 @@ func TestResolveTargetUsesExplicitVaultPathAndTopicSlug(t *testing.T) {
 		t.Fatalf("resolveTarget returned error: %v", err)
 	}
 
-	if target.RootPath != "/repo/source" {
+	if target.RootPath != mustAbsolutePath(t, "/repo/source") {
 		t.Fatalf("root path = %q, want /repo/source", target.RootPath)
 	}
-	if target.VaultPath != "/vault/root" {
+	if target.VaultPath != mustAbsolutePath(t, "/vault/root") {
 		t.Fatalf("vault path = %q, want /vault/root", target.VaultPath)
 	}
 	if target.TopicSlug != "custom-topic" {
@@ -586,7 +596,7 @@ func TestResolveTargetDefaultsVaultPathAndTopicSlugFromRootPath(t *testing.T) {
 		t.Fatalf("resolveTarget returned error: %v", err)
 	}
 
-	if target.VaultPath != "/repo/source/demo-app/.kb/vault" {
+	if target.VaultPath != filepath.Join(mustAbsolutePath(t, "/repo/source/demo-app"), ".kb", "vault") {
 		t.Fatalf("vault path = %q, want /repo/source/demo-app/.kb/vault", target.VaultPath)
 	}
 	if target.TopicSlug != "demo-app" {

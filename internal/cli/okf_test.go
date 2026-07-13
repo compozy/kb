@@ -57,7 +57,7 @@ func TestPromoteCommandResolvesTargetAndPrintsJSON(t *testing.T) {
 		if err := command.ExecuteContext(context.Background()); err != nil {
 			t.Fatalf("ExecuteContext returned error: %v", err)
 		}
-		if gotInput.VaultPath != "/tmp/vault" || gotInput.TargetTopic.Slug != "catalog" || gotInput.Type != "Playbook" {
+		if gotInput.VaultPath != absoluteTestPath(t, "/tmp/vault") || gotInput.TargetTopic.Slug != "catalog" || gotInput.Type != "Playbook" {
 			t.Fatalf("unexpected promote input: %#v", gotInput)
 		}
 		if gotInput.SourceDocPath != "research/wiki/concepts/Alpha.md" {
@@ -98,7 +98,7 @@ func TestOKFCheckCommandRendersIssuesAndFailsOnErrors(t *testing.T) {
 			}, nil
 		}
 		runOKFCheck = func(ctx context.Context, bundlePath string, options kokf.CheckOptions) ([]models.LintIssue, error) {
-			if bundlePath != "/tmp/vault/catalog" {
+			if bundlePath != filepath.Join(absoluteTestPath(t, "/tmp/vault"), "catalog") {
 				return nil, fmt.Errorf("bundle path = %q", bundlePath)
 			}
 			if !options.Strict || len(options.Types) != 1 || options.Types[0] != "Playbook" {

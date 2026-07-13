@@ -63,7 +63,7 @@ func TestTopicNewCommandPassesArgsAndPrintsJSON(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	if gotVault != "/tmp/vault" {
+	if gotVault != absoluteTestPath(t, "/tmp/vault") {
 		t.Fatalf("vault path = %q, want /tmp/vault", gotVault)
 	}
 	if strings.Join(gotArgs, "|") != "distributed-systems|Distributed Systems|distributed" {
@@ -192,7 +192,7 @@ func TestTopicListCommandUsesVaultFlagAndFormatsOutput(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	if gotVault != "/tmp/vault" {
+	if gotVault != absoluteTestPath(t, "/tmp/vault") {
 		t.Fatalf("vault path = %q, want /tmp/vault", gotVault)
 	}
 
@@ -297,7 +297,7 @@ func TestTopicInfoCommandPrintsJSON(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	if gotVault != "/tmp/vault" {
+	if gotVault != absoluteTestPath(t, "/tmp/vault") {
 		t.Fatalf("vault path = %q, want /tmp/vault", gotVault)
 	}
 	if gotSlug != "distributed-systems" {

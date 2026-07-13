@@ -202,10 +202,10 @@ func TestIngestURLCommandScrapesAndWritesJSON(t *testing.T) {
 	if gotScrapeURL != "https://example.com/latency-budget" {
 		t.Fatalf("scrape URL = %q, want source URL", gotScrapeURL)
 	}
-	if gotTopicVault != "/tmp/vault" || gotTopicSlug != "systems-design" {
+	if gotTopicVault != absoluteTestPath(t, "/tmp/vault") || gotTopicSlug != "systems-design" {
 		t.Fatalf("topic lookup = (%q, %q), want (/tmp/vault, systems-design)", gotTopicVault, gotTopicSlug)
 	}
-	if gotIngest.VaultPath != "/tmp/vault" {
+	if gotIngest.VaultPath != absoluteTestPath(t, "/tmp/vault") {
 		t.Fatalf("ingest vault path = %q, want /tmp/vault", gotIngest.VaultPath)
 	}
 	if gotIngest.Topic != "systems-design" {
@@ -657,7 +657,7 @@ func TestIngestCodebaseCommandPassesGenerateFlags(t *testing.T) {
 
 	expected := models.GenerateOptions{
 		RootPath:        "/tmp/repo",
-		VaultPath:       "/tmp/vault",
+		VaultPath:       absoluteTestPath(t, "/tmp/vault"),
 		TopicSlug:       "systems-design",
 		Title:           "Systems Design",
 		Domain:          "systems",
@@ -846,7 +846,7 @@ func TestIngestCodebaseCommandBootstrapsMissingTopicWithDefaultVault(t *testing.
 
 	expected := models.GenerateOptions{
 		RootPath:  "/tmp/demo-repo",
-		VaultPath: "/tmp/demo-repo/.kb/vault",
+		VaultPath: filepath.Join(absoluteTestPath(t, "/tmp/demo-repo"), ".kb", "vault"),
 		TopicSlug: "systems-design",
 		Title:     "Systems Design",
 		Domain:    "systems-design",
@@ -902,7 +902,7 @@ func TestIngestCodebaseCommandBootstrapAcceptsTitleAndDomain(t *testing.T) {
 
 	expected := models.GenerateOptions{
 		RootPath:  "/tmp/chat",
-		VaultPath: "/tmp/chat/.kb/vault",
+		VaultPath: filepath.Join(absoluteTestPath(t, "/tmp/chat"), ".kb", "vault"),
 		TopicSlug: "chat-sdk",
 		Title:     "Chat SDK",
 		Domain:    "messaging",
@@ -980,7 +980,7 @@ func TestIngestCodebaseCommandSupportsDeprecatedOutputAlias(t *testing.T) {
 		t.Fatalf("ExecuteContext returned error: %v", err)
 	}
 
-	if gotGenerate.VaultPath != "/tmp/legacy-vault" {
+	if gotGenerate.VaultPath != absoluteTestPath(t, "/tmp/legacy-vault") {
 		t.Fatalf("VaultPath = %q, want /tmp/legacy-vault", gotGenerate.VaultPath)
 	}
 }

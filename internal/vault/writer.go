@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -668,6 +669,17 @@ func ensureAgentsSymlink(topicPath string) error {
 		return fmt.Errorf("remove existing agents file: %w", err)
 	}
 	if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
+		if runtime.GOOS == "windows" {
+			claudePath := filepath.Join(topicPath, "CLAUDE.md")
+			content, copyErr := os.ReadFile(claudePath)
+			if copyErr != nil && !errors.Is(copyErr, os.ErrNotExist) {
+				return fmt.Errorf("read %q for agents fallback: %w", claudePath, copyErr)
+			}
+			if copyErr := os.WriteFile(agentsPath, content, 0o644); copyErr != nil {
+				return fmt.Errorf("write agents fallback %q: %w", agentsPath, copyErr)
+			}
+			return nil
+		}
 		return fmt.Errorf("create agents symlink: %w", err)
 	}
 

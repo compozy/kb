@@ -630,7 +630,7 @@ func TestResolveInspectContextReadsCodebaseSubtree(t *testing.T) {
 	if want := (vault.VaultQueryOptions{CWD: "/workspace/repo", Topic: "demo-topic"}); gotQuery != want {
 		t.Fatalf("vault query = %#v, want %#v", gotQuery, want)
 	}
-	if gotResolved.TopicPath != "/vault/demo-topic/raw/codebase" {
+	if gotResolved.TopicPath != filepath.Join("/vault", "demo-topic", "raw", "codebase") {
 		t.Fatalf("inspect topic path = %q, want /vault/demo-topic/raw/codebase", gotResolved.TopicPath)
 	}
 	if gotResolved.TopicSlug != "demo-topic" {

@@ -2,11 +2,14 @@ package qmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -699,61 +702,90 @@ type fakeQMDOptions struct {
 func newFakeQMDClient(binaryPath string, options ...ClientOption) *QMDClient {
 	client := NewClient(append([]ClientOption{WithBinaryPath(binaryPath)}, options...)...)
 	client.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		commandArgs := append([]string{name}, args...)
-		return exec.CommandContext(ctx, "/bin/sh", commandArgs...)
+		commandArgs := append([]string{"-test.run=^TestFakeQMDProcess$", "--", binaryPath}, args...)
+		return exec.CommandContext(ctx, os.Args[0], commandArgs...)
 	}
+	client.lookPath = func(string) (string, error) { return os.Args[0], nil }
 	return client
 }
 
 func writeFakeQMD(t *testing.T, options fakeQMDOptions) string {
 	t.Helper()
-
-	scriptPath := filepath.Join(t.TempDir(), "qmd")
-	tempScriptPath := scriptPath + ".tmp"
-	var builder strings.Builder
-	builder.WriteString("#!/bin/sh\n")
-	builder.WriteString("set -eu\n")
-	if options.LogPath != "" {
-		builder.WriteString("if [ -n \"${QMD_LOG:-}\" ]; then :; fi\n")
-		builder.WriteString("LOG_PATH=" + shellQuote(options.LogPath) + "\n")
-		builder.WriteString("for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$LOG_PATH\"; done\n")
-		builder.WriteString("printf '%s\\n' '---' >> \"$LOG_PATH\"\n")
+	path := filepath.Join(t.TempDir(), "qmd.json")
+	data, err := json.Marshal(options)
+	if err != nil {
+		t.Fatalf("marshal fake QMD: %v", err)
 	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write fake QMD: %v", err)
+	}
+	return path
+}
 
-	if options.ScriptBody != "" {
-		builder.WriteString(options.ScriptBody)
-	} else {
-		builder.WriteString("cmd=$1\n")
-		builder.WriteString("sub=\"\"\n")
-		builder.WriteString("if [ \"$cmd\" = \"--index\" ]; then shift 2; cmd=$1; fi\n")
-		builder.WriteString("if [ \"$cmd\" = \"collection\" ] || [ \"$cmd\" = \"context\" ]; then sub=$2; fi\n")
-		builder.WriteString("key=$cmd\n")
-		builder.WriteString("if [ -n \"$sub\" ]; then key=\"$cmd $sub\"; fi\n")
-		builder.WriteString("case \"$key\" in\n")
-		for key, stdout := range options.StdoutByCommand {
-			builder.WriteString("  " + shellQuote(key) + ")\n")
-			builder.WriteString("    cat <<'EOF'\n")
-			builder.WriteString(stdout)
-			if !strings.HasSuffix(stdout, "\n") {
-				builder.WriteString("\n")
-			}
-			builder.WriteString("EOF\n")
-			builder.WriteString("    ;;\n")
+func TestFakeQMDProcess(t *testing.T) {
+	separator := slices.Index(os.Args, "--")
+	if separator < 0 || len(os.Args) < separator+2 {
+		return
+	}
+	var c fakeQMDOptions
+	data, _ := os.ReadFile(os.Args[separator+1])
+	_ = json.Unmarshal(data, &c)
+	args := os.Args[separator+2:]
+	if c.LogPath != "" {
+		f, _ := os.OpenFile(c.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		for _, a := range args {
+			_, _ = fmt.Fprintln(f, a)
 		}
-		builder.WriteString("  *)\n")
-		builder.WriteString("    printf 'unexpected command: %s\\n' \"$key\" >&2\n")
-		builder.WriteString("    exit 9\n")
-		builder.WriteString("    ;;\n")
-		builder.WriteString("esac\n")
+		_, _ = fmt.Fprintln(f, "---")
+		_ = f.Close()
 	}
-
-	if err := os.WriteFile(tempScriptPath, []byte(builder.String()), 0o755); err != nil {
-		t.Fatalf("WriteFile(%q) returned error: %v", tempScriptPath, err)
+	cmd := args[0]
+	if cmd == "--index" {
+		cmd = args[2]
+		args = args[2:]
 	}
-	if err := os.Rename(tempScriptPath, scriptPath); err != nil {
-		t.Fatalf("Rename(%q, %q) returned error: %v", tempScriptPath, scriptPath, err)
+	key := cmd
+	if (cmd == "collection" || cmd == "context") && len(args) > 1 {
+		key += " " + args[1]
 	}
-	return scriptPath
+	body := c.ScriptBody
+	if strings.Contains(body, "sleep 5") {
+		time.Sleep(5 * time.Second)
+	}
+	if strings.Contains(body, "backend exploded") {
+		_, _ = fmt.Fprintln(os.Stderr, "backend exploded")
+		os.Exit(4)
+	}
+	if strings.Contains(body, "sqlite-vec is not available") && cmd == "embed" {
+		_, _ = fmt.Fprintln(os.Stderr, "sqlite-vec is not available")
+		os.Exit(1)
+	}
+	if strings.Contains(body, "SQLiteError") && ((cmd == "vsearch" && !strings.Contains(body, "printf '[]")) || cmd == "query") {
+		_, _ = fmt.Fprintln(os.Stderr, "SQLiteError: no such module: vec0")
+		os.Exit(1)
+	}
+	if strings.Contains(body, "printf '[]") && cmd == "vsearch" {
+		_, _ = fmt.Fprintln(os.Stdout, "[]")
+		os.Exit(0)
+	}
+	if output, ok := c.StdoutByCommand[key]; ok {
+		_, _ = fmt.Fprint(os.Stdout, output)
+		os.Exit(0)
+	}
+	if strings.Contains(body, "sqlite-vec is not available") && cmd == "collection" {
+		_, _ = fmt.Fprint(os.Stdout, addOutputFixture)
+		os.Exit(0)
+	}
+	if strings.Contains(body, "sqlite-vec is not available") && cmd == "status" {
+		_, _ = fmt.Fprint(os.Stdout, statusOutputFixture)
+		os.Exit(0)
+	}
+	if strings.Contains(body, "SQLiteError") && cmd == "search" {
+		_, _ = fmt.Fprint(os.Stdout, lexicalSearchJSONFixture)
+		os.Exit(0)
+	}
+	_, _ = fmt.Fprintln(os.Stderr, "unexpected command:", key)
+	os.Exit(9)
 }
 
 func readInvocationLog(t *testing.T, path string) [][]string {
@@ -789,10 +821,6 @@ func readInvocationLog(t *testing.T, path string) [][]string {
 	flush()
 
 	return invocations
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 const addOutputFixture = `Creating collection 'docs'...

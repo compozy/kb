@@ -72,7 +72,7 @@ func TestIngestFileUsesRegistryAndWritesArticleDocument(t *testing.T) {
 		"domain":      "systems",
 		"source_kind": "article",
 		"scraped":     "2026-04-11",
-		"source_path": sourcePath,
+		"source_path": filepath.ToSlash(sourcePath),
 		"tags":        []string{"systems", "raw", "article"},
 	})
 	if body != "# Latency Budget\n\nKeep service latency inside the SLO.\n" {
@@ -481,7 +481,7 @@ func TestIngestEndToEndWithScaffoldedTopic(t *testing.T) {
 		"domain":      "systems",
 		"source_kind": "document",
 		"scraped":     "2026-04-11",
-		"source_path": sourcePath,
+		"source_path": filepath.ToSlash(sourcePath),
 		"tags":        []string{"systems", "raw", "document"},
 	})
 	if body != "# Queueing Theory\n\nLittle's Law applies.\n" {

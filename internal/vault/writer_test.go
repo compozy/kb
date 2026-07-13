@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -86,10 +87,15 @@ func TestWriteVaultCreatesTopicSkeletonAndManagedFiles(t *testing.T) {
 		t.Fatalf("expected base definition views, got %#v", parsedBase)
 	}
 
-	if target, err := os.Readlink(filepath.Join(topic.TopicPath, "AGENTS.md")); err != nil {
-		t.Fatalf("expected AGENTS.md symlink: %v", err)
-	} else if target != "CLAUDE.md" {
-		t.Fatalf("AGENTS.md target = %q, want %q", target, "CLAUDE.md")
+	agentsPath := filepath.Join(topic.TopicPath, "AGENTS.md")
+	if runtime.GOOS != "windows" {
+		if target, err := os.Readlink(agentsPath); err != nil {
+			t.Fatalf("expected AGENTS.md symlink: %v", err)
+		} else if target != "CLAUDE.md" {
+			t.Fatalf("AGENTS.md target = %q, want %q", target, "CLAUDE.md")
+		}
+	} else if got := readFile(t, agentsPath); got != readFile(t, filepath.Join(topic.TopicPath, "CLAUDE.md")) {
+		t.Fatalf("AGENTS.md fallback content differs from CLAUDE.md")
 	}
 
 	for _, gitkeepPath := range []string{
