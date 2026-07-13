@@ -2,6 +2,8 @@
 
 # kb
 
+[English](README.md) | [Português (Brasil)](README.pt-BR.md)
+
 ### Build and maintain topic-based knowledge bases.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -59,7 +61,18 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. `ingest url` uses a built-in HTTPS client by default; [Firecrawl](https://firecrawl.dev) is optional and requires an API key, while browser rendering requires a configured Chrome or Chromium executable. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI is the default and requires `OPENAI_API_KEY`, while `whispercpp` runs locally without an API key. Long audio is segmented with `ffmpeg`.
+> **Requirements:** Go >= 1.24 is needed only to build from source. The distributed `kb` binary has no mandatory runtime dependency; install the tools in the table below only for the capabilities you use.
+
+| Capability | Additional dependency or setup |
+| --- | --- |
+| `ingest url` (default `http-local`) | None. `kb` fetches public HTTPS URLs itself. |
+| `ingest url --provider browser` / `--render` | A Chrome or Chromium executable, configured with `[browser].command`. |
+| `ingest url --provider firecrawl` | A [Firecrawl](https://firecrawl.dev) API key (`FIRECRAWL_API_KEY`). |
+| `ingest youtube` with captions | [yt-dlp](https://github.com/yt-dlp/yt-dlp) on `PATH` or configured as `youtube.yt_dlp_path`. |
+| `ingest youtube --transcribe auto\|stt` | `yt-dlp` for audio download and `ffmpeg` for audio conversion and long-audio segmentation, plus the selected STT provider. |
+| OpenAI / OpenRouter STT | The provider API key (`OPENAI_API_KEY` or `OPENROUTER_API_KEY`). |
+| Local `whispercpp` STT | `whisper-server` from whisper.cpp and a compatible GGML model; configure their paths under `[whispercpp]`. No API key or audio upload is required. |
+| `search` / `index` | [QMD](https://github.com/tobilu/qmd), installed separately. |
 
 <details>
 <summary><strong>What it touches</strong></summary>
@@ -221,6 +234,7 @@ Ingest source material into a topic. `url`, `file`, `youtube`, and `bookmarks` r
 kb ingest url <url> --topic <slug>                # Fetch a public HTTPS URL locally
 kb ingest url <url> --provider browser --topic <slug> # Render a JavaScript page with Chromium
 kb ingest url <url> --provider firecrawl --topic <slug> # Use Firecrawl when configured
+kb ingest url <url> --render --topic <slug>       # Shorthand for --provider browser
 kb ingest file <path> --topic <slug>              # Convert and ingest a local file
 kb ingest youtube <url> --topic <slug> [--transcribe captions|auto|stt] [--sub-langs orig,pt]
 kb ingest codebase <path> --topic <slug>          # Analyze a codebase and bootstrap the topic if missing
@@ -236,6 +250,22 @@ kb ingest bookmarks <path> --topic <slug>         # Ingest a bookmark-cluster ma
 | `youtube` | required | `--transcribe captions\|auto\|stt` (default: `captions`), `--sub-langs`/`--lang` (caption languages; default: `orig`) |
 | `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
 | `bookmarks` | required | -- |
+
+#### URL ingestion providers
+
+`kb ingest url` uses the local `http-local` provider by default, so ordinary
+public HTTPS articles do not require a third-party API or credentials. It
+follows redirects only to public HTTPS hosts, rejects localhost and private or
+link-local IP addresses (including DNS-resolved addresses), disables proxies,
+and limits a response to 20 MiB. The downloaded content is passed through the
+normal converter registry, so HTML and supported document formats are ingested
+the same way as local files. Result frontmatter records the final URL, fetch
+time, content type, and SHA-256 content hash.
+
+Use `--provider browser` (or `--render`) for JavaScript-rendered pages after
+configuring `[browser].command`. Use `--provider firecrawl` when the hosted
+Firecrawl extraction service is preferred; it requires `FIRECRAWL_API_KEY`.
+All providers accept only public HTTPS URLs.
 
 ### `kb lint`
 

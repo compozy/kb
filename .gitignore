@@ -11,3 +11,6 @@ coverage.html
 .claude/skills
 .compozy/runs
 .kodebase
+# Local knowledge-base vaults generated while developing kb itself.
+.kb/
+hermes-agente/
