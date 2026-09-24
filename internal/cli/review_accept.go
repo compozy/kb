@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/review"
+	"github.com/compozy/kb/internal/scope"
 	"github.com/compozy/kb/internal/session"
 )
 
@@ -191,6 +193,9 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 			if _, err = fmt.Fprintf(out, "%sed %s (%s) %s: %s\n", verdict, result.ID, result.Queue, result.Subject, firstNonBlank(result.Message, result.Action)); err != nil {
 				break
 			}
+			if err = writeManualRepairs(out, result.Manual); err != nil {
+				break
+			}
 		}
 		if err == nil && len(items) == 0 {
 			_, err = fmt.Fprintln(out, "no pending items selected")
@@ -198,6 +203,21 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 	}
 	if err != nil {
 		return err
+	}
+	if format == "json" {
+		// JSON output keeps stdout machine-readable; manual repairs are
+		// in each result and repeated on stderr for the terminal.
+		for _, result := range results {
+			_ = writeManualRepairs(cmd.ErrOrStderr(), result.Manual)
+		}
+	}
+	if movedSources(results) {
+		folders, countErr := scope.SourceFolderCounts(s.Root())
+		if countErr != nil {
+			failures = append(failures, countErr)
+		} else {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), scope.FolderCountsLine(folders))
+		}
 	}
 	if runner != nil {
 		summary, finishErr := runner.Finish(ctx)
@@ -211,4 +231,29 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 		return fmt.Errorf("%s: %w", action, err)
 	}
 	return nil
+}
+
+// writeManualRepairs prints each restore entry that needs a manual repair
+// (file, line or key, and the text that was removed), indented under its
+// result line (spec §7.1).
+func writeManualRepairs(w io.Writer, manual []actions.ManualRepair) error {
+	for _, entry := range manual {
+		for _, line := range entry.Lines() {
+			if _, err := fmt.Fprintln(w, "  "+line); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// movedSources reports whether a verdict quarantined or restored a source,
+// after which the new source counts per raw/ folder are printed (spec §7.1).
+func movedSources(results []actions.Result) bool {
+	for _, result := range results {
+		if result.Action == actions.DidQuarantined || result.Action == actions.DidRestored {
+			return true
+		}
+	}
+	return false
 }

@@ -352,6 +352,32 @@ func FolderCounts(sources []*corpus.Document) []FolderCount {
 	return folders
 }
 
+// SourceFolderCounts counts the sources on disk per raw/ subfolder
+// (quarantined and codebase snapshot files excluded, decisions.exclude
+// ignored: this is a file count, not a decision input). Quarantine and
+// restore print it so the agent can update prose counts in CLAUDE.md or a
+// dashboard (spec §7.1 "Not handled").
+func SourceFolderCounts(topicRoot string) ([]FolderCount, error) {
+	loaded, err := corpus.Load(topicRoot, corpus.LoadOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("scope: count sources: %w", err)
+	}
+	return FolderCounts(loaded.Sources()), nil
+}
+
+// FolderCountsLine renders folder counts as one summary line: "sources per
+// raw/ folder: raw/articles 12, raw/youtube 3".
+func FolderCountsLine(folders []FolderCount) string {
+	parts := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		parts = append(parts, fmt.Sprintf("%s %d", folder.Folder, folder.Files))
+	}
+	if len(parts) == 0 {
+		return "sources per raw/ folder: none"
+	}
+	return "sources per raw/ folder: " + strings.Join(parts, ", ")
+}
+
 // IsScreeningFile reports whether a file under outputs/ is a curation or
 // screening file (spec §12.2): `*screening*.jsonl`, `curation-decisions.json`
 // or `exclusions.jsonl`.

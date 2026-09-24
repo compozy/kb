@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/compozy/kb/internal/classify"
 	"github.com/compozy/kb/internal/config"
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/fakes"
+	"github.com/compozy/kb/internal/firecrawl"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/gate"
 	"github.com/compozy/kb/internal/review"
@@ -325,6 +327,137 @@ func TestApplyQueues(t *testing.T) {
 				tt.check(t, e, result)
 			}
 		})
+	}
+}
+
+// TestApplyRecaptureKeepsLongerBody: recapture keeps the longer of the old
+// and refetched bodies (spec §7 stage 4): a longer good refetch replaces the
+// body and clears the classify banks of the state row so the next classify
+// judges it; a refetch that is not longer leaves the old body, which is
+// quarantined when it still fails and kept when it no longer does.
+func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("Typed judges answer questions with calibrated probabilities. ", 60)
+	tests := []struct {
+		name       string
+		oldBody    string
+		fresh      firecrawl.ScrapeResult
+		action     string
+		wantBody   string
+		wantReason string
+	}{
+		{name: "longer good refetch replaces the body", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200}, action: DidRecaptured, wantBody: long},
+		{name: "shorter refetch and a still thin capture quarantine", oldBody: "Loading the page, please wait.\n", fresh: firecrawl.ScrapeResult{Markdown: "x", StatusCode: 200}, action: DidQuarantined, wantReason: "thin"},
+		{name: "longer refetch that still fails quarantines", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: "# Not Found\n\nThe page does not exist anymore.\n", Title: "Not Found", StatusCode: 404}, action: DidQuarantined, wantReason: "error_page"},
+		{name: "shorter refetch keeps a good old body", oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200}, action: DidKept, wantBody: long},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t)
+			rel := "raw/articles/p.md"
+			e.write(t, rel, map[string]any{"title": "Typed judges", "source_kind": "article", "source_url": "https://example.com/posts/typed-judges"}, tt.oldBody)
+			doc, err := corpus.ReadDocument(e.root, rel, corpus.KindSource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta := e.s.StateMeta(classify.SourceBanks()...)
+			meta.Banks["custom"] = "7"
+			if _, err := e.s.Writer.Apply(doc, map[string]any{"quality": "thin"}, meta); err != nil {
+				t.Fatal(err)
+			}
+			item := e.add(t, review.Item{Queue: review.QueueRecapture, Purpose: "quality", Subject: rel, Question: "code:thin", Action: map[string]any{"reason": "thin"}})
+			fresh := tt.fresh
+			deps := Deps{Scrape: func(context.Context, string, firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error) {
+				return &fresh, nil
+			}}
+			result, err := Apply(context.Background(), e.s, deps, item, Accept)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if result.Action != tt.action {
+				t.Fatalf("action = %s (%s), want %s", result.Action, result.Message, tt.action)
+			}
+			if tt.action == DidQuarantined {
+				values := e.frontmatter(t, result.Path)
+				if values["triage_reason"] != tt.wantReason {
+					t.Fatalf("quarantined with %v, want %s", values["triage_reason"], tt.wantReason)
+				}
+				return
+			}
+			stored, err := corpus.ReadDocument(e.root, rel, corpus.KindSource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Body != tt.wantBody {
+				t.Fatalf("body = %q", stored.Body)
+			}
+			row, ok := e.s.State.Get(rel)
+			if !ok {
+				t.Fatal("state row missing")
+			}
+			if tt.action == DidRecaptured {
+				for _, bank := range classify.SourceBanks() {
+					if _, set := row.Banks[bank.ID]; set {
+						t.Fatalf("classify bank %s still recorded after recapture: %v", bank.ID, row.Banks)
+					}
+				}
+				if row.Banks["custom"] != "7" || row.BodyHash != corpus.BodyHash(long) {
+					t.Fatalf("row = %+v", row)
+				}
+				reopened, err := corpus.OpenState(e.root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				persisted, _ := reopened.Get(rel)
+				if persisted == nil || corpus.Unclassified(stored, persisted, "", map[string]string{"quality": classify.SourceBanks()[1].Version}) != true {
+					t.Fatalf("a recaptured source must read as unclassified: %+v", persisted)
+				}
+			}
+		})
+	}
+}
+
+// TestApplyRestoreReportsManualRepairs: a restore whose touched file changed
+// since the quarantine returns every entry left for manual repair with its
+// file, line or key and the removed text (spec §7.1).
+func TestApplyRestoreReportsManualRepairs(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.write(t, "raw/articles/a.md", map[string]any{"title": "A", "source_kind": "article"}, "body\n")
+	index := filepath.Join(e.root, "wiki", "index", "Source Index.md")
+	if err := os.MkdirAll(filepath.Dir(index), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(index, []byte("# Source Index\n\n- [[a]] — first source\n- [[b]] — second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reject := e.add(t, review.Item{Queue: review.QueueGate, Purpose: "relevance", Subject: "raw/articles/a.md", Question: "role", Action: map[string]any{"reason": "off_topic"}})
+	if result, err := Apply(context.Background(), e.s, Deps{}, reject, Reject); err != nil || result.Action != DidQuarantined {
+		t.Fatalf("reject = %+v, %v", result, err)
+	}
+	data, err := os.ReadFile(index)
+	if err != nil || strings.Contains(string(data), "[[a]]") {
+		t.Fatalf("index after quarantine = %q, %v", data, err)
+	}
+	if err := os.WriteFile(index, append(data, []byte("- [[c]] — added later\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	accept := e.add(t, review.Item{Queue: review.QueueGate, Purpose: "relevance", Subject: "raw/articles/a.md", Question: "role:again", Action: map[string]any{"reason": "off_topic", "quarantined": true}})
+	result, err := Apply(context.Background(), e.s, Deps{}, accept, Accept)
+	if err != nil || result.Action != DidRestored {
+		t.Fatalf("accept = %+v, %v", result, err)
+	}
+	if len(result.Manual) != 1 {
+		t.Fatalf("manual = %+v", result.Manual)
+	}
+	manual := result.Manual[0]
+	if manual.File != "wiki/index/Source Index.md" || !strings.Contains(manual.Before, "[[a]] — first source") || manual.LineOrKey == "" {
+		t.Fatalf("manual entry = %+v", manual)
+	}
+	lines := strings.Join(manual.Lines(), "\n")
+	if !strings.Contains(lines, "manual repair: wiki/index/Source Index.md") || !strings.Contains(lines, "- [[a]] — first source") {
+		t.Fatalf("rendered = %q", lines)
 	}
 }
 

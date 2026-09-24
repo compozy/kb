@@ -629,6 +629,61 @@ func TestReviewAcceptRestoresGateQuarantine(t *testing.T) {
 	}
 }
 
+// TestReviewRestorePrintsManualRepairsAndFolderCounts: a quarantine and a
+// restore print the new source counts per raw/ folder, and a restore whose
+// touched index changed since prints each entry left for manual repair with
+// its file, line and removed text (spec §7.1). An ingest run that
+// quarantines prints the folder counts too.
+func TestReviewRestorePrintsManualRepairsAndFolderCounts(t *testing.T) {
+	env := newGateEnv(t, func(_ fakes.Call, q fakes.Question) any {
+		if q.ID == "paywall_or_login" {
+			return fakes.Noul(0.6)
+		}
+		return nil
+	}, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/judging": {Markdown: article("Judging documents cheaply", 400), Title: "Judging documents cheaply"},
+	}))
+	writeMarkdownDocument(t, env.root, "raw/youtube/talk.md", map[string]any{
+		"title": "Talk", "type": "source", "source_kind": "youtube-transcript", "source_url": "https://www.youtube.com/watch?v=abcdefghijk",
+	}, "transcript\n")
+	result := env.ingestURL(t, "https://example.com/posts/judging")
+	rel := topicRel(result.FilePath)
+	stem := strings.TrimSuffix(filepath.Base(rel), ".md")
+	writeFile(t, filepath.Join(env.root, "wiki/index/Source Index.md"), "# Source Index\n\n- [["+stem+"]] — judging\n- other line\n")
+
+	_, stderr := env.mustRun(t, "review", "reject", "--topic", "demo", result.ReviewItem)
+	if !strings.Contains(stderr, "sources per raw/ folder: raw/youtube 1") || strings.Contains(stderr, "raw/articles") {
+		t.Fatalf("quarantine must print the new folder counts:\n%s", stderr)
+	}
+	edited := env.file(t, "wiki/index/Source Index.md") + "- [[added-later]]\n"
+	writeFile(t, filepath.Join(env.root, "wiki/index/Source Index.md"), edited)
+
+	item, _ := gate.ReviewItem(gate.Outcome{Triage: gate.TriageQuarantined, Reason: "paywall", Stage: gate.StageQuality, Purpose: "quality", Question: "paywall_or_login"}, rel, "Judging documents cheaply")
+	item.Question = "paywall_or_login:requarantine"
+	if _, err := review.Open(env.root, nil).Add(item); err != nil {
+		t.Fatal(err)
+	}
+	gated := env.pending(t, review.QueueGate)
+	stdout, stderr := env.mustRun(t, "review", "accept", "--topic", "demo", gated[0].ID)
+	if !strings.Contains(stdout, "restored "+rel) || !strings.Contains(stdout, "need manual repair") {
+		t.Fatalf("accept output:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "  manual repair: wiki/index/Source Index.md (") || !strings.Contains(stdout, "- [["+stem+"]] — judging") {
+		t.Fatalf("accept must print each manual repair:\n%s", stdout)
+	}
+	if env.file(t, "wiki/index/Source Index.md") != edited {
+		t.Fatal("a changed index must not be overwritten on restore")
+	}
+	if !strings.Contains(stderr, "sources per raw/ folder: raw/articles 1, raw/youtube 1") {
+		t.Fatalf("restore must print the new folder counts:\n%s", stderr)
+	}
+
+	_, stderr = env.mustRun(t, "ingest", "url", "https://example.com/posts/missing", "--topic", "demo")
+	if !strings.Contains(stderr, "sources per raw/ folder: raw/articles 1, raw/youtube 1") {
+		t.Fatalf("an ingest run that quarantines must print the folder counts:\n%s", stderr)
+	}
+}
+
 func frontmatterSources(t *testing.T, env *gateEnv) string {
 	t.Helper()
 	values, _ := env.read(t, "wiki/concepts/Judges.md")

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,11 +79,46 @@ type Result struct {
 	// quarantined source).
 	Path string `json:"path,omitempty"`
 	// Message is one line for the terminal.
-	Message string       `json:"message,omitempty"`
-	Label   review.Label `json:"label"`
+	Message string `json:"message,omitempty"`
+	// Manual lists the quarantine-ledger entries a restore did not replay
+	// because the touched file changed since (spec §7.1): each needs a
+	// manual repair and is printed with its file, line or key and the text
+	// that was removed.
+	Manual []ManualRepair `json:"manual,omitempty"`
+	Label  review.Label   `json:"label"`
 	// Closed lists sibling items (same source, other gate/remove/recapture
 	// queue) resolved by the same action.
 	Closed []string `json:"closed,omitempty"`
+}
+
+// ManualRepair is one restore entry left for the owner.
+type ManualRepair struct {
+	File      string `json:"file"`
+	LineOrKey string `json:"line_or_key"`
+	Line      int    `json:"line,omitempty"`
+	Before    string `json:"before"`
+}
+
+// Lines renders a manual repair for the terminal:
+// "manual repair: wiki/index/sources.md (line 12): - [[x]] — ...".
+func (m ManualRepair) Lines() []string {
+	where := m.LineOrKey
+	if m.Line > 0 && !strings.Contains(where, strconv.Itoa(m.Line)) {
+		where = strings.TrimSpace(where + " line " + strconv.Itoa(m.Line))
+	}
+	head := "manual repair: " + m.File
+	if where != "" {
+		head += " (" + where + ")"
+	}
+	before := strings.Split(strings.TrimRight(m.Before, "\n"), "\n")
+	if len(before) == 1 {
+		return []string{head + " — restore: " + before[0]}
+	}
+	lines := []string{head + " — restore:"}
+	for _, line := range before {
+		lines = append(lines, "    "+line)
+	}
+	return lines
 }
 
 // LabelVerdict maps a verdict on a queue item to its label (spec §12.2
@@ -289,6 +325,9 @@ func (a *applier) keep(ctx context.Context, result *Result) error {
 		if len(restored.Manual) > 0 {
 			result.Message += fmt.Sprintf("; %d references changed since and need manual repair", len(restored.Manual))
 		}
+		for _, entry := range restored.Manual {
+			result.Manual = append(result.Manual, ManualRepair{File: entry.File, LineOrKey: entry.LineOrKey, Line: entry.Line, Before: entry.Before})
+		}
 		return nil
 	}
 	doc, err := corpus.ReadDocument(s.Root(), a.item.Subject, corpus.KindSource)
@@ -341,11 +380,14 @@ func activeQuarantine(topicRoot, subject string) (refs.Quarantined, bool, error)
 	return refs.Quarantined{}, false, nil
 }
 
-// recapture: accept refetches with fresh options and re-judges the new
-// body; a page that is now good gets its body replaced in place
-// (`recaptured: <date>`, kb's `quality` and `triage_reason` dropped); a
-// page still failing, or a source without source_url, is quarantined with
-// its quality reason. Reject keeps the source as it is.
+// recapture: accept refetches with fresh options, keeps the longer of the
+// old and the refetched bodies (spec §7 stage 4) and re-judges the kept
+// body: a refetched body that is now good replaces the old one in place
+// (`recaptured: <date>`, kb's `quality` and `triage_reason` dropped, and the
+// state row's classify banks cleared so the next `kb classify` judges the
+// new body); a kept body still failing, or a source without source_url, is
+// quarantined with its quality reason; an old body that no longer fails is
+// kept as captured. Reject keeps the source as it is.
 func (a *applier) recapture(ctx context.Context, result *Result) error {
 	if !a.accepted() {
 		result.Action, result.Message = DidKept, "kept as captured"
@@ -368,10 +410,23 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 	if err != nil {
 		return fmt.Errorf("refetch %s: %w", sourceURL, err)
 	}
-	if reason, failing, err := a.stillFailing(ctx, doc, fresh); err != nil {
+	if len(strings.TrimSpace(fresh.Markdown)) <= len(strings.TrimSpace(doc.Body)) {
+		// The refetch is not longer: the old body is kept and judged again.
+		failing, stillReason, err := a.stillFailing(ctx, doc, doc.Body, &firecrawl.ScrapeResult{})
+		if err != nil {
+			return err
+		}
+		if failing {
+			return a.quarantine(ctx, result, firstNonEmpty(stillReason, reason))
+		}
+		result.Action, result.Path = DidKept, a.item.Subject
+		result.Message = fmt.Sprintf("refetch not longer (%d ≤ %d characters) and the capture no longer fails; kept as captured", len(fresh.Markdown), len(doc.Body))
+		return nil
+	}
+	if failing, stillReason, err := a.stillFailing(ctx, doc, fresh.Markdown, fresh); err != nil {
 		return err
 	} else if failing {
-		return a.quarantine(ctx, result, reason)
+		return a.quarantine(ctx, result, stillReason)
 	}
 	updates := map[string]any{
 		"recaptured": s.Now().UTC().Format(frontmatter.DateLayout), "quality": nil, "triage_reason": nil,
@@ -383,42 +438,82 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 	if !written.BodyWritten {
 		return fmt.Errorf("%s was not rewritten (%s)", a.item.Subject, written.Status)
 	}
+	if err := a.rejudgeNext(a.item.Subject); err != nil {
+		return err
+	}
 	s.ReloadCorpus()
 	result.Action, result.Path = DidRecaptured, a.item.Subject
 	result.Message = fmt.Sprintf("recaptured %s (%d → %d characters)", a.item.Subject, len(doc.Body), len(fresh.Markdown))
 	return nil
 }
 
-// stillFailing re-judges a refetched body: code flags first (no call), then
-// the quality nouls of the shared gate judgment at the review threshold.
-func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, fresh *firecrawl.ScrapeResult) (string, bool, error) {
+// rejudgeNext clears the classify banks (relevance, quality, classify,
+// concept) of path's state row so the next `kb classify` judges the new
+// body: the writer already recorded the new body hash, which alone would
+// read as classified. Written hashes and the contract are kept.
+func (a *applier) rejudgeNext(path string) error {
+	row, ok := a.s.State.Get(path)
+	if !ok {
+		return nil
+	}
+	next := *row
+	next.Banks = map[string]string{}
+	for bank, version := range row.Banks {
+		if !slices.Contains(sourceClassifyBanks(), bank) {
+			next.Banks[bank] = version
+		}
+	}
+	next.Updated = a.s.Now().UTC().Format(time.RFC3339)
+	if err := a.s.State.Put(next); err != nil {
+		return fmt.Errorf("clear classify state of %s: %w", path, err)
+	}
+	return nil
+}
+
+// sourceClassifyBanks are the bank ids a classified source records.
+func sourceClassifyBanks() []string {
+	ids := make([]string, 0, 4)
+	for _, bank := range classify.SourceBanks() {
+		ids = append(ids, bank.ID)
+	}
+	return ids
+}
+
+// stillFailing re-judges a body: code flags first (no call), then the
+// quality nouls of the shared gate judgment at the review threshold. fetch
+// carries what the fetcher reported for body (empty for the old body).
+func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, body string, fetch *firecrawl.ScrapeResult) (bool, string, error) {
 	s := a.s
 	candidate := *doc
-	candidate.Body = fresh.Markdown
-	candidate.BodyHash = corpus.BodyHash(fresh.Markdown)
+	candidate.Body = body
+	candidate.BodyHash = corpus.BodyHash(body)
 	c, err := s.Corpus()
 	if err != nil {
-		return "", false, err
+		return false, "", err
 	}
 	host, _ := doc.Provenance()["source_host"].(string)
 	transcript := classify.IsTranscriptKind(doc.SourceKind())
+	requested := ""
+	if fetch.StatusCode != 0 || fetch.FinalURL != "" {
+		requested = doc.SourceURL()
+	}
 	flags := quality.Check(quality.Input{
-		Title: doc.Title, Body: fresh.Markdown, SourceURL: doc.SourceURL(), FinalURL: fresh.FinalURL,
-		RequestedURL: doc.SourceURL(), StatusCode: fresh.StatusCode,
+		Title: doc.Title, Body: body, SourceURL: doc.SourceURL(), FinalURL: fetch.FinalURL,
+		RequestedURL: requested, StatusCode: fetch.StatusCode, SiteName: fetch.SiteName,
 		HostLines: quality.HostLineCounts(c.Sources())[host],
 		SkipThin:  transcript || doc.SourceKind() == string(models.SourceKindBookmarkCluster),
 	})
 	if len(flags) > 0 {
-		return flags[0].Code, true, nil
+		return true, flags[0].Code, nil
 	}
 	judgment, err := classify.JudgeGate(ctx, s, &candidate, classify.GateOptions{IsTranscript: transcript})
 	if err != nil {
-		return "", false, err
+		return false, "", err
 	}
 	if reason, _ := judgment.QualityReason(s.Threshold("quality_review")); reason != "" {
-		return reason, true, nil
+		return true, reason, nil
 	}
-	return "", false, nil
+	return false, "", nil
 }
 
 // link writes a relation (link and contradiction queues). Accept adds

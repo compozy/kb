@@ -22,6 +22,7 @@ import (
 	"github.com/compozy/kb/internal/refs"
 	"github.com/compozy/kb/internal/resolve"
 	"github.com/compozy/kb/internal/review"
+	"github.com/compozy/kb/internal/scope"
 	"github.com/compozy/kb/internal/session"
 	"github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
@@ -410,6 +411,10 @@ type Summary struct {
 	Classify *classify.Report `json:"classify,omitempty"`
 	Link     *link.Report     `json:"link,omitempty"`
 	CostUSD  float64          `json:"cost_usd"`
+	// Folders are the source counts per raw/ folder after the run, set when
+	// the run quarantined a source (spec §7.1: the agent updates prose
+	// counts from them).
+	Folders []scope.FolderCount `json:"folders,omitempty"`
 }
 
 // Lines renders the summary for the terminal (the caller appends the
@@ -417,6 +422,9 @@ type Summary struct {
 func (sum Summary) Lines() []string {
 	lines := append([]string{}, sum.Modes...)
 	lines = append(lines, "ingest: "+sum.Tally.Line())
+	if sum.Folders != nil {
+		lines = append(lines, scope.FolderCountsLine(sum.Folders))
+	}
 	if sum.Classify != nil {
 		lines = append(lines, sum.Classify.Lines()...)
 	}
@@ -464,6 +472,14 @@ func (r *Run) Finish(ctx context.Context) (Summary, error) {
 			if err != nil {
 				runErr = fmt.Errorf("ingest: link: %w", err)
 			}
+		}
+	}
+	if r.tally.Quarantined > 0 {
+		folders, err := scope.SourceFolderCounts(r.s.Root())
+		if err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("ingest: %w", err))
+		} else {
+			summary.Folders = folders
 		}
 	}
 	decided := r.s.Summary()
