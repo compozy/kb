@@ -279,6 +279,13 @@ func TestClassifyBootstrapVocabulary(t *testing.T) {
 	if strings.Contains(readFile(t, filepath.Join(root, "topic.yaml")), "vocabulary_draft:") {
 		t.Fatal("accept clears the draft")
 	}
+	stub, err := corpus.ReadDocument(root, created[0], corpus.KindArticle)
+	if err != nil {
+		t.Fatalf("ReadDocument stub: %v", err)
+	}
+	if row, ok := s.State.Get(created[0]); !ok || row.Written["criterion"] != corpus.ValueHash(stub.Criterion()) {
+		t.Fatalf("stub criterion must be recorded as kb-written: row %+v", row)
+	}
 	if _, err := AcceptVocabulary(s); err == nil {
 		t.Fatal("accept without a draft must fail")
 	}

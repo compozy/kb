@@ -116,7 +116,7 @@ func AcceptVocabulary(s *session.Session) ([]string, error) {
 	now := s.Now()
 	created := make([]string, 0, len(settings.VocabularyDraft))
 	for _, item := range settings.VocabularyDraft {
-		rel, err := CreateStubArticle(s.Root(), s.Topic.Domain, item.Title, item.Criterion, now)
+		rel, err := CreateStub(s, item.Title, item.Criterion, now)
 		if errors.Is(err, ErrArticleExists) {
 			continue
 		}
@@ -133,11 +133,36 @@ func AcceptVocabulary(s *session.Session) ([]string, error) {
 	return created, nil
 }
 
+// CreateStub creates a stub article through CreateStubArticle and then writes
+// its criterion through the session's owned-key writer, so the state record
+// knows kb wrote it: a later regeneration may refresh it, and a user edit is
+// detected and kept (spec §5.2, §6). Accepting a vocabulary draft or a concept
+// proposal both go through here.
+func CreateStub(s *session.Session, title, criterion string, now time.Time) (string, error) {
+	rel, err := CreateStubArticle(s.Root(), s.Topic.Domain, title, "", now)
+	if err != nil {
+		return rel, err
+	}
+	criterion = strings.TrimSpace(criterion)
+	if criterion == "" {
+		return rel, nil
+	}
+	doc, err := corpus.ReadDocument(s.Root(), rel, corpus.KindArticle)
+	if err != nil {
+		return rel, fmt.Errorf("classify: stub article %s: %w", rel, err)
+	}
+	if _, err := s.Writer.Apply(doc, map[string]any{"criterion": criterion}, s.StateMeta()); err != nil {
+		return rel, fmt.Errorf("classify: stub article %s: %w", rel, err)
+	}
+	return rel, nil
+}
+
 // CreateStubArticle writes `wiki/concepts/<Title>.md` (file name = title
 // sanitized for the filesystem) with the stub frontmatter of the plan:
 // title, type wiki, stage stub, domain, tags [domain, wiki, stub], created,
-// updated, sources [] and criterion. It returns the topic-relative path, and
-// ErrArticleExists (with that path) when the file is already there.
+// updated, sources [] and criterion (when non-empty; prefer CreateStub, which
+// records the criterion as kb-written). It returns the topic-relative path,
+// and ErrArticleExists (with that path) when the file is already there.
 func CreateStubArticle(topicRoot, domain, title, criterion string, now time.Time) (string, error) {
 	title = strings.TrimSpace(title)
 	name := sanitizeFileName(title)

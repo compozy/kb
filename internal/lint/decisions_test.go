@@ -389,6 +389,8 @@ func TestLintUnclassifiedReasons(t *testing.T) {
 			topicPath := newTestTopic(t)
 			writeMarkdownFile(t, topicPath, "raw/articles/notes.md", sourceFrontmatter("Notes", "article", "2026-04-10"), "# Notes\n")
 			writeMarkdownFile(t, topicPath, "raw/codebase/files/main.go.md", sourceFrontmatter("main.go", string(models.SourceKindCodebaseFile), "2026-04-10"), "# main\n")
+			// A stub article waits for compilation and is never unclassified.
+			writeMarkdownFile(t, topicPath, "wiki/concepts/Stub.md", map[string]any{"title": "Stub", "type": "wiki", "stage": "stub", "domain": "demo", "tags": []string{"demo", "wiki", "stub"}, "created": "2026-04-10", "updated": "2026-04-10", "sources": []string{}, "criterion": "Documents about stubs."}, "# Stub\n")
 			if err := contract.SetContract(topicPath, accepted); err != nil {
 				t.Fatalf("SetContract: %v", err)
 			}

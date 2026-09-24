@@ -11,6 +11,7 @@ import (
 	"github.com/compozy/kb/internal/contract/topicyaml"
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/questions"
 	"github.com/compozy/kb/internal/resolve"
@@ -300,6 +301,11 @@ func unclassifiedIssue(loaded *corpus.Corpus, store *corpus.StateStore, activeCo
 		bankIDs := sourceBankIDs
 		if doc.Kind == corpus.KindArticle {
 			bankIDs = articleBankIDs
+			// Stub articles wait for the agent to compile them; classify
+			// skips them on purpose, so they are not unclassified.
+			if strings.EqualFold(strings.TrimSpace(frontmatter.GetString(doc.Frontmatter, "stage")), "stub") {
+				continue
+			}
 		}
 		row, ok := store.Lookup(doc.Path, doc.BodyHash, exists)
 		reason := unclassifiedReason(doc, row, ok, activeContract, bankIDs, current)
