@@ -29,6 +29,8 @@ func newRootCommand() *cobra.Command {
 	command.AddCommand(newGenerateCommand())
 	command.AddCommand(newInspectCommand())
 	command.AddCommand(newSearchCommand())
+	command.AddCommand(newLinkCommand())
+	command.AddCommand(newFindCommand())
 	command.AddCommand(newIndexCommand())
 	command.AddCommand(newMigrateCommand())
 	command.AddCommand(newVersionCommand())
