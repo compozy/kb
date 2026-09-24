@@ -614,6 +614,7 @@ func TestScrapeReportsStatusCodeAndFinalURL(t *testing.T) {
 		metadata   string
 		wantStatus int
 		wantFinal  string
+		wantSite   string
 	}{
 		{
 			name:       "redirect to home",
@@ -629,6 +630,21 @@ func TestScrapeReportsStatusCodeAndFinalURL(t *testing.T) {
 		{
 			name:     "no metadata status",
 			metadata: `{"sourceURL":"https://example.com/post"}`,
+		},
+		{
+			name:     "og site name",
+			metadata: `{"sourceURL":"https://example.com/post","ogSiteName":" Catapult "}`,
+			wantSite: "Catapult",
+		},
+		{
+			name:     "repeated og site name tag",
+			metadata: `{"sourceURL":"https://example.com/post","ogSiteName":["","Catapult Sports"]}`,
+			wantSite: "Catapult Sports",
+		},
+		{
+			name:     "site name fallback",
+			metadata: `{"sourceURL":"https://example.com/post","siteName":"Example","ogSiteName":7}`,
+			wantSite: "Example",
 		},
 	}
 
@@ -654,6 +670,9 @@ func TestScrapeReportsStatusCodeAndFinalURL(t *testing.T) {
 			}
 			if result.SourceURL != "https://example.com/post" {
 				t.Fatalf("source url = %q", result.SourceURL)
+			}
+			if result.SiteName != tc.wantSite {
+				t.Fatalf("site name = %q, want %q", result.SiteName, tc.wantSite)
 			}
 		})
 	}

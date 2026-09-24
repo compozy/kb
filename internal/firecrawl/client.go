@@ -46,6 +46,10 @@ type ScrapeResult struct {
 	// FinalURL is the page URL after redirects (metadata.url) when it differs
 	// from SourceURL; empty otherwise.
 	FinalURL string
+	// SiteName is the site name the page declares (metadata.ogSiteName,
+	// og:site_name or siteName); empty when absent. The ingest gate uses it
+	// for the "title equals the site name" rule.
+	SiteName string
 }
 
 // ScrapeOptions are the optional freshness knobs of a scrape request (spec §7
@@ -90,11 +94,37 @@ type scrapeResponseData struct {
 }
 
 type scrapeResponseMetadata struct {
-	Title      string `json:"title"`
-	SourceURL  string `json:"sourceURL"`
-	URL        string `json:"url"`
-	StatusCode int    `json:"statusCode"`
-	Error      string `json:"error"`
+	Title       string   `json:"title"`
+	SourceURL   string   `json:"sourceURL"`
+	URL         string   `json:"url"`
+	StatusCode  int      `json:"statusCode"`
+	Error       string   `json:"error"`
+	OGSiteName  metaText `json:"ogSiteName"`
+	OGSiteName2 metaText `json:"og:site_name"`
+	SiteName    metaText `json:"siteName"`
+}
+
+// metaText is a Firecrawl metadata value that is a string or, when a page
+// repeats the meta tag, an array of strings (the first non-empty one wins).
+type metaText string
+
+func (m *metaText) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*m = metaText(strings.TrimSpace(single))
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err == nil {
+		for _, value := range many {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				*m = metaText(trimmed)
+				return nil
+			}
+		}
+	}
+	*m = ""
+	return nil
 }
 
 type scrapeErrorResponse struct {
@@ -286,6 +316,7 @@ func (client *Client) scrapeOnce(ctx context.Context, sourceURL string, body []b
 		SourceURL:  resolvedSource,
 		StatusCode: meta.StatusCode,
 		FinalURL:   finalURL,
+		SiteName:   firstNonEmpty(string(meta.OGSiteName), string(meta.OGSiteName2), string(meta.SiteName)),
 	}, false, nil
 }
 

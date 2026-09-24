@@ -369,6 +369,8 @@ type ScrapeResponse struct {
 	Title      string
 	SourceURL  string
 	StatusCode int
+	// SiteName is returned as metadata.ogSiteName when set.
+	SiteName string
 }
 
 // ScrapeFunc answers one scrape request.
@@ -418,16 +420,17 @@ func (f *Firecrawl) serve(w http.ResponseWriter, r *http.Request) {
 	if response.StatusCode == 0 {
 		response.StatusCode = 200
 	}
+	metadata := map[string]any{
+		"title":      response.Title,
+		"sourceURL":  request.URL,
+		"url":        response.SourceURL,
+		"statusCode": response.StatusCode,
+	}
+	if response.SiteName != "" {
+		metadata["ogSiteName"] = response.SiteName
+	}
 	writeJSON(w, map[string]any{
 		"success": true,
-		"data": map[string]any{
-			"markdown": response.Markdown,
-			"metadata": map[string]any{
-				"title":      response.Title,
-				"sourceURL":  request.URL,
-				"url":        response.SourceURL,
-				"statusCode": response.StatusCode,
-			},
-		},
+		"data":    map[string]any{"markdown": response.Markdown, "metadata": metadata},
 	})
 }
