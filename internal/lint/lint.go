@@ -98,8 +98,11 @@ func LintWithOptions(topicPath string, options LintOptions) ([]models.LintIssue,
 
 	graphIssues, incoming := buildLinkGraph(state)
 	issues = append(issues, graphIssues...)
+	issues = append(issues, addFrontmatterLinks(state, incoming)...)
 	issues = append(issues, findOrphans(state, incoming)...)
 	issues = append(issues, findSourceIssues(state)...)
+	issues = append(issues, findNeedsCompile(state)...)
+	issues = append(issues, findDecisionIssues(state)...)
 	issues = append(issues, evaluateJavaDiagnosticsGovernance(state, options.JavaGovernance)...)
 
 	sortIssues(issues)
@@ -304,6 +307,7 @@ func validateFile(file *vaultFile) []models.LintIssue {
 	if !ok {
 		return nil
 	}
+	spec = stageVariant(spec, file)
 
 	if file.parseErr != nil {
 		return []models.LintIssue{newIssue(
@@ -406,6 +410,12 @@ func buildLinkGraph(state vaultState) ([]models.LintIssue, map[string]map[string
 				))
 				continue
 			}
+			if isQuarantinedFile(resolved) {
+				if file.inTopic {
+					issues = appendQuarantinedLink(issues, seenDeadLinks, file, target, "")
+				}
+				continue
+			}
 			if !resolved.inTopic {
 				continue
 			}
@@ -445,6 +455,7 @@ func findSourceIssues(state vaultState) []models.LintIssue {
 	issues := make([]models.LintIssue, 0)
 	seenMissing := make(map[string]struct{})
 	seenStale := make(map[string]struct{})
+	affected := affectsPairs(state)
 
 	for _, file := range state.files {
 		if !isWikiConceptPath(file.relativePath) || file.parseErr != nil {
@@ -477,6 +488,11 @@ func findSourceIssues(state vaultState) []models.LintIssue {
 
 			scraped := frontmatter.GetTime(resolved.frontmatter, "scraped")
 			if updated.IsZero() || scraped.IsZero() || !updated.Before(scraped) {
+				continue
+			}
+			// needs-compile replaces the date-only stale check for pairs
+			// linked by the source's `affects` list.
+			if _, isAffected := affected[pairKey(file, resolved)]; isAffected {
 				continue
 			}
 
@@ -804,6 +820,34 @@ func reportSectionTitle(kind models.LintIssueKind) string {
 		return "FORMAT VIOLATIONS"
 	case models.LintIssueKindJavaDiagnosticGovernance:
 		return "JAVA DIAGNOSTICS GOVERNANCE"
+	case models.LintIssueKindFrontmatterDeadLink:
+		return "DEAD FRONTMATTER LINKS"
+	case models.LintIssueKindLinkToQuarantined:
+		return "LINKS TO QUARANTINED SOURCES"
+	case models.LintIssueKindNeedsCompile:
+		return "NEEDS COMPILE"
+	case models.LintIssueKindKeyConflict:
+		return "KEY CONFLICTS"
+	case models.LintIssueKindContradiction:
+		return "OPEN CONTRADICTIONS"
+	case models.LintIssueKindOffTopicKept:
+		return "OFF-TOPIC SOURCES KEPT"
+	case models.LintIssueKindCriterionMissing:
+		return "MISSING CRITERIA"
+	case models.LintIssueKindUnclassified:
+		return "UNCLASSIFIED DOCUMENTS"
+	case models.LintIssueKindContractMissing:
+		return "MISSING SELECTION CONTRACT"
+	case models.LintIssueKindContractDraftPending:
+		return "PENDING CONTRACT DRAFT"
+	case models.LintIssueKindVocabularyMissing:
+		return "MISSING CONCEPT VOCABULARY"
+	case models.LintIssueKindPendingReview:
+		return "PENDING REVIEW"
+	case models.LintIssueKindRecapturePending:
+		return "PENDING RECAPTURE"
+	case models.LintIssueKindRemovePending:
+		return "PENDING REMOVAL"
 	default:
 		return strings.ToUpper(string(kind))
 	}

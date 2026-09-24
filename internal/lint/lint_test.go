@@ -569,9 +569,20 @@ func TestLintResolvesQuarantinedSourcesByOriginalPath(t *testing.T) {
 	writeMarkdownFile(t, topicPath, "raw/_quarantine/articles/junk-page.md", sourceFrontmatter("Junk Page", "article", "2026-04-10"), "# Junk\n")
 	writeMarkdownFile(t, topicPath, "raw/articles/notes.md", sourceFrontmatter("Notes", "article", "2026-04-10"), "[[raw/articles/junk-page]]\n[[systems-design/raw/articles/junk-page]]\n[[junk-page]]\n")
 
+	// Quarantined sources stay resolvable by their original path, stem and
+	// slug-prefixed path; links to them are link-to-quarantined warnings,
+	// never dead links (spec §7.1).
 	issues := mustLint(t, topicPath)
-	if len(issues) != 0 {
-		t.Fatalf("issues = %#v, want empty slice", issues)
+	gotTargets := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Kind != models.LintIssueKindLinkToQuarantined || issue.Severity != models.SeverityWarning || issue.FilePath != "raw/articles/notes.md" {
+			t.Fatalf("unexpected issue %#v", issue)
+		}
+		gotTargets = append(gotTargets, issue.Target)
+	}
+	wantTargets := []string{"junk-page", "raw/articles/junk-page", "systems-design/raw/articles/junk-page"}
+	if !reflect.DeepEqual(gotTargets, wantTargets) {
+		t.Fatalf("link-to-quarantined targets = %#v, want %#v", gotTargets, wantTargets)
 	}
 }
 
