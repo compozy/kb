@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -526,9 +527,7 @@ func syncWritten(opts Options, rel, key, before, after string) error {
 	}
 	updated := *row
 	updated.Written = map[string]string{}
-	for name, hash := range row.Written {
-		updated.Written[name] = hash
-	}
+	maps.Copy(updated.Written, row.Written)
 	updated.Written[key] = corpus.ValueHash(newValues[key])
 	updated.Updated = nowFunc(opts.Now)().UTC().Format(time.RFC3339)
 	if err := opts.State.Put(updated); err != nil {

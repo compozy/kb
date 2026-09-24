@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -435,8 +436,8 @@ func (j receiptJoiner) quantity(purpose string, label Label) (float64, bool) {
 		}
 	}
 	candidates := j.bySubject[label.Subject]
-	for index := len(candidates) - 1; index >= 0; index-- {
-		if value, ok := extract(candidates[index]); ok {
+	for _, candidate := range slices.Backward(candidates) {
+		if value, ok := extract(candidate); ok {
 			return value, true
 		}
 	}

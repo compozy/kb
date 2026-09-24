@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -229,9 +230,7 @@ func loadStoredAnswers(bundlePath string) (storedAnswers, error) {
 		if stored[row.Subject] == nil {
 			stored[row.Subject] = make(map[string]json.RawMessage)
 		}
-		for id, raw := range row.Answers {
-			stored[row.Subject][id] = raw
-		}
+		maps.Copy(stored[row.Subject], row.Answers)
 	}
 	return stored, nil
 }
