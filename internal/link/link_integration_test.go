@@ -330,3 +330,67 @@ func readJSONL(t *testing.T, path string) []map[string]any {
 	}
 	return rows
 }
+
+func TestLinkUndecidedDocumentIsJudgedAgain(t *testing.T) {
+	v := newLinkVault(t, session.ModeApply)
+	// A malformed answer is an invalid receipt: undecided, never a "no".
+	fake := newFake(t, func(call fakes.Call, q fakes.Question) any {
+		if strings.HasPrefix(q.ID, "should_link_") {
+			return map[string]any{"type": "choice", "choice": "yes"}
+		}
+		return linkAll(call, q)
+	})
+
+	first, err := Run(context.Background(), v.open(t, fake), Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if first.Undecided == 0 || !slices.Equal(first.UndecidedDocuments, []string{sourceA}) || first.Decided != 0 {
+		t.Fatalf("first report = %+v", first)
+	}
+	joined := strings.Join(first.Lines(), "\n")
+	if !strings.Contains(joined, "coverage: 0/1 judged documents fully decided") || !strings.Contains(joined, "undecided documents (1, judged again next run): "+sourceA) {
+		t.Fatalf("lines must name the undecided document:\n%s", joined)
+	}
+	if got := frontmatterList(t, v.read(t, sourceA), "extends"); len(got) != 0 {
+		t.Fatalf("an undecided should_link wrote %v", got)
+	}
+	s := v.open(t, fake)
+	row, ok := s.State.Get(sourceA)
+	if !ok || row.Banks[BankID] != "" || row.Banks[CandidatesBank] != "" {
+		t.Fatalf("an undecided document must not be recorded as linked: %#v", row)
+	}
+
+	fake.SetDecide(linkAll)
+	second, err := Run(context.Background(), s, Options{})
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if second.Judged != 1 || second.Skipped[SkipUnchanged] != 0 || second.Undecided != 0 || second.Decided != 1 {
+		t.Fatalf("the undecided document must be judged again: %+v", second)
+	}
+	if got := frontmatterList(t, v.read(t, sourceA), "extends"); len(got) != 1 {
+		t.Fatalf("extends after retry = %v", got)
+	}
+}
+
+func TestLinkIncrementalFollowsRenames(t *testing.T) {
+	v := newLinkVault(t, session.ModeApply)
+	fake := newFake(t, linkAll)
+	if _, err := Run(context.Background(), v.open(t, fake), Options{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	renamed := "raw/articles/source-a-renamed.md"
+	if err := os.Rename(filepath.Join(v.root, filepath.FromSlash(sourceA)), filepath.Join(v.root, filepath.FromSlash(renamed))); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := len(fake.Calls())
+	report, err := Run(context.Background(), v.open(t, fake), Options{})
+	if err != nil {
+		t.Fatalf("Run after rename: %v", err)
+	}
+	if report.Judged != 0 || report.Skipped[SkipUnchanged] != 1 || len(fake.Calls()) != calls {
+		t.Fatalf("a renamed, unchanged document must stay linked: %+v (%d new calls)", report, len(fake.Calls())-calls)
+	}
+}

@@ -30,7 +30,8 @@ func TestLinkCommandDryRunAndApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("link --dry-run: %v", err)
 	}
-	if !strings.Contains(stdout, "link (dry run): 2 documents, 1 judged") || !strings.Contains(stdout, "would add related [[RAG]] to raw/articles/s.md") {
+	if !strings.Contains(stdout, "link (dry run): 2 documents, 1 judged") || !strings.Contains(stdout, "would add related [[RAG]] to raw/articles/s.md") ||
+		!strings.Contains(stdout, "dry run: decisions are still asked (cached answers are free, new ones spend the run budget)") {
 		t.Fatalf("dry-run output:\n%s", stdout)
 	}
 	if data, _ := os.ReadFile(sourcePath); string(data) != source {

@@ -81,7 +81,7 @@ func newLinkCommand() *cobra.Command {
 	}
 
 	command.Flags().BoolVar(&all, "all", false, "Relink every document, including unchanged ones")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "Print what would change without writing files, state or review items")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "Print what would change without writing files, state or review items (decisions are still asked: cached answers are free, new ones spend the budget)")
 	command.Flags().BoolVar(&noQMD, "no-qmd", false, "Do not add qmd vector neighbours as link candidates")
 	bindDecisionFlags(command, &flags)
 	return command

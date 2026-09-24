@@ -42,6 +42,8 @@ const (
 	// maxMentionsPerCandidate and maxMentions bound mention_sense questions.
 	maxMentionsPerCandidate = 3
 	maxMentions             = 40
+	// maxListedDocuments caps the undecided documents named in Lines.
+	maxListedDocuments = 10
 )
 
 // Skip reasons reported in Report.Skipped.
@@ -82,8 +84,15 @@ type Report struct {
 	Reviews        int
 	Demotions      int
 	Contradictions int
-	Undecided      int
-	Skipped        map[string]int
+	// Undecided counts undecided answers.
+	Undecided int
+	// Decided counts judged documents whose every answer was decided.
+	Decided int
+	// UndecidedDocuments lists, sorted, the judged documents with an
+	// undecided answer: they keep no link bookkeeping, so the next run
+	// judges them again (through the cache for the decided answers).
+	UndecidedDocuments []string
+	Skipped            map[string]int
 	// Changes lists what was (or, in a dry run, would be) changed.
 	Changes []string
 }
@@ -94,7 +103,13 @@ func (r Report) Lines() []string {
 	if r.DryRun {
 		prefix = "link (dry run)"
 	}
-	lines := []string{fmt.Sprintf("%s: %d documents, %d judged, body links %s", prefix, r.Documents, r.Judged, r.BodyMode)}
+	lines := []string{
+		fmt.Sprintf("%s: %d documents, %d judged, body links %s", prefix, r.Documents, r.Judged, r.BodyMode),
+		fmt.Sprintf("coverage: %d/%d judged documents fully decided", r.Decided, r.Judged),
+	}
+	if r.DryRun {
+		lines = append(lines, "dry run: decisions are still asked (cached answers are free, new ones spend the run budget); nothing was written")
+	}
 	applied := make([]string, 0, len(r.Applied))
 	for _, key := range slices.Sorted(maps.Keys(r.Applied)) {
 		if key != KeyAffects {
@@ -115,6 +130,9 @@ func (r Report) Lines() []string {
 		fmt.Sprintf("review: %d link, %d demotions, %d contradictions", r.Reviews, r.Demotions, r.Contradictions),
 		fmt.Sprintf("undecided: %d", r.Undecided),
 	)
+	if len(r.UndecidedDocuments) > 0 {
+		lines = append(lines, fmt.Sprintf("undecided documents (%d, judged again next run): %s", len(r.UndecidedDocuments), corpus.ListPaths(r.UndecidedDocuments, maxListedDocuments)))
+	}
 	if len(r.Skipped) > 0 {
 		skipped := make([]string, 0, len(r.Skipped))
 		for _, reason := range slices.Sorted(maps.Keys(r.Skipped)) {
@@ -147,6 +165,9 @@ type runner struct {
 	th        Thresholds
 	bodyMode  string
 	dryRun    bool
+	// exists reports whether a topic-relative path is a document of the
+	// corpus (rename detection in state lookups).
+	exists func(path string) bool
 
 	logMu sync.Mutex
 }
@@ -161,6 +182,7 @@ type job struct {
 
 // docResult is the per-document outcome, merged into the report in order.
 type docResult struct {
+	path    string
 	judged  bool
 	skip    string
 	outcome Outcome
@@ -292,6 +314,8 @@ func (r *Report) add(other Report) {
 	r.Demotions += other.Demotions
 	r.Contradictions += other.Contradictions
 	r.Undecided += other.Undecided
+	r.Decided += other.Decided
+	r.UndecidedDocuments = mergeSorted(r.UndecidedDocuments, other.UndecidedDocuments)
 	for key, count := range other.Applied {
 		r.Applied[key] += count
 	}
@@ -327,6 +351,7 @@ func newRunner(s *session.Session, neighbours Neighbours, dryRun bool) (*runner,
 		th:        ThresholdsFrom(s),
 		bodyMode:  s.BodyMode(),
 		dryRun:    dryRun,
+		exists:    func(p string) bool { return c.ByPath(p) != nil },
 	}
 	docs := make([]*corpus.Document, 0)
 	for _, doc := range c.Documents() {
@@ -352,12 +377,22 @@ func skipReason(doc *corpus.Document) string {
 	}
 }
 
+// unchanged reports a document whose link judgment is current: the link
+// bank was judged on its current body (recorded per bank, so writes by other
+// commands never make it look current) with the same bank version and
+// candidate set. An undecided judgment records blank versions, so it is
+// never unchanged.
 func (r *runner) unchanged(doc *corpus.Document, hash string) bool {
-	row, ok := r.s.State.Get(doc.Path)
+	row, ok := r.lookup(doc)
 	if !ok {
 		return false
 	}
-	return row.BodyHash == doc.BodyHash && row.Banks[BankID] == r.bank.Version && row.Banks[CandidatesBank] == hash
+	return row.JudgedBody(BankID) == doc.BodyHash && row.Banks[BankID] == r.bank.Version && row.Banks[CandidatesBank] == hash
+}
+
+// lookup returns the state row of doc, following a rename by body hash.
+func (r *runner) lookup(doc *corpus.Document) (*corpus.StateRow, bool) {
+	return r.s.State.Lookup(doc.Path, doc.BodyHash, r.exists)
 }
 
 // plan gathers, by code, what the write policy needs about doc.
@@ -377,7 +412,7 @@ func (r *runner) plan(doc *corpus.Document, candidates []Candidate, mentions []c
 		idByPath[candidate.Path] = candidate.ID
 	}
 
-	row, _ := r.s.State.Get(doc.Path)
+	row, _ := r.lookup(doc)
 	for _, key := range append(slices.Clone(decisions.RelationKeys), KeyAffects) {
 		entries := stringList(doc.Frontmatter, key)
 		if len(entries) == 0 {
@@ -466,6 +501,11 @@ func (r *runner) execute(ctx context.Context, jobs []*job, report Report) (Repor
 		}
 		report.Judged++
 		report.Undecided += result.outcome.Undecided
+		if result.outcome.Undecided > 0 {
+			report.UndecidedDocuments = append(report.UndecidedDocuments, result.path)
+		} else {
+			report.Decided++
+		}
 		if result.skip != "" {
 			continue
 		}
@@ -479,6 +519,7 @@ func (r *runner) execute(ctx context.Context, jobs []*job, report Report) (Repor
 		report.Contradictions += result.outcome.Contradictions
 		report.Changes = append(report.Changes, result.changes...)
 	}
+	sort.Strings(report.UndecidedDocuments)
 	return report, nil
 }
 
@@ -495,7 +536,20 @@ func (r *runner) link(ctx context.Context, current *job) (docResult, error) {
 		return docResult{}, fmt.Errorf("link %s: %w", doc.Path, err)
 	}
 	outcome := Decide(plan, result.Answers, r.th, r.bodyMode)
-	res := docResult{judged: true, outcome: outcome, changes: describe(plan, outcome), applied: map[string]int{}}
+	res := docResult{path: doc.Path, judged: true, outcome: outcome, changes: describe(plan, outcome), applied: map[string]int{}}
+	meta := current.meta
+	if outcome.Undecided > 0 {
+		// An undecided answer (timeout, budget, invalid receipt) is never a
+		// "no": the document keeps no link bookkeeping, so the next
+		// incremental run judges it again, through the cache for the answers
+		// that were decided (spec §2.3, §4.1).
+		meta.Banks = maps.Clone(meta.Banks)
+		for _, id := range []string{BankID, CandidatesBank} {
+			if _, ok := meta.Banks[id]; ok {
+				meta.Banks[id] = ""
+			}
+		}
+	}
 
 	if r.dryRun {
 		for key, paths := range outcome.Added {
@@ -506,9 +560,9 @@ func (r *runner) link(ctx context.Context, current *job) (docResult, error) {
 
 	var write corpus.WriteResult
 	if len(outcome.Insertions) > 0 {
-		write, err = r.s.Writer.ApplyBody(doc, InsertLinks(doc.Body, outcome.Insertions), outcome.Updates, current.meta)
+		write, err = r.s.Writer.ApplyBody(doc, InsertLinks(doc.Body, outcome.Insertions), outcome.Updates, meta)
 	} else {
-		write, err = r.s.Writer.Apply(doc, outcome.Updates, current.meta)
+		write, err = r.s.Writer.Apply(doc, outcome.Updates, meta)
 	}
 	if err != nil {
 		return docResult{}, fmt.Errorf("link %s: %w", doc.Path, err)
@@ -653,4 +707,11 @@ func describe(plan Plan, outcome Outcome) []string {
 		changes = append(changes, fmt.Sprintf("queue %s item: %s", item.Queue, item.Evidence))
 	}
 	return changes
+}
+
+// mergeSorted returns the sorted union of two path lists.
+func mergeSorted(a, b []string) []string {
+	merged := append(slices.Clone(a), b...)
+	sort.Strings(merged)
+	return slices.Compact(merged)
 }
