@@ -19,6 +19,7 @@ import (
 )
 
 func TestCLIIntegrationScaffoldAndIngestFiles(t *testing.T) {
+	useFakeDecisionModel(t) // ingest requires the decision model (spec §2)
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "systems-design", "Systems Design", "systems")
 
@@ -598,6 +599,7 @@ func TestCLIIntegrationCodebaseDryRunDoesNotWriteManagedArtifacts(t *testing.T) 
 }
 
 func TestCLIIntegrationGeneratedContentPassesLint(t *testing.T) {
+	useFakeDecisionModel(t) // ingest requires the decision model (spec §2)
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "rewrite-qa", "Rewrite QA", "engineering")
 	codebasePath := filepath.Join("..", "generate", "testdata", "fixture-go-repo")
@@ -627,12 +629,23 @@ func TestCLIIntegrationGeneratedContentPassesLint(t *testing.T) {
 		"--format", "json",
 		"--vault", vaultRoot,
 	)
-	if len(issues) != 0 {
-		t.Fatalf("generated content should pass lint, found %#v", issues)
+	// Ingest is decision-backed, so the topic has adopted the decision
+	// workflow: lint advises a selection contract and a concept vocabulary
+	// for its source. Those are topic-setup advisories, not issues of the
+	// generated content, which must still lint clean.
+	content := make([]models.LintIssue, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Kind != models.LintIssueKindContractMissing && issue.Kind != models.LintIssueKindVocabularyMissing {
+			content = append(content, issue)
+		}
+	}
+	if len(content) != 0 {
+		t.Fatalf("generated content should pass lint, found %#v", content)
 	}
 }
 
 func TestCLIIntegrationScaffoldIngestAndLint(t *testing.T) {
+	useFakeDecisionModel(t) // ingest requires the decision model (spec §2)
 	vaultRoot := t.TempDir()
 	topic := scaffoldTopicForIntegration(t, vaultRoot, "knowledge-ops", "Knowledge Ops", "knowledge")
 

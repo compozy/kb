@@ -40,11 +40,45 @@ type ScrapeResult struct {
 	Markdown  string
 	Title     string
 	SourceURL string
+	// StatusCode is the HTTP status Firecrawl reports for the scraped page
+	// (metadata.statusCode); 0 when absent.
+	StatusCode int
+	// FinalURL is the page URL after redirects (metadata.url) when it differs
+	// from SourceURL; empty otherwise.
+	FinalURL string
+	// SiteName is the site name the page declares (metadata.ogSiteName,
+	// og:site_name or siteName); empty when absent. The ingest gate uses it
+	// for the "title equals the site name" rule.
+	SiteName string
+}
+
+// ScrapeOptions are the optional freshness knobs of a scrape request (spec §7
+// stage 4). A nil pointer or zero WaitFor leaves the field out of the request
+// so Firecrawl applies its default.
+type ScrapeOptions struct {
+	// MaxAge is the maximum cache age in milliseconds; 0 bypasses the cache.
+	MaxAge *int64
+	// WaitFor is the delay in milliseconds before capture (client-side rendering).
+	WaitFor int
+	// OnlyMainContent toggles Firecrawl's main-content filter.
+	OnlyMainContent *bool
+}
+
+// RefetchOptions returns the fresh-scrape options used before a quality gate
+// judges a thin or broken capture: maxAge 0, waitFor refetch_wait_ms and
+// onlyMainContent refetch_only_main_content.
+func RefetchOptions(cfg config.FirecrawlConfig) ScrapeOptions {
+	maxAge := int64(0)
+	onlyMain := cfg.RefetchOnlyMainContent
+	return ScrapeOptions{MaxAge: &maxAge, WaitFor: cfg.RefetchWaitMS, OnlyMainContent: &onlyMain}
 }
 
 type scrapeRequest struct {
-	URL     string   `json:"url"`
-	Formats []string `json:"formats"`
+	URL             string   `json:"url"`
+	Formats         []string `json:"formats"`
+	MaxAge          *int64   `json:"maxAge,omitempty"`
+	WaitFor         int      `json:"waitFor,omitempty"`
+	OnlyMainContent *bool    `json:"onlyMainContent,omitempty"`
 }
 
 type scrapeResponse struct {
@@ -60,10 +94,37 @@ type scrapeResponseData struct {
 }
 
 type scrapeResponseMetadata struct {
-	Title     string `json:"title"`
-	SourceURL string `json:"sourceURL"`
-	URL       string `json:"url"`
-	Error     string `json:"error"`
+	Title       string   `json:"title"`
+	SourceURL   string   `json:"sourceURL"`
+	URL         string   `json:"url"`
+	StatusCode  int      `json:"statusCode"`
+	Error       string   `json:"error"`
+	OGSiteName  metaText `json:"ogSiteName"`
+	OGSiteName2 metaText `json:"og:site_name"`
+	SiteName    metaText `json:"siteName"`
+}
+
+// metaText is a Firecrawl metadata value that is a string or, when a page
+// repeats the meta tag, an array of strings (the first non-empty one wins).
+type metaText string
+
+func (m *metaText) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*m = metaText(strings.TrimSpace(single))
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err == nil {
+		for _, value := range many {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				*m = metaText(trimmed)
+				return nil
+			}
+		}
+	}
+	*m = ""
+	return nil
 }
 
 type scrapeErrorResponse struct {
@@ -119,8 +180,15 @@ func NewClient(cfg config.FirecrawlConfig) *Client {
 	}
 }
 
-// Scrape converts a source URL into markdown through Firecrawl.
+// Scrape converts a source URL into markdown through Firecrawl with
+// Firecrawl's default freshness options.
 func (client *Client) Scrape(ctx context.Context, sourceURL string) (*ScrapeResult, error) {
+	return client.ScrapeWithOptions(ctx, sourceURL, ScrapeOptions{})
+}
+
+// ScrapeWithOptions is Scrape with explicit freshness options; only the
+// options that are set are sent.
+func (client *Client) ScrapeWithOptions(ctx context.Context, sourceURL string, opts ScrapeOptions) (*ScrapeResult, error) {
 	if client == nil {
 		return nil, errors.New("firecrawl scrape: client is nil")
 	}
@@ -141,8 +209,11 @@ func (client *Client) Scrape(ctx context.Context, sourceURL string) (*ScrapeResu
 	}
 
 	body, err := json.Marshal(scrapeRequest{
-		URL:     sourceURL,
-		Formats: []string{"markdown"},
+		URL:             sourceURL,
+		Formats:         []string{"markdown"},
+		MaxAge:          opts.MaxAge,
+		WaitFor:         max(opts.WaitFor, 0),
+		OnlyMainContent: opts.OnlyMainContent,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl scrape %q: encode request: %w", sourceURL, err)
@@ -233,10 +304,19 @@ func (client *Client) scrapeOnce(ctx context.Context, sourceURL string, body []b
 		return nil, false, fmt.Errorf("firecrawl scrape %q: api error: %s", sourceURL, apiError)
 	}
 
+	meta := payload.Data.Metadata
+	resolvedSource := firstNonEmpty(strings.TrimSpace(meta.SourceURL), strings.TrimSpace(meta.URL), sourceURL)
+	finalURL := strings.TrimSpace(meta.URL)
+	if finalURL == resolvedSource {
+		finalURL = ""
+	}
 	return &ScrapeResult{
-		Markdown:  payload.Data.Markdown,
-		Title:     strings.TrimSpace(payload.Data.Metadata.Title),
-		SourceURL: firstNonEmpty(strings.TrimSpace(payload.Data.Metadata.SourceURL), strings.TrimSpace(payload.Data.Metadata.URL), sourceURL),
+		Markdown:   payload.Data.Markdown,
+		Title:      strings.TrimSpace(meta.Title),
+		SourceURL:  resolvedSource,
+		StatusCode: meta.StatusCode,
+		FinalURL:   finalURL,
+		SiteName:   firstNonEmpty(string(meta.OGSiteName), string(meta.OGSiteName2), string(meta.SiteName)),
 	}, false, nil
 }
 

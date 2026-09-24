@@ -1,14 +1,18 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/compozy/kb/internal/decisions"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/topic"
@@ -398,6 +402,132 @@ func TestIngestRejectsExtraFrontmatterReservedKeys(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "reserved key") {
 		t.Fatalf("error = %v, want reserved key validation", err)
 	}
+}
+
+func TestIngestWritesProvenance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		batch     string
+		query     string
+		wantBatch any
+		wantQuery any
+	}{
+		{name: "Should write ingest_batch and ingest_query when set", batch: " channel-2026-04-11-a1b2c3 ", query: " https://www.youtube.com/@chan ", wantBatch: "channel-2026-04-11-a1b2c3", wantQuery: "https://www.youtube.com/@chan"},
+		{name: "Should write only the batch when there is no query", batch: "url-2026-04-11-000000", wantBatch: "url-2026-04-11-000000"},
+		{name: "Should omit both keys when empty or blank", batch: "  ", query: "\t"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			vaultPath, topicSlug := scaffoldTopic(t)
+			result, err := Ingest(context.Background(), Options{
+				VaultPath:  vaultPath,
+				Topic:      topicSlug,
+				SourceKind: models.SourceKindArticle,
+				SourceURL:  "https://example.com/post",
+				Title:      "Post",
+				Markdown:   "# Post\n\nBody.\n",
+				ScrapedAt:  fixedScrapeTime,
+				Batch:      tt.batch,
+				Query:      tt.query,
+			})
+			if err != nil {
+				t.Fatalf("Ingest returned error: %v", err)
+			}
+			values, _ := parseMarkdownFile(t, filepath.Join(vaultPath, filepath.FromSlash(result.FilePath)))
+			for key, want := range map[string]any{"ingest_batch": tt.wantBatch, "ingest_query": tt.wantQuery} {
+				got, exists := values[key]
+				if want == nil {
+					if exists {
+						t.Fatalf("%s = %#v, want key omitted", key, got)
+					}
+					continue
+				}
+				if got != want {
+					t.Fatalf("%s = %#v, want %#v", key, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestIngestRejectsExtraFrontmatterOwnedKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range append(append([]string{}, decisions.OwnedKeys...), "locked") {
+		t.Run("Should reject "+key, func(t *testing.T) {
+			t.Parallel()
+			vaultPath, topicSlug := scaffoldTopic(t)
+			_, err := Ingest(context.Background(), Options{
+				VaultPath:        vaultPath,
+				Topic:            topicSlug,
+				SourceKind:       models.SourceKindYouTubeTranscript,
+				Title:            "Owned Key",
+				Markdown:         "## 00:00\nTranscript.\n",
+				ExtraFrontmatter: map[string]any{" " + key + " ": "value"},
+				ScrapedAt:        fixedScrapeTime,
+			})
+			if err == nil || !strings.Contains(err.Error(), "kb-owned key \""+key+"\"") {
+				t.Fatalf("error = %v, want kb-owned key rejection for %q", err, key)
+			}
+			entries, readErr := os.ReadDir(filepath.Join(vaultPath, topicSlug, "raw", "youtube"))
+			if readErr != nil && !os.IsNotExist(readErr) {
+				t.Fatalf("read raw/youtube: %v", readErr)
+			}
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".md") {
+					t.Fatalf("document %q was written despite the rejected key", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestNewBatchID(t *testing.T) {
+	// Not parallel: swaps the package-level entropy source.
+	original := batchEntropy
+	t.Cleanup(func() { batchEntropy = original })
+
+	now := time.Date(2026, 9, 24, 23, 30, 0, 0, time.FixedZone("BRT", -3*3600))
+	tests := []struct {
+		name    string
+		command string
+		entropy io.Reader
+		want    string
+	}{
+		{name: "Should combine command, UTC date and run id", command: "channel", entropy: bytes.NewReader([]byte{0xa1, 0xb2, 0xc3}), want: "channel-2026-09-25-a1b2c3"},
+		{name: "Should slugify the command", command: " Ingest URL ", entropy: bytes.NewReader([]byte{0, 1, 2}), want: "ingest-url-2026-09-25-000102"},
+		{name: "Should default an empty command to ingest", command: "", entropy: bytes.NewReader([]byte{0xff, 0xff, 0xff}), want: "ingest-2026-09-25-ffffff"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			batchEntropy = tt.entropy
+			if got := NewBatchID(tt.command, now); got != tt.want {
+				t.Fatalf("NewBatchID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	pattern := regexp.MustCompile(`^url-2026-09-25-[0-9a-f]{6}$`)
+	t.Run("Should fall back to a time-derived run id when entropy fails", func(t *testing.T) {
+		batchEntropy = bytes.NewReader(nil)
+		if got := NewBatchID("url", now); !pattern.MatchString(got) {
+			t.Fatalf("NewBatchID() = %q, want %s", got, pattern)
+		}
+	})
+	t.Run("Should draw distinct run ids from crypto/rand", func(t *testing.T) {
+		batchEntropy = original
+		first, second := NewBatchID("url", now), NewBatchID("url", now)
+		if !pattern.MatchString(first) || !pattern.MatchString(second) {
+			t.Fatalf("NewBatchID() = %q, %q, want %s", first, second, pattern)
+		}
+		if first == second {
+			// 1 in 16M chance; a repeat means entropy is not wired.
+			t.Fatalf("two batch ids collided: %q", first)
+		}
+	})
 }
 
 func TestIngestEndToEndWithScaffoldedTopic(t *testing.T) {

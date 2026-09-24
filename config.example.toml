@@ -11,10 +11,15 @@
 # - `[stt]`
 # - `[youtube]`
 # - `[instagram]`
+# - `[decisions]` (plus `[decisions.thresholds]`)
+# - `[generation]`
 #
 # Primary CLI surface is configured through commands and flags:
 # - `kb topic {new,list,info}`
+# - `kb topic contract` / `kb topic vocabulary`
 # - `kb ingest {url,file,youtube,channel,instagram,codebase,bookmarks}`
+# - `kb classify`, `kb link`, `kb find`, `kb review`
+# - `kb promote`, `kb okf check`
 # - `kb lint`
 # - `kb inspect ...`
 # - `kb index`
@@ -35,8 +40,12 @@
 # - YOUTUBE_COOKIES_FILE
 # - YOUTUBE_USER_AGENT
 # - YOUTUBE_CAPTION_LANGUAGES
+# - KB_DECISIONS_MODEL
+# - KB_GENERATION_MODEL
 #
 # `openrouter.stt_model` is currently TOML-backed rather than env-overridden.
+# OPENROUTER_API_KEY / OPENROUTER_API_URL (or `[openrouter].api_key/api_url`)
+# are shared by the STT provider, the decision model and the generation model.
 
 [app]
 name = "kb"
@@ -51,17 +60,90 @@ topic_globs = ["*"]
 
 [okf]
 # Local OKF concept type vocabulary. Empty means `kb okf check` will not warn
-# about unknown types until the operator opts into a local standard.
+# about unknown types until the operator opts into a local standard. With a
+# vocabulary, `kb promote` without --type asks the decision model to pick one
+# (and warns when --type disagrees), so it then requires [decisions].
 types = []
+
+# Optional option text per type for those type suggestions; a type without a
+# description is offered by its name. Example:
+# [okf.type_descriptions]
+# Playbook = "A step-by-step procedure someone follows to get a task done"
+# Reference = "Facts, tables or definitions meant to be looked up"
 
 [firecrawl]
 api_key = ""
 api_url = "https://api.firecrawl.dev"
+# Fresh refetch before a quality gate judges a thin or broken capture: the
+# refetch always bypasses Firecrawl's cache (maxAge 0), waits this long for
+# client-side rendering, and keeps the full page unless set to true.
+refetch_wait_ms = 3000
+refetch_only_main_content = false
 
 [openrouter]
+# api_key/api_url are shared by the STT provider, [decisions] and [generation].
 api_key = ""
 api_url = "https://openrouter.ai/api"
 stt_model = "google/gemini-2.5-flash"
+
+[decisions]
+# Decision model (Jev) over OpenRouter Decisions: POST <api_url>/alpha/decisions.
+# Required by ingest (except codebase), classify, link, find, review
+# accept/reject, topic contract --draft/--accept, topic vocabulary, promote (with
+# [okf].types) and okf check --decide; needs OPENROUTER_API_KEY.
+# KB_DECISIONS_MODEL overrides the model. topic.yaml `decisions:` overrides mode
+# and thresholds per topic (plus gates, relevance and exclude).
+model = "typesafe/jev-1.13"
+# Total deadline of one attempt, including the body read.
+deadline = "20s"
+# Retries after the first attempt on 408/429/5xx, network errors and timeouts.
+retries = 2
+# Decision requests in flight per run; a 429 pauses the whole pool.
+concurrency = 8
+# Canonical JSON size cap of one decision state; larger states are
+# not_checked:state_too_large (no call).
+max_state_bytes = 98304
+# Per-run spend ceiling in US$, shared with [generation]; `--budget` overrides.
+budget_usd = 1.0
+# Default body-link insertion mode: "shadow" records would-be outcomes, "apply"
+# writes. Relevance gates have their own rule: shadow until the topic has an
+# accepted contract and either a calibration (kb review calibrate --write) or
+# topic.yaml `decisions.gates: apply`. `--decisions` overrides both for a run.
+mode = "shadow"
+
+[decisions.thresholds]
+# Named thresholds (defaults shown; topic.yaml `decisions.thresholds` overrides
+# them per topic). Every value must be within [0, 1].
+# link_apply = 0.85
+# link_review = 0.60
+# mention_sense = 0.85
+# affects = 0.80
+# relevance_quarantine = 0.80
+# relevance_review = 0.50
+# relevance_fetch = 0.50
+# quality_apply = 0.80
+# quality_review = 0.50
+# duplicate = 0.80
+# primary_concept = 0.30
+# concept_noul = 0.70
+# find_keep = 0.50
+# find_window = 0.35
+# okf_type = 0.80
+# contract_conflict = 0.70
+
+[generation]
+# Generation model for short literals (summaries, aliases, criteria, drafts)
+# over OpenRouter chat completions with a strict JSON schema and reasoning
+# disabled. KB_GENERATION_MODEL overrides the model.
+model = "xiaomi/mimo-v2.6-flash"
+# Tried once after the primary model fails; "" disables the fallback.
+fallback_model = "deepseek/deepseek-v4-flash"
+# Total deadline of one attempt.
+deadline = "90s"
+# Retries per model after the first attempt.
+retries = 1
+# Language generated summaries are written in.
+summary_language = "en"
 
 [stt]
 provider = "openai"

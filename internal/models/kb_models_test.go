@@ -24,10 +24,24 @@ func TestLintIssueKinds(t *testing.T) {
 
 	expected := []LintIssueKind{
 		LintIssueKindDeadLink,
+		LintIssueKindFrontmatterDeadLink,
+		LintIssueKindLinkToQuarantined,
 		LintIssueKindOrphan,
 		LintIssueKindMissingSource,
 		LintIssueKindStale,
+		LintIssueKindNeedsCompile,
 		LintIssueKindFormat,
+		LintIssueKindKeyConflict,
+		LintIssueKindContradiction,
+		LintIssueKindOffTopicKept,
+		LintIssueKindCriterionMissing,
+		LintIssueKindUnclassified,
+		LintIssueKindContractMissing,
+		LintIssueKindContractDraftPending,
+		LintIssueKindVocabularyMissing,
+		LintIssueKindPendingReview,
+		LintIssueKindRecapturePending,
+		LintIssueKindRemovePending,
 		LintIssueKindJavaDiagnosticGovernance,
 	}
 

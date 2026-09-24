@@ -1,0 +1,84 @@
+{
+  "bank": "concept",
+  "state_defaults": {
+    "concepts": [
+      {"id": "a2a", "title": "Agent-to-Agent Protocols", "aliases": ["A2A", "ACP", "ANP"], "criterion": "Documents that specify, compare or evaluate protocols agents use to talk to each other or to tools, including MCP, A2A, ACP and ANP."},
+      {"id": "rag", "title": "Retrieval-Augmented Generation", "aliases": ["RAG"], "criterion": "Documents about retrieving context (chunking, indexing, reranking) to ground LLM answers."},
+      {"id": "evals", "title": "LLM Evaluation", "aliases": ["evals"], "criterion": "Documents about measuring LLM output quality: benchmarks, judges, labeled sets and calibration."}
+    ]
+  },
+  "cases": [
+    {
+      "name": "protocol survey picks agent protocols",
+      "question": "primary_concept",
+      "criteria": {
+        "a2a": "Agent-to-Agent Protocols — A2A, ACP, ANP — documents that specify, compare or evaluate protocols agents use to talk to each other or to tools",
+        "rag": "Retrieval-Augmented Generation — RAG — documents about retrieving context to ground LLM answers",
+        "evals": "LLM Evaluation — evals — documents about measuring LLM output quality"
+      },
+      "state": {"document": {"title": "A survey of agent interoperability protocols", "excerpt": "We compare MCP, ACP, A2A and ANP along discovery, transport, security and state management, and discuss when each fits multi-agent systems."}},
+      "allowed": ["a2a"]
+    },
+    {
+      "name": "chunking article picks rag",
+      "question": "primary_concept",
+      "criteria": {
+        "a2a": "Agent-to-Agent Protocols — A2A, ACP, ANP — documents that specify, compare or evaluate protocols agents use to talk to each other or to tools",
+        "rag": "Retrieval-Augmented Generation — RAG — documents about retrieving context to ground LLM answers",
+        "evals": "LLM Evaluation — evals — documents about measuring LLM output quality"
+      },
+      "state": {"document": {"title": "Chunk size matters", "excerpt": "Splitting documents into 512-token chunks with 64-token overlap improved retrieval recall before the context reaches the generator, and a reranker fixed the remaining misses."}},
+      "allowed": ["rag"]
+    },
+    {
+      "name": "cooking article picks none",
+      "question": "primary_concept",
+      "criteria": {
+        "a2a": "Agent-to-Agent Protocols — A2A, ACP, ANP — documents that specify, compare or evaluate protocols agents use to talk to each other or to tools",
+        "rag": "Retrieval-Augmented Generation — RAG — documents about retrieving context to ground LLM answers",
+        "evals": "LLM Evaluation — evals — documents about measuring LLM output quality"
+      },
+      "state": {"document": {"title": "Perfect risotto", "excerpt": "Toast the rice, add warm stock one ladle at a time and stir until creamy."}},
+      "allowed": ["none"]
+    },
+    {
+      "name": "benchmark article picks evals",
+      "question": "primary_concept",
+      "criteria": {
+        "a2a": "Agent-to-Agent Protocols — A2A, ACP, ANP — documents that specify, compare or evaluate protocols agents use to talk to each other or to tools",
+        "rag": "Retrieval-Augmented Generation — RAG — documents about retrieving context to ground LLM answers",
+        "evals": "LLM Evaluation — evals — documents about measuring LLM output quality"
+      },
+      "state": {"document": {"title": "Building a labeled set for your LLM feature", "excerpt": "Label 200 outputs, split them into dev and holdout, and report precision and recall of your judge on the holdout only."}},
+      "allowed": ["evals"]
+    },
+    {
+      "name": "substantive a2a discussion",
+      "question": "mentions_concept_{id}",
+      "vars": {"id": "a2a"},
+      "state": {"document": {"title": "Wiring two agents together", "excerpt": "We connected a planner and an executor over A2A: the planner publishes an agent card, the executor discovers it and they exchange tasks as JSON-RPC messages. Compared with a custom HTTP API, A2A gave us discovery and streaming for free."}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "rag named in a list only",
+      "question": "mentions_concept_{id}",
+      "vars": {"id": "rag"},
+      "state": {"document": {"title": "Our 2026 roadmap", "excerpt": "This year we will ship billing, a new dashboard, SSO and maybe RAG, depending on customer demand. Most of the effort goes into billing."}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "rag cloth is another sense",
+      "question": "mentions_concept_{id}",
+      "vars": {"id": "rag"},
+      "state": {"document": {"title": "Cleaning cast iron", "excerpt": "Wipe the pan with an oily rag after each use and heat it for a minute so the seasoning stays intact."}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "substantive evals discussion",
+      "question": "mentions_concept_{id}",
+      "vars": {"id": "evals"},
+      "state": {"document": {"title": "LLM judges drift", "excerpt": "We re-ran the same judge prompt over 1,000 answers a month apart and saw 8% of verdicts flip. Pinning the judge model and keeping a holdout set made the drift measurable."}},
+      "allowed": ["yes"]
+    }
+  ]
+}

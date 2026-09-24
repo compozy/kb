@@ -1,0 +1,72 @@
+{
+  "bank": "find",
+  "state_defaults": {
+    "question": "How do I set a timeout for Jev calls?",
+    "candidates": [
+      {"id": "a", "title": "Retries and deadlines for decision calls", "kind": "tutorial_or_guide", "concepts": ["Jev"], "summary": "How to wrap each Jev request in a total deadline and retry transient failures.", "head": "Socket timeouts are defeated by keep-alive whitespace. Wrap the whole request, body read included, in a 20 s deadline; retry 429 and 5xx twice with jittered backoff."},
+      {"id": "b", "title": "Sourdough for beginners", "kind": "tutorial_or_guide", "concepts": [], "summary": "How to keep a sourdough starter alive.", "head": "Feed the starter twice a day with equal parts flour and water."},
+      {"id": "c", "title": "Jev pricing explained", "kind": "reference_docs", "concepts": ["Jev"], "summary": "List price per input token and why output is free.", "head": "Jev costs US$ 0.042 per million input tokens on OpenRouter; output tokens are free."}
+    ]
+  },
+  "cases": [
+    {
+      "name": "retry article answers the timeout question",
+      "question": "answers_{id}",
+      "vars": {"id": "a"},
+      "state": {},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "sourdough does not answer",
+      "question": "answers_{id}",
+      "vars": {"id": "b"},
+      "state": {},
+      "allowed": ["no"]
+    },
+    {
+      "name": "pricing page does not answer",
+      "question": "answers_{id}",
+      "vars": {"id": "c"},
+      "state": {},
+      "allowed": ["no"]
+    },
+    {
+      "name": "retry article is specific",
+      "question": "specificity_{id}",
+      "vars": {"id": "a"},
+      "state": {},
+      "allowed": ["2", "3"]
+    },
+    {
+      "name": "pricing page is tangential",
+      "question": "specificity_{id}",
+      "vars": {"id": "c"},
+      "state": {},
+      "allowed": ["0", "1"]
+    },
+    {
+      "name": "definition question",
+      "question": "question_kind",
+      "state": {"question": "What is a noul?"},
+      "allowed": ["definition"]
+    },
+    {
+      "name": "how-to question",
+      "question": "question_kind",
+      "state": {"question": "How do I configure retries for the decisions endpoint?"},
+      "allowed": ["how_to"]
+    },
+    {
+      "name": "comparison question",
+      "question": "question_kind",
+      "state": {"question": "Is Jev or a GPT-4 judge better for filtering off-topic documents?"},
+      "allowed": ["comparison"]
+    },
+    {
+      "name": "evidence question",
+      "question": "question_kind",
+      "state": {"question": "What precision did the relevance gate reach on the sports-tech topic?"},
+      "allowed": ["evidence_or_data"]
+    }
+  ]
+}

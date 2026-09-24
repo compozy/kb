@@ -59,7 +59,7 @@ func TestLintDetectsDeadLinksWithoutFlaggingValidDisplayLinks(t *testing.T) {
 
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/source-note.md", sourceFrontmatter("Source Note", "article", "2026-04-10"), "# Source Note\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Target Concept.md", conceptFrontmatter("Target Concept", "2026-04-11", []string{"[[Source Note]]"}), "# Target Concept\n\nSee [[Source Note]].\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Target Concept.md", conceptFrontmatter("Target Concept", "2026-04-11", []string{"[[source-note]]"}), "# Target Concept\n\nSee [[source-note]].\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Target Concept|Display]]\n[[Missing Article]]\n")
 
 	issues := mustLint(t, topicPath)
@@ -84,7 +84,7 @@ func TestLintDetectsOrphanArticles(t *testing.T) {
 
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/source-note.md", sourceFrontmatter("Source Note", "article", "2026-04-10"), "# Source Note\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Orphan Concept.md", conceptFrontmatter("Orphan Concept", "2026-04-11", []string{"[[Source Note]]"}), "# Orphan Concept\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Orphan Concept.md", conceptFrontmatter("Orphan Concept", "2026-04-11", []string{"[[source-note]]"}), "# Orphan Concept\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "# Dashboard\n")
 
 	issues := mustLint(t, topicPath)
@@ -109,7 +109,7 @@ func TestLintDetectsMissingSourcesAndStaleContent(t *testing.T) {
 
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/fresh-source.md", sourceFrontmatter("Fresh Source", "article", "2026-04-12"), "# Fresh Source\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Stale Concept.md", conceptFrontmatter("Stale Concept", "2026-04-11", []string{"[[Fresh Source]]", "[[Missing Source]]"}), "# Stale Concept\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Stale Concept.md", conceptFrontmatter("Stale Concept", "2026-04-11", []string{"[[fresh-source]]", "[[Missing Source]]"}), "# Stale Concept\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Stale Concept|Stale]]\n")
 
 	issues := mustLint(t, topicPath)
@@ -124,7 +124,7 @@ func TestLintDetectsMissingSourcesAndStaleContent(t *testing.T) {
 		Kind:     models.LintIssueKindStale,
 		Severity: models.SeverityWarning,
 		FilePath: "wiki/concepts/Stale Concept.md",
-		Target:   "Fresh Source",
+		Target:   "fresh-source",
 	})
 }
 
@@ -210,8 +210,8 @@ func TestLintReturnsIssuesSortedBySeverityThenFilePath(t *testing.T) {
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/current-source.md", sourceFrontmatter("Current Source", "article", "2026-04-12"), "# Current Source\n")
 	writeMarkdownFile(t, topicPath, "raw/articles/a-source.md", sourceFrontmatter("A Source", "", "2026-04-10"), "# A Source\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Alpha Concept.md", conceptFrontmatter("Alpha Concept", "2026-04-11", []string{"[[Current Source]]"}), "# Alpha Concept\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Bravo Concept.md", conceptFrontmatter("Bravo Concept", "2026-04-12", []string{"[[Current Source]]"}), "# Bravo Concept\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Alpha Concept.md", conceptFrontmatter("Alpha Concept", "2026-04-11", []string{"[[current-source]]"}), "# Alpha Concept\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Bravo Concept.md", conceptFrontmatter("Bravo Concept", "2026-04-12", []string{"[[current-source]]"}), "# Bravo Concept\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Alpha Concept|Alpha]]\n[[Missing Link]]\n")
 
 	issues := mustLint(t, topicPath)
@@ -236,7 +236,7 @@ func TestLintReturnsEmptySliceForHealthyVault(t *testing.T) {
 
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/source-note.md", sourceFrontmatter("Source Note", "article", "2026-04-10"), "# Source Note\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Healthy Concept.md", conceptFrontmatter("Healthy Concept", "2026-04-11", []string{"[[Source Note]]"}), "# Healthy Concept\n\nSee [[Source Note]].\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Healthy Concept.md", conceptFrontmatter("Healthy Concept", "2026-04-11", []string{"[[source-note]]"}), "# Healthy Concept\n\nSee [[source-note]].\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Healthy Concept|Healthy]]\n")
 
 	issues := mustLint(t, topicPath)
@@ -516,20 +516,73 @@ func TestLintResolvesCrossTopicWikilinksWithinVault(t *testing.T) {
 	}
 }
 
-func TestLintResolvesCanonicalizedRawAliasesAndTrailingSlashes(t *testing.T) {
+// Spec §6: lint resolves `[[x]]` the way Obsidian does (file name or path,
+// case-insensitive); titles, frontmatter aliases and canonical/prefix fuzzy
+// matches no longer resolve.
+func TestLintResolvesLinksLikeObsidian(t *testing.T) {
 	t.Parallel()
 
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/anytool.md", sourceFrontmatter("AnyTool: Self-Reflective, Hierarchical Agents for Large-Scale API Calls", "article", "2026-04-10"), "# AnyTool\n")
-	writeMarkdownFile(t, topicPath, "raw/articles/chain-of-thought.md", sourceFrontmatter("Chain-of-Thought Prompting Elicits Reasoning in Large Language Models", "article", "2026-04-10"), "# Chain of Thought\n")
+	chainOfThought := sourceFrontmatter("Chain-of-Thought Prompting Elicits Reasoning in Large Language Models", "article", "2026-04-10")
+	chainOfThought["aliases"] = []string{"CoT"}
+	writeMarkdownFile(t, topicPath, "raw/articles/chain-of-thought.md", chainOfThought, "# Chain of Thought\n")
 	writeMarkdownFile(t, topicPath, "raw/articles/plan-and-solve.md", sourceFrontmatter("Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning by Large Language Models", "article", "2026-04-10"), "# Plan and Solve\n")
-	writeMarkdownFile(t, topicPath, "raw/articles/connections.md", sourceFrontmatter("Connections", "article", "2026-04-10"), "# Connections\n\n[[AnyTool]]\n[[Chain-of-Thought Prompting]]\n[[Plan-and-Solve Prompting]]\n[[Coding Agents Deep Dive/]]\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/connections.md", sourceFrontmatter("Connections", "article", "2026-04-10"), strings.Join([]string{
+		"# Connections",
+		"",
+		"[[AnyTool]]",
+		"[[raw/articles/Plan-And-Solve]]",
+		"[[chain-of-thought|CoT]]",
+		"[[Coding Agents Deep Dive/]]",
+		"[[Chain-of-Thought Prompting]]",
+		"[[Chain-of-Thought Prompting Elicits Reasoning in Large Language Models]]",
+		"[[CoT]]",
+		"[[Plan-and-Solve Prompting]]",
+	}, "\n"))
 	writeMarkdownFile(t, topicPath, "wiki/concepts/Coding Agents Deep Dive.md", conceptFrontmatter("Coding Agents Deep Dive", "2026-04-11", []string{"[[AnyTool]]"}), "# Coding Agents\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Coding Agents Deep Dive|Coding]]\n")
 
 	issues := mustLint(t, topicPath)
-	if len(issues) != 0 {
-		t.Fatalf("issues = %#v, want empty slice", issues)
+	gotTargets := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Kind != models.LintIssueKindDeadLink || issue.FilePath != "raw/articles/connections.md" {
+			t.Fatalf("unexpected issue %#v", issue)
+		}
+		gotTargets = append(gotTargets, issue.Target)
+	}
+	wantTargets := []string{
+		"Chain-of-Thought Prompting",
+		"Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+		"CoT",
+		"Plan-and-Solve Prompting",
+	}
+	if !reflect.DeepEqual(gotTargets, wantTargets) {
+		t.Fatalf("dead-link targets = %#v, want %#v", gotTargets, wantTargets)
+	}
+}
+
+func TestLintResolvesQuarantinedSourcesByOriginalPath(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/_quarantine/articles/junk-page.md", sourceFrontmatter("Junk Page", "article", "2026-04-10"), "# Junk\n")
+	writeMarkdownFile(t, topicPath, "raw/articles/notes.md", sourceFrontmatter("Notes", "article", "2026-04-10"), "[[raw/articles/junk-page]]\n[[systems-design/raw/articles/junk-page]]\n[[junk-page]]\n")
+
+	// Quarantined sources stay resolvable by their original path, stem and
+	// slug-prefixed path; links to them are link-to-quarantined warnings,
+	// never dead links (spec §7.1).
+	issues := mustLint(t, topicPath)
+	gotTargets := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Kind != models.LintIssueKindLinkToQuarantined || issue.Severity != models.SeverityWarning || issue.FilePath != "raw/articles/notes.md" {
+			t.Fatalf("unexpected issue %#v", issue)
+		}
+		gotTargets = append(gotTargets, issue.Target)
+	}
+	wantTargets := []string{"junk-page", "raw/articles/junk-page", "systems-design/raw/articles/junk-page"}
+	if !reflect.DeepEqual(gotTargets, wantTargets) {
+		t.Fatalf("link-to-quarantined targets = %#v, want %#v", gotTargets, wantTargets)
 	}
 }
 
@@ -557,7 +610,7 @@ func TestLintOnMixedVaultDetectsAllRequiredIssueKinds(t *testing.T) {
 	topicPath := newTestTopic(t)
 	writeMarkdownFile(t, topicPath, "raw/articles/current-source.md", sourceFrontmatter("Current Source", "article", "2026-04-12"), "# Current Source\n")
 	writeMarkdownFile(t, topicPath, "raw/articles/broken-source.md", sourceFrontmatter("Broken Source", "", "2026-04-10"), "# Broken Source\n")
-	writeMarkdownFile(t, topicPath, "wiki/concepts/Outdated Concept.md", conceptFrontmatter("Outdated Concept", "2026-04-11", []string{"[[Current Source]]"}), "# Outdated Concept\n")
+	writeMarkdownFile(t, topicPath, "wiki/concepts/Outdated Concept.md", conceptFrontmatter("Outdated Concept", "2026-04-11", []string{"[[current-source]]"}), "# Outdated Concept\n")
 	writeMarkdownFile(t, topicPath, "wiki/concepts/Broken Concept.md", conceptFrontmatter("Broken Concept", "2026-04-11", []string{"[[Missing Source]]"}), "# Broken Concept\n\nSee [[Missing Article]].\n")
 	writeMarkdownFile(t, topicPath, "wiki/concepts/Lonely Concept.md", conceptFrontmatter("Lonely Concept", "2026-04-12", []string{"[[Current Source]]"}), "# Lonely Concept\n")
 	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[systems-design/wiki/concepts/Outdated Concept|Outdated]]\n[[systems-design/wiki/concepts/Broken Concept|Broken]]\n")

@@ -124,6 +124,7 @@ func TestIngestInstagramCommandComposesCaptionAndIngests(t *testing.T) {
 		if gotIngest.Markdown != "## Caption\nA great reel caption\n\n## Transcript\n## 00:00\nspoken words" {
 			t.Fatalf("ingest markdown = %q", gotIngest.Markdown)
 		}
+		assertIngestProvenance(t, gotIngest, "instagram", "", "")
 		if got := gotIngest.ExtraFrontmatter["shortcode"]; got != "C8Qh1Z6Iq3K" {
 			t.Fatalf("shortcode = %#v", got)
 		}

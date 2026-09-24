@@ -33,6 +33,8 @@ func newTopicCommand() *cobra.Command {
 		newTopicNewCommand(),
 		newTopicListCommand(),
 		newTopicInfoCommand(),
+		newTopicVocabularyCommand(),
+		newTopicContractCommand(),
 	)
 
 	return command

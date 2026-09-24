@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,12 +17,12 @@ import (
 	ktopic "github.com/compozy/kb/internal/topic"
 )
 
-var runIngest = kingest.Ingest
 var runIngestTopicInfo = ktopic.Info
 var runIngestTopicNew = ktopic.New
 var ingestGetwd = os.Getwd
 var loadIngestConfig = loadCLIConfig
 var existingYouTubeVideoIDs = kingest.ExistingYouTubeVideoIDs
+var ingestNow = time.Now
 
 type ingestTarget struct {
 	TopicInfo models.TopicInfo
@@ -100,6 +101,21 @@ func missingTopicCreateCommand(topicSlug string, title string, domain string) st
 func requireTopicFlag(command *cobra.Command, topic *string) {
 	command.Flags().StringVar(topic, "topic", "", "Target topic slug inside the vault")
 	_ = command.MarkFlagRequired("topic")
+}
+
+// addBatchFlag registers --batch, the provenance batch name written as
+// ingest_batch on every document of the run (spec §4.4).
+func addBatchFlag(command *cobra.Command, batch *string) {
+	command.Flags().StringVar(batch, "batch", "", "Batch name recorded as ingest_batch on every ingested document (default <command>-<YYYY-MM-DD>-<run id>)")
+}
+
+// resolveIngestBatch returns the --batch value or, when unset, one generated
+// batch id for the whole run.
+func resolveIngestBatch(command string, batch string) string {
+	if trimmed := strings.TrimSpace(batch); trimmed != "" {
+		return trimmed
+	}
+	return kingest.NewBatchID(command, ingestNow())
 }
 
 func resolveInputFile(action string, sourcePath string) (string, error) {

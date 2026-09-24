@@ -544,3 +544,136 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
+
+func TestScrapeWithOptionsSendsOnlySetFields(t *testing.T) {
+	t.Parallel()
+
+	zero := int64(0)
+	onlyMainFalse := false
+	testCases := []struct {
+		name string
+		opts ScrapeOptions
+		want map[string]any
+	}{
+		{
+			name: "no options keeps the default request",
+			opts: ScrapeOptions{},
+			want: map[string]any{"url": "https://example.com/a", "formats": []any{"markdown"}},
+		},
+		{
+			name: "refetch options from config",
+			opts: RefetchOptions(config.FirecrawlConfig{RefetchWaitMS: 3000, RefetchOnlyMainContent: false}),
+			want: map[string]any{
+				"url": "https://example.com/a", "formats": []any{"markdown"},
+				"maxAge": float64(0), "waitFor": float64(3000), "onlyMainContent": false,
+			},
+		},
+		{
+			name: "max age only",
+			opts: ScrapeOptions{MaxAge: &zero},
+			want: map[string]any{"url": "https://example.com/a", "formats": []any{"markdown"}, "maxAge": float64(0)},
+		},
+		{
+			name: "only main content false and negative wait dropped",
+			opts: ScrapeOptions{OnlyMainContent: &onlyMainFalse, WaitFor: -5},
+			want: map[string]any{"url": "https://example.com/a", "formats": []any{"markdown"}, "onlyMainContent": false},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodies := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode request body: %v", err)
+				}
+				bodies <- body
+				writeJSONStatus(t, w, http.StatusOK, `{"success":true,"data":{"markdown":"x","metadata":{"sourceURL":"https://example.com/a"}}}`)
+			}))
+			defer server.Close()
+
+			client := NewClient(config.FirecrawlConfig{APIKey: "k", APIURL: server.URL})
+			if _, err := client.ScrapeWithOptions(context.Background(), "https://example.com/a", tc.opts); err != nil {
+				t.Fatalf("ScrapeWithOptions returned error: %v", err)
+			}
+			if got := <-bodies; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("request body = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScrapeReportsStatusCodeAndFinalURL(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		metadata   string
+		wantStatus int
+		wantFinal  string
+		wantSite   string
+	}{
+		{
+			name:       "redirect to home",
+			metadata:   `{"sourceURL":"https://example.com/post","url":"https://example.com/","statusCode":200}`,
+			wantStatus: 200,
+			wantFinal:  "https://example.com/",
+		},
+		{
+			name:       "same url and not found",
+			metadata:   `{"sourceURL":"https://example.com/post","url":"https://example.com/post","statusCode":404}`,
+			wantStatus: 404,
+		},
+		{
+			name:     "no metadata status",
+			metadata: `{"sourceURL":"https://example.com/post"}`,
+		},
+		{
+			name:     "og site name",
+			metadata: `{"sourceURL":"https://example.com/post","ogSiteName":" Catapult "}`,
+			wantSite: "Catapult",
+		},
+		{
+			name:     "repeated og site name tag",
+			metadata: `{"sourceURL":"https://example.com/post","ogSiteName":["","Catapult Sports"]}`,
+			wantSite: "Catapult Sports",
+		},
+		{
+			name:     "site name fallback",
+			metadata: `{"sourceURL":"https://example.com/post","siteName":"Example","ogSiteName":7}`,
+			wantSite: "Example",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSONStatus(t, w, http.StatusOK, `{"success":true,"data":{"markdown":"x","metadata":`+tc.metadata+`}}`)
+			}))
+			defer server.Close()
+
+			client := NewClient(config.FirecrawlConfig{APIKey: "k", APIURL: server.URL})
+			result, err := client.Scrape(context.Background(), "https://example.com/post")
+			if err != nil {
+				t.Fatalf("Scrape returned error: %v", err)
+			}
+			if result.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", result.StatusCode, tc.wantStatus)
+			}
+			if result.FinalURL != tc.wantFinal {
+				t.Fatalf("final url = %q, want %q", result.FinalURL, tc.wantFinal)
+			}
+			if result.SourceURL != "https://example.com/post" {
+				t.Fatalf("source url = %q", result.SourceURL)
+			}
+			if result.SiteName != tc.wantSite {
+				t.Fatalf("site name = %q, want %q", result.SiteName, tc.wantSite)
+			}
+		})
+	}
+}

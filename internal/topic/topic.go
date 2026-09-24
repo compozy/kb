@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/contract"
+	"github.com/compozy/kb/internal/contract/topicyaml"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	"gopkg.in/yaml.v3"
@@ -89,6 +91,10 @@ type templateContext struct {
 	Title  string
 	Today  string
 }
+
+// selectionContractPlaceholder marks where the topic CLAUDE.md template
+// receives the rendered `## Selection contract` section (spec §5.1).
+const selectionContractPlaceholder = "TOPIC_SELECTION_CONTRACT"
 
 type templateFile struct {
 	assetPath  string
@@ -243,7 +249,7 @@ func newWithDateWithMode(vaultPath, slug, title, domain string, mode models.Topi
 	if err := installTemplatesWithMode(topicPath, context, cleanMode); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: install templates: %w", err)
 	}
-	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain, cleanMode)); err != nil {
+	if err := writeMetadataFile(topicPath, topicMetadataForRef(topicRef, cleanTitle, cleanDomain, cleanMode), cleanMode == models.TopicModeWiki); err != nil {
 		return models.TopicInfo{}, fmt.Errorf("new topic: write topic metadata: %w", err)
 	}
 	if err := ensureAgentsSymlink(topicPath); err != nil {
@@ -560,7 +566,7 @@ func WriteMetadataFile(topicPath, slug, title, domain string) error {
 			return fmt.Errorf("validate existing topic mode: %w", err)
 		}
 	}
-	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, mode))
+	return writeMetadataFile(topicPath, topicMetadataForRef(topicRef, title, domain, mode), false)
 }
 
 func topicMetadataForRef(topicRef TopicRef, title, domain string, mode models.TopicMode) topicMetadataFile {
@@ -578,14 +584,47 @@ func topicMetadataForRef(topicRef TopicRef, title, domain string, mode models.To
 	return metadata
 }
 
-func writeMetadataFile(topicPath string, metadata topicMetadataFile) error {
-	encoded, err := yaml.Marshal(metadata)
+// writeMetadataFile merges metadata into topic.yaml at the YAML node level so
+// keys kb does not manage here (contract, drafts, decisions, user keys) and
+// comments survive. Empty optional metadata fields are removed. When
+// scaffoldContract is set and no contract exists yet, an empty contract block
+// is added for the owner to fill through `kb topic contract`.
+func writeMetadataFile(topicPath string, metadata topicMetadataFile, scaffoldContract bool) error {
+	metadataPath := filepath.Join(topicPath, topicMetadataFileName)
+	document, err := topicyaml.Load(metadataPath)
 	if err != nil {
-		return fmt.Errorf("marshal topic metadata: %w", err)
+		return fmt.Errorf("read topic metadata: %w", err)
+	}
+	root := document.Root()
+	for _, field := range []struct {
+		key      string
+		value    string
+		optional bool
+	}{
+		{key: "slug", value: metadata.Slug},
+		{key: "title", value: metadata.Title},
+		{key: "domain", value: metadata.Domain},
+		{key: "mode", value: metadata.Mode, optional: true},
+		{key: "category", value: metadata.Category, optional: true},
+		{key: "path", value: metadata.Path, optional: true},
+		{key: "qmd_collection", value: metadata.QMDCollection, optional: true},
+	} {
+		if field.optional && field.value == "" {
+			topicyaml.Delete(root, field.key)
+			continue
+		}
+		if err := topicyaml.Set(root, field.key, field.value); err != nil {
+			return fmt.Errorf("marshal topic metadata: %w", err)
+		}
+	}
+	if scaffoldContract && topicyaml.Get(root, "contract") == nil {
+		empty := (&contract.Contract{}).Normalized()
+		if err := topicyaml.Set(root, "contract", empty); err != nil {
+			return fmt.Errorf("marshal topic contract: %w", err)
+		}
 	}
 
-	metadataPath := filepath.Join(topicPath, topicMetadataFileName)
-	if err := os.WriteFile(metadataPath, encoded, 0o644); err != nil {
+	if err := document.Save(metadataPath); err != nil {
 		return fmt.Errorf("write %q: %w", metadataPath, err)
 	}
 
@@ -650,6 +689,7 @@ func substituteValue(value any, context templateContext) any {
 
 func replacePlaceholders(value string, context templateContext) string {
 	replacer := strings.NewReplacer(
+		selectionContractPlaceholder, strings.TrimRight(contract.RenderSection(nil), "\n"),
 		"TOPIC_DOMAIN", context.Domain,
 		"TOPIC_SLUG", context.Slug,
 		"TOPIC_TITLE", context.Title,

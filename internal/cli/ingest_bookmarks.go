@@ -1,48 +1,34 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
 )
 
+// newIngestBookmarksCommand ingests one bookmark-cluster markdown file as
+// one source. The cluster is already collected (its URLs are not fetched),
+// so there is no pre-fetch stage: the post-fetch gates judge the cluster
+// document as a whole (dedupe by body hash, code checks without the thin
+// rule, quality + relevance, near-duplicate). The file name is the
+// ingest_query (the cluster label).
 func newIngestBookmarksCommand() *cobra.Command {
 	var topic string
+	var batch string
+	var flags ingestFlags
 
 	command := &cobra.Command{
 		Use:   "bookmarks <path>",
 		Short: "Ingest a bookmark-cluster markdown file into a topic",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target, err := resolveIngestTarget(cmd, "ingest bookmarks", topic)
-			if err != nil {
-				return err
-			}
-
-			sourcePath, err := resolveInputFile("ingest bookmarks", args[0])
-			if err != nil {
-				return err
-			}
-
-			result, err := runIngest(commandContext(cmd), kingest.Options{
-				VaultPath:  target.VaultPath,
-				Topic:      target.TopicInfo.Slug,
-				SourceKind: models.SourceKindBookmarkCluster,
-				SourcePath: sourcePath,
-				Registry:   newIngestRegistry(),
-			})
-			if err != nil {
-				return fmt.Errorf("ingest bookmarks: %w", err)
-			}
-
-			return writeJSON(cmd, result)
+			return runIngestLocalFile(cmd, "bookmarks", args[0], topic, batch, flags, models.SourceKindBookmarkCluster)
 		},
 	}
 
 	requireTopicFlag(command, &topic)
+	addBatchFlag(command, &batch)
+	bindIngestFlags(command, &flags, false)
 
 	return command
 }

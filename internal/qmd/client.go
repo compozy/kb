@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,16 @@ const (
 	DefaultBinaryPath = "qmd"
 	// InstallCommand is the recommended install command for the QMD CLI.
 	InstallCommand = "npm install -g @tobilu/qmd"
+	// CollectionMask is the `--mask` of every collection kb creates: all
+	// markdown except quarantined sources (`raw/_quarantine/`, spec §7) and
+	// decision records (`.decisions/`, which qmd skips as a dot directory
+	// anyway). qmd stores it as the collection pattern, so `qmd update`
+	// keeps honouring it; its negated globs are passed to fast-glob.
+	CollectionMask = "**/*.md,!**/raw/_quarantine/**,!**/.decisions/**"
+
+	// maxOverFetch caps the number of hits asked from qmd for one limited
+	// search, see fetchEligible.
+	maxOverFetch = 5000
 )
 
 var (
@@ -236,9 +247,54 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 }
 
 func (client *QMDClient) executeSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
+	limit := options.Limit
+	if options.All || limit <= 0 {
+		results, _, err := client.runSearch(ctx, options)
+		return results, err
+	}
+	return fetchEligible(limit, func(n int) ([]SearchResult, int, error) {
+		asked := options
+		asked.Limit = n
+		return client.runSearch(ctx, asked)
+	})
+}
+
+// overFetchLimit is the first number of hits asked from qmd for a
+// user-facing limit (3×, at least 50 extra, capped).
+func overFetchLimit(limit int) int {
+	return max(min(max(limit*3, limit+50), maxOverFetch), limit)
+}
+
+// fetchEligible fills a user-facing limit with eligible hits. Collections
+// indexed before CollectionMask existed still contain quarantined sources and
+// decision records, which are dropped only after qmd has ranked and cut its
+// list; so kb asks for overFetchLimit hits and keeps widening the request
+// (×4) until enough eligible hits remain, qmd returns fewer hits than asked
+// (the collection is exhausted), or maxOverFetch is reached. fetch returns
+// the eligible hits and the raw number qmd returned for n.
+func fetchEligible[T any](limit int, fetch func(n int) ([]T, int, error)) ([]T, error) {
+	n := overFetchLimit(limit)
+	for {
+		eligible, raw, err := fetch(n)
+		if err != nil {
+			return nil, err
+		}
+		if len(eligible) >= limit || raw < n || n >= maxOverFetch {
+			if len(eligible) > limit {
+				eligible = eligible[:limit]
+			}
+			return eligible, nil
+		}
+		n = min(n*4, maxOverFetch)
+	}
+}
+
+// runSearch runs one qmd search and returns the eligible results plus the
+// raw number of hits qmd returned (before exclusion and score filters).
+func (client *QMDClient) runSearch(ctx context.Context, options SearchOptions) ([]SearchResult, int, error) {
 	command, err := client.searchCommand(options)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	stdout, stderr, err := client.run(ctx, command)
@@ -249,17 +305,17 @@ func (client *QMDClient) executeSearch(ctx context.Context, options SearchOption
 
 			fallbackCommand, fallbackErr := client.searchCommand(fallbackOptions)
 			if fallbackErr != nil {
-				return nil, fallbackErr
+				return nil, 0, fallbackErr
 			}
 
 			stdout, _, fallbackErr = client.run(ctx, fallbackCommand)
 			if fallbackErr != nil {
-				return nil, fallbackErr
+				return nil, 0, fallbackErr
 			}
 		} else if isVectorUnavailableSearchFailure(stdout, stderr, err) {
-			return nil, vectorUnavailableSearchError()
+			return nil, 0, vectorUnavailableSearchError()
 		} else {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -292,14 +348,17 @@ func (client *QMDClient) isVectorSearchUnavailable(ctx context.Context, collecti
 	}
 }
 
-func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, error) {
+func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, int, error) {
 	var rawResults []searchResultPayload
 	if err := json.Unmarshal([]byte(stdout), &rawResults); err != nil {
-		return nil, fmt.Errorf("qmd search: parse JSON output: %w", err)
+		return nil, 0, fmt.Errorf("qmd search: parse JSON output: %w", err)
 	}
 
 	results := make([]SearchResult, 0, len(rawResults))
 	for _, rawResult := range rawResults {
+		if rawResult.excluded() {
+			continue
+		}
 		normalized := rawResult.normalize(options.Full)
 		if options.MinScore != nil && normalized.Score < *options.MinScore {
 			continue
@@ -307,7 +366,7 @@ func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, e
 		results = append(results, normalized)
 	}
 
-	return results, nil
+	return results, len(rawResults), nil
 }
 
 func shouldFallbackToLexical(mode SearchMode, stdout, stderr string, err error) bool {
@@ -471,6 +530,8 @@ func (client *QMDClient) indexCommand(operation IndexOperation, options IndexOpt
 				vaultPath,
 				"--name",
 				strings.TrimSpace(options.CollectionName),
+				"--mask",
+				CollectionMask,
 			),
 		}, nil
 	case IndexOperationUpdate:
@@ -587,6 +648,45 @@ func (payload searchResultPayload) normalize(full bool) SearchResult {
 		Snippet: payload.resolveSnippet(full),
 		Score:   payload.Score,
 	}
+}
+
+// excluded reports a hit on a quarantined source or a decision record.
+func (payload searchResultPayload) excluded() bool {
+	return slices.ContainsFunc([]string{payload.File, payload.FilePath, payload.DisplayPath}, ExcludedPath)
+}
+
+// ExcludedPath reports whether a qmd hit path (a `qmd://<collection>/...`
+// URI, a collection-relative or an on-disk path) points into a topic's
+// quarantine (`raw/_quarantine/`, spec §7) or its `.decisions/` records.
+// Quarantined files are out of every pipeline, qmd search included. New
+// collections exclude them through CollectionMask; collections created
+// before it may still hold them, so every hit list is also filtered (after
+// over-fetching, see overFetchLimit). Some qmd versions normalize path
+// segments before showing them (`_quarantine` becomes `quarantine`), so both
+// spellings under `raw/` match; `.decisions/` is a dot directory qmd never
+// indexes, matched for indexes built otherwise.
+func ExcludedPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	if index := strings.Index(p, "?"); index >= 0 {
+		p = p[:index]
+	}
+	p = strings.TrimPrefix(strings.ReplaceAll(p, "\\", "/"), "qmd://")
+	segments := strings.Split(strings.ToLower(p), "/")
+	for index, segment := range segments {
+		if segment == ".decisions" {
+			return true
+		}
+		if segment == "raw" && index+1 < len(segments) {
+			switch segments[index+1] {
+			case "_quarantine", "quarantine":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (payload searchResultPayload) resolveSnippet(full bool) string {

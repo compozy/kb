@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 )
@@ -223,6 +224,35 @@ func TestNewCreatesClaudeAndAgentsSymlink(t *testing.T) {
 			t.Fatalf("bare topic.yaml unexpectedly contains %q:\n%s", unexpected, metadataContent)
 		}
 	}
+	emptyContractBlock := "contract:\n  purpose: \"\"\n  core: []\n  adjacent: []\n  collected_on_purpose: []\n  out_of_scope: []\n"
+	if !strings.HasSuffix(metadataContent, emptyContractBlock) {
+		t.Fatalf("topic.yaml missing the empty contract block:\n%s", metadataContent)
+	}
+	settings, err := contract.LoadSettings(topicPath)
+	if err != nil {
+		t.Fatalf("LoadSettings returned error: %v", err)
+	}
+	if settings.Contract == nil || !settings.Contract.Empty() || settings.Accepted() {
+		t.Fatalf("scaffolded contract = %#v, want present, empty and not accepted", settings.Contract)
+	}
+
+	if !strings.Contains(claudeContent, contract.RenderSection(nil)) {
+		t.Fatalf("CLAUDE.md missing the rendered empty selection contract:\n%s", claudeContent)
+	}
+	if contract.RenderIntoClaude(claudeContent, nil) != claudeContent {
+		t.Fatal("re-rendering the empty contract into the scaffolded CLAUDE.md changed it")
+	}
+	for _, command := range []string{
+		"kb topic contract distributed-systems",
+		"kb classify distributed-systems",
+		"kb link distributed-systems",
+		"kb find distributed-systems",
+		"kb review distributed-systems",
+	} {
+		if !strings.Contains(claudeContent, command) {
+			t.Fatalf("CLAUDE.md missing workflow command %q:\n%s", command, claudeContent)
+		}
+	}
 
 	target, err := os.Readlink(filepath.Join(topicPath, "AGENTS.md"))
 	if err != nil {
@@ -297,6 +327,13 @@ func TestNewWithModeCreatesOKFTopicSkeleton(t *testing.T) {
 			}
 		}
 
+		if strings.Contains(metadataContent, "contract:") {
+			t.Fatalf("OKF topic.yaml must not carry a selection contract:\n%s", metadataContent)
+		}
+		if claudeContent := readFile(t, filepath.Join(topicPath, "CLAUDE.md")); strings.Contains(claudeContent, "Selection contract") {
+			t.Fatalf("OKF CLAUDE.md must not carry a selection contract:\n%s", claudeContent)
+		}
+
 		indexValues, indexBody := parseFrontmatterFile(t, filepath.Join(topicPath, "index.md"))
 		if got := indexValues["okf_version"]; got != "0.1" {
 			t.Fatalf("index okf_version = %#v, want 0.1", got)
@@ -352,6 +389,78 @@ func TestWriteMetadataFilePreservesExistingMode(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestWriteMetadataFilePreservesUnmanagedKeys(t *testing.T) {
+	t.Parallel()
+
+	const existing = `# curated by hand
+slug: old-slug
+title: Old Title # renamed later
+domain: old
+mode: wiki
+category: stale
+owner: pedro
+contract:
+  purpose: Keep the reviewed contract.
+  core: [Core line]
+decisions:
+  # shadow until calibrated
+  mode: shadow
+`
+
+	tests := []struct {
+		name       string
+		slug       string
+		wantFields []string
+		wantGone   []string
+	}{
+		{
+			name: "Should update managed fields in place and keep contract, decisions, user keys and comments",
+			slug: "agent-swarm",
+			wantFields: []string{
+				"# curated by hand\nslug: agent-swarm\ntitle: Agent Swarm # renamed later\ndomain: agents\nmode: wiki\n",
+				"owner: pedro\n",
+				"contract:\n  purpose: Keep the reviewed contract.\n  core: [Core line]\n",
+				"decisions:\n  # shadow until calibrated\n  mode: shadow\n",
+			},
+			wantGone: []string{"category:"},
+		},
+		{
+			name: "Should add category metadata for a categorized slug",
+			slug: "research/agent-swarm",
+			wantFields: []string{
+				"category: research\n",
+				"path: research/agent-swarm\n",
+				"qmd_collection: agent-swarm\n",
+				"owner: pedro\n",
+				"contract:\n  purpose: Keep the reviewed contract.\n",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			topicPath := t.TempDir()
+			writeFile(t, filepath.Join(topicPath, "topic.yaml"), existing)
+
+			if err := WriteMetadataFile(topicPath, tt.slug, "Agent Swarm", "agents"); err != nil {
+				t.Fatalf("WriteMetadataFile returned error: %v", err)
+			}
+
+			metadataContent := readFile(t, filepath.Join(topicPath, "topic.yaml"))
+			for _, fragment := range tt.wantFields {
+				if !strings.Contains(metadataContent, fragment) {
+					t.Fatalf("topic.yaml missing %q:\n%s", fragment, metadataContent)
+				}
+			}
+			for _, fragment := range tt.wantGone {
+				if strings.Contains(metadataContent, fragment) {
+					t.Fatalf("topic.yaml still contains %q:\n%s", fragment, metadataContent)
+				}
+			}
+		})
+	}
 }
 
 func TestNewAppendsScaffoldEntryToLog(t *testing.T) {

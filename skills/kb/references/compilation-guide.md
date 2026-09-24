@@ -2,6 +2,8 @@
 
 Writing standards for articles in `<topic>/wiki/concepts/`. These are the primary output of the knowledge base and the interface the LLM answers queries against.
 
+**Division of labour.** The agent writes and updates article prose. `kb` never edits article prose: `kb classify` writes the article's `criterion`, `aliases`, `summary`, `genre` and `concepts` frontmatter, and `kb link` writes typed relations (`related`, `extends`, ...) plus, in `apply` mode, body links at the first qualifying mention. Do not hand-maintain those keys; editing one makes it yours and kb stops updating it (see `frontmatter-schemas.md`).
+
 ## Target characteristics
 
 - **Length:** 3000-4000 words. Split into sub-articles when exceeded.
@@ -35,13 +37,15 @@ Optional sections depending on topic:
 
 ## Wikilink density
 
-Wikilinks are the knowledge graph. Every mention of a related concept should be a wikilink on first occurrence, and ideally a second time in a later section. Examples of good density:
+Wikilinks and frontmatter relations are the knowledge graph. Every mention of a related concept should be a wikilink on first occurrence, and ideally a second time in a later section. Examples of good density:
 
 - Mention of another concept article → `[[Concept Name]]`
 - Mention of a protocol, tool, or framework that has its own article → `[[Tool Name]]`
 - Cross-topic reference → `[[other-topic/wiki/concepts/Article Name|Display Name]]`
 
 Do not wikilink every occurrence of common words. Do not wikilink authors or organizations unless they have their own article.
+
+Write the links you mean while drafting. `kb link` adds the ones you missed afterwards (see *Backlinks and relations* below); it only adds links and never removes one you wrote.
 
 ## Sourcing rules
 
@@ -61,7 +65,13 @@ Do not wikilink every occurrence of common words. Do not wikilink authors or org
 ## When updating an existing article
 
 1. Load the current article fully.
-2. Load any new raw sources that have been added since the last compile.
+2. **Find the sources that affect it.** `kb link` marks each source with `affects: ["[[Article]]"]` when the source should change what the article says, and `kb lint <topic-id>` reports a `needs-compile` issue for every article older than a source that affects it (the source's `scraped` is newer than the article's `updated`):
+
+   ```bash
+   kb lint <topic-id> --format json    # kind "needs-compile": filePath = the article, target = the affecting source
+   ```
+
+   Load those sources fully. When the topic has not been linked yet, fall back to sources added since the article's `updated:` date.
 3. Identify what changed in the sources (new techniques, corrections, new terminology).
 4. **Propose each change with a structured diff before writing.** Present to the user:
 
@@ -83,34 +93,34 @@ Do not wikilink every occurrence of common words. Do not wikilink authors or org
 
    Update all occurrences, not just the most obvious one. Silent contradictions across articles are the worst failure mode of a multi-article wiki.
 
-6. **Check downstream effects.** After identifying the primary article to update, grep for `[[<Article Title>]]` across the topic. For each article that links to the one being updated, ask: *does the update change anything that page asserts?* If yes, flag it explicitly and offer to update it with the same Current/Proposed/Reason/Source flow.
+6. **Check downstream effects.** List the articles that link to the one being updated, in the body or in a frontmatter relation list (`related`, `extends`, `prerequisite`, `example_of`, `contradicts`), and ask for each: *does the update change anything that page asserts?* If yes, flag it explicitly and offer to update it with the same Current/Proposed/Reason/Source flow. Open `contradicts` items are listed by `kb review <topic-id> --queue contradiction` and reported by lint as `contradiction`.
 
    ```bash
    grep -rln "\[\[<Article Title>" <topic>/wiki/concepts/
    ```
 
 7. Update the article in place, preserving structure where possible.
-8. Bump `updated:` in frontmatter.
+8. Bump `updated:` in frontmatter (this clears `needs-compile` for the sources you absorbed).
 9. Add any new `sources:` entries.
 10. Check that existing wikilinks still resolve; add new ones for newly-introduced concepts.
+11. Run `kb classify <topic-id> --only-missing` (refreshes `criterion` and `summary` when the body changed) and `kb link <topic-id>` (see below).
 
-## Backlink audit (compounding bidirectional links)
+## Backlinks and relations (`kb link`)
 
-After writing or renaming any article, run a backlink audit. A compounding wiki depends on bidirectional links — every new article needs incoming links from articles that mention its concepts.
+A compounding wiki needs bidirectional links: every article needs incoming links from the documents that discuss its concept. `kb link` replaces the manual grep-based backlink audit:
 
-**Process:**
+```bash
+kb classify <topic-id> --only-missing   # a new article gets its criterion and aliases, which linking judges against
+kb link <topic-id> --dry-run            # optional: see what would change
+kb link <topic-id>
+```
 
-1. Grep the topic's `wiki/concepts/` for mentions of the new article's title, aliases, or core entities:
+- Code proposes candidates (title and alias mentions, BM25, shared `concepts` or `sources`, optional qmd neighbours); the decision model judges each one. When an article is created or gains aliases, kb scans every document for mentions of it and judges those documents against it (the automated backlink audit).
+- Confident links become frontmatter relations in every mode. Body links `[[File name|matched text]]` at the first qualifying mention are inserted only when the topic's decision mode is `apply`; in `shadow` they are queued in `kb review <topic-id> --queue link`.
+- Mentions inside code blocks, headings, URLs and existing wikilinks are skipped, and a mention in a different sense is rejected by the decision model.
+- `kb link` only adds. Remove a wrong link by hand; a relation kb wrote that you edit becomes yours.
 
-   ```bash
-   grep -rln "<new article title or key term>" <topic>/wiki/concepts/
-   ```
-
-2. For each match, open the file and decide whether the mention warrants a wikilink. Add `[[New Article]]` at the first occurrence, and optionally at a second occurrence in a later section.
-3. Skip matches that are inside code blocks or already wikilinked.
-4. Skip matches that are incidental (the term appears in a different sense).
-
-This is the step most commonly skipped when authoring articles. A wiki with one-way links is a blog; a wiki with bidirectional links is a knowledge graph.
+Review what landed in the review band with `kb review <topic-id> --queue link` and accept or reject it; each verdict becomes a label used by `kb review calibrate`.
 
 ## When to split an article
 
