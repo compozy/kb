@@ -114,7 +114,7 @@ func generateLiterals(ctx context.Context, s *session.Session, doc *corpus.Docum
 	}
 	prompt := strings.Join([]string{
 		"Write retrieval literals for the document below.",
-		"- summary: one or two sentences on one line, at most 400 characters, in language `" + language + "`, saying what the document covers. Do not repeat the title as the summary.",
+		"- summary: one or two sentences on one line, at most 350 characters, in language `" + language + "`, saying what the document covers. Do not repeat the title as the summary.",
 		"- entities: up to 15 names of organizations, products, protocols or standards, people, projects and papers the document discusses, each copied verbatim from the document text.",
 		"- questions: 3 to 6 questions, in language `" + language + "`, that a researcher could ask and that this document answers well.",
 		"",
@@ -253,9 +253,11 @@ func softGenerationError(err error) (string, bool) {
 }
 
 // validateSummary checks a generated summary: a single-line literal of at
-// most MaxSummaryChars that is not a copy of the title.
+// most MaxSummaryChars that is not a copy of the title. An over-long summary
+// is cut back to its last complete sentence that fits (the generator often
+// overshoots by one sentence); one with no sentence that fits is rejected.
 func validateSummary(summary, title string) (string, error) {
-	summary = strings.TrimSpace(summary)
+	summary = trimToSentences(strings.TrimSpace(summary), MaxSummaryChars)
 	if err := generation.ValidateLiteral(summary, MaxSummaryChars); err != nil {
 		return "", err
 	}
@@ -263,6 +265,26 @@ func validateSummary(summary, title string) (string, error) {
 		return "", errors.New("summary copies the title")
 	}
 	return summary, nil
+}
+
+// trimToSentences returns text unchanged when it fits maxChars runes;
+// otherwise it keeps the longest prefix ending in a sentence terminator
+// (". ", "! ", "? " or the final one) that fits, or text itself when none does
+// (so length validation rejects it).
+func trimToSentences(text string, maxChars int) string {
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return text
+	}
+	for end := maxChars; end > 0; end-- {
+		switch runes[end-1] {
+		case '.', '!', '?':
+			if end == len(runes) || runes[end] == ' ' {
+				return strings.TrimSpace(string(runes[:end]))
+			}
+		}
+	}
+	return text
 }
 
 // filterEntities keeps the entity names that occur in body

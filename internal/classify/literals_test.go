@@ -17,20 +17,25 @@ func TestValidateSummary(t *testing.T) {
 	tests := []struct {
 		name, summary, title string
 		ok                   bool
+		want                 string
 	}{
 		{name: "valid", summary: "Explains how BM25 ranks documents.", title: "BM25", ok: true},
 		{name: "trimmed", summary: "  Explains BM25.  ", title: "BM25", ok: true},
 		{name: "empty", summary: " ", title: "BM25"},
-		{name: "too long", summary: strings.Repeat("a", MaxSummaryChars+1), title: "BM25"},
+		{name: "too long without a sentence end", summary: strings.Repeat("a", MaxSummaryChars+1), title: "BM25"},
+		{name: "over-long trimmed to last sentence", summary: "First sentence about BM25. " + strings.Repeat("b", MaxSummaryChars), title: "BM25", ok: true, want: "First sentence about BM25."},
 		{name: "multi-line", summary: "One.\nTwo.", title: "BM25"},
 		{name: "copy of the title", summary: "How BM25 works!", title: "How BM25 Works"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := validateSummary(tt.summary, tt.title)
+			got, err := validateSummary(tt.summary, tt.title)
 			if (err == nil) != tt.ok {
 				t.Fatalf("validateSummary(%q) err = %v, want ok %v", tt.summary, err, tt.ok)
+			}
+			if tt.want != "" && got != tt.want {
+				t.Fatalf("validateSummary(%q) = %q, want %q", tt.summary, got, tt.want)
 			}
 		})
 	}
