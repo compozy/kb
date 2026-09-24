@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/compozy/kb/internal/actions"
+	"github.com/compozy/kb/internal/decisions"
 	"github.com/compozy/kb/internal/firecrawl"
 	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
@@ -172,15 +173,35 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 
 	results := make([]actions.Result, 0, len(items))
 	var failures []error
+	// closedBy maps a sibling resolved by an earlier action of this run to
+	// that action's item: the selection is a snapshot, so a sibling it
+	// closed is skipped rather than acted on with the opposite verdict.
+	closedBy := map[string]string{}
 	for _, item := range items {
+		if by, closed := closedBy[item.ID]; closed {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: already resolved by %s\n", item.ID, by)
+			continue
+		}
 		result, err := actions.Apply(ctx, s, deps, item, verdict)
 		if err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
+			if errors.Is(err, actions.ErrNotPending) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: %v\n", item.ID, err)
+				continue
+			}
 			failures = append(failures, err)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "error %s: %v\n", item.ID, err)
+			if errors.Is(err, decisions.ErrAuth) {
+				// A refused key or exhausted credits is fatal (spec §4.1):
+				// no later item is applied.
+				break
+			}
 			continue
+		}
+		for _, id := range result.Closed {
+			closedBy[id] = result.ID
 		}
 		results = append(results, result)
 	}

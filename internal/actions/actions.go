@@ -57,6 +57,12 @@ const (
 // ErrNotPending is returned for an item that is already resolved.
 var ErrNotPending = errors.New("actions: item is not pending")
 
+// ErrUndecided is returned when a judgment an action needs is undecided
+// (invalid receipt, exhausted retries, budget, ...): nothing is changed, no
+// label is written and the item stays pending (spec §2 principle 3: a
+// failed judgment is never a "no").
+var ErrUndecided = errors.New("actions: required judgment is undecided")
+
 // Deps are the fetchers an action may need; both are optional and an action
 // that needs a missing one fails without changing anything.
 type Deps struct {
@@ -144,17 +150,26 @@ func LabelVerdict(item review.Item, verdict string) string {
 
 // Apply performs verdict (Accept or Reject) on one pending item, appends its
 // label and resolves it. When the action fails nothing is labelled and the
-// item stays pending.
+// item stays pending. The item's status is read again from the queue on
+// disk right before dispatch, so an item resolved since it was selected (a
+// sibling closed by an earlier action of the same run) returns
+// ErrNotPending without any action.
 func Apply(ctx context.Context, s *session.Session, deps Deps, item review.Item, verdict string) (Result, error) {
 	if verdict != Accept && verdict != Reject {
 		return Result{}, fmt.Errorf("actions: verdict must be accept or reject: %q", verdict)
+	}
+	current, ok, err := review.Open(s.Root(), s.Now).Get(item.ID)
+	if err != nil {
+		return Result{}, fmt.Errorf("actions: read %s: %w", item.ID, err)
+	}
+	if ok {
+		item.Status = current.Status
 	}
 	if item.Status != "" && item.Status != review.StatusPending {
 		return Result{}, fmt.Errorf("%w: %s is %s", ErrNotPending, item.ID, item.Status)
 	}
 	a := &applier{s: s, deps: deps, item: item, verdict: verdict}
 	result := Result{ID: item.ID, Queue: item.Queue, Verdict: verdict, Subject: item.Subject, Action: DidNothing}
-	var err error
 	switch item.Queue {
 	case review.QueueGate:
 		err = a.gate(ctx, &result)
@@ -387,7 +402,10 @@ func activeQuarantine(topicRoot, subject string) (refs.Quarantined, bool, error)
 // state row's classify banks cleared so the next `kb classify` judges the
 // new body); a kept body still failing, or a source without source_url, is
 // quarantined with its quality reason; an old body that no longer fails is
-// kept as captured. Reject keeps the source as it is.
+// kept as captured. A quality judgment that is undecided never reads as
+// "no longer fails": the action returns ErrUndecided with the reasons and
+// leaves the body and the item as they are. Reject keeps the source as it
+// is.
 func (a *applier) recapture(ctx context.Context, result *Result) error {
 	if !a.accepted() {
 		result.Action, result.Message = DidKept, "kept as captured"
@@ -412,7 +430,7 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 	}
 	if len(strings.TrimSpace(fresh.Markdown)) <= len(strings.TrimSpace(doc.Body)) {
 		// The refetch is not longer: the old body is kept and judged again.
-		failing, stillReason, err := a.stillFailing(ctx, doc, doc.Body, &firecrawl.ScrapeResult{})
+		failing, stillReason, err := a.stillFailing(ctx, doc, doc.Title, doc.Body, &firecrawl.ScrapeResult{})
 		if err != nil {
 			return err
 		}
@@ -423,7 +441,9 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 		result.Message = fmt.Sprintf("refetch not longer (%d ≤ %d characters) and the capture no longer fails; kept as captured", len(fresh.Markdown), len(doc.Body))
 		return nil
 	}
-	if failing, stillReason, err := a.stillFailing(ctx, doc, fresh.Markdown, fresh); err != nil {
+	// The fresh body is judged with the title of the same fetch; the stored
+	// title (the user's key) is not rewritten.
+	if failing, stillReason, err := a.stillFailing(ctx, doc, firstNonEmpty(fresh.Title, doc.Title), fresh.Markdown, fresh); err != nil {
 		return err
 	} else if failing {
 		return a.quarantine(ctx, result, stillReason)
@@ -480,11 +500,16 @@ func sourceClassifyBanks() []string {
 }
 
 // stillFailing re-judges a body: code flags first (no call), then the
-// quality nouls of the shared gate judgment at the review threshold. fetch
-// carries what the fetcher reported for body (empty for the old body).
-func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, body string, fetch *firecrawl.ScrapeResult) (bool, string, error) {
+// quality nouls of the shared gate judgment at the review threshold. title
+// and fetch are what the fetcher reported for body (the stored title and an
+// empty fetch for the old body). It returns false only on a decided
+// outcome: a quality noul left undecided (other than by decisions.exclude,
+// which keeps the source out of every call) returns ErrUndecided with the
+// reasons.
+func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, title, body string, fetch *firecrawl.ScrapeResult) (bool, string, error) {
 	s := a.s
 	candidate := *doc
+	candidate.Title = title
 	candidate.Body = body
 	candidate.BodyHash = corpus.BodyHash(body)
 	c, err := s.Corpus()
@@ -498,7 +523,7 @@ func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, body s
 		requested = doc.SourceURL()
 	}
 	flags := quality.Check(quality.Input{
-		Title: doc.Title, Body: body, SourceURL: doc.SourceURL(), FinalURL: fetch.FinalURL,
+		Title: title, Body: body, SourceURL: doc.SourceURL(), FinalURL: fetch.FinalURL,
 		RequestedURL: requested, StatusCode: fetch.StatusCode, SiteName: fetch.SiteName,
 		HostLines: quality.HostLineCounts(c.Sources())[host],
 		SkipThin:  transcript || doc.SourceKind() == string(models.SourceKindBookmarkCluster),
@@ -513,7 +538,26 @@ func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, body s
 	if reason, _ := judgment.QualityReason(s.Threshold("quality_review")); reason != "" {
 		return true, reason, nil
 	}
+	if undecided := undecidedQuality(judgment); len(undecided) > 0 {
+		return false, "", fmt.Errorf("%w: quality %s; body and item left unchanged", ErrUndecided, strings.Join(undecided, ", "))
+	}
 	return false, "", nil
+}
+
+// undecidedQuality lists the "<noul>:<reason>" entries of the quality nouls
+// the judgment did not decide. Answers not checked because the source
+// matches decisions.exclude are no judgment at all, not a failure (as in
+// the ingest gates).
+func undecidedQuality(judgment classify.GateJudgment) []string {
+	undecided := make([]string, 0, len(judgment.Undecided))
+	for _, entry := range judgment.Undecided {
+		question, _, _ := strings.Cut(entry, ":")
+		if question == "role" || strings.HasSuffix(entry, ":"+decisions.ReasonExcluded) {
+			continue
+		}
+		undecided = append(undecided, entry)
+	}
+	return undecided
 }
 
 // link writes a relation (link and contradiction queues). Accept adds

@@ -62,12 +62,18 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return newEnvWith(t, nil)
+}
+
+// newEnvWith is newEnv with a decide rule on the fake decisions endpoint.
+func newEnvWith(t *testing.T, decide fakes.DecideFunc) *env {
+	t.Helper()
 	vault := t.TempDir()
 	info, err := topic.New(vault, "demo", "Demo", "demo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	or := fakes.NewOpenRouter(nil, nil)
+	or := fakes.NewOpenRouter(decide, nil)
 	t.Cleanup(or.Close)
 	cfg := config.Default()
 	cfg.OpenRouter.APIKey, cfg.OpenRouter.APIURL = "test-key", or.URL
@@ -169,6 +175,36 @@ func TestApplyRemoveClosesSiblings(t *testing.T) {
 	labels, _ := e.fresh().Labels()
 	if len(labels) != 1 || labels[0].Verdict != review.VerdictNegative || labels[0].Purpose != "relevance" {
 		t.Fatalf("labels = %+v (siblings are not labelled)", labels)
+	}
+}
+
+// TestApplySkipsSiblingClosedAfterSelection: a bulk run selects its items
+// before acting; once keeping a source from the gate queue closed its
+// remove sibling, applying the stale pending copy of that sibling must not
+// quarantine the source or add a second, opposite label.
+func TestApplySkipsSiblingClosedAfterSelection(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.write(t, "raw/articles/r.md", map[string]any{"title": "Recipes", "source_kind": "article"}, "pasta\n")
+	gated := e.add(t, review.Item{Queue: review.QueueGate, Purpose: "relevance", Subject: "raw/articles/r.md", Question: "role", Action: map[string]any{"reason": "off_topic"}})
+	remove := e.add(t, review.Item{Queue: review.QueueRemove, Purpose: "relevance", Subject: "raw/articles/r.md", Question: "role", Action: map[string]any{"reason": "off_topic"}})
+	if remove.Status != review.StatusPending {
+		t.Fatalf("snapshot = %+v", remove)
+	}
+
+	result, err := Apply(context.Background(), e.s, Deps{}, gated, Accept)
+	if err != nil || result.Action != DidKept || !slices.Equal(result.Closed, []string{remove.ID}) {
+		t.Fatalf("gate accept = %+v, %v", result, err)
+	}
+	if _, err := Apply(context.Background(), e.s, Deps{}, remove, Accept); !errors.Is(err, ErrNotPending) {
+		t.Fatalf("the closed sibling must not be applied again: %v", err)
+	}
+	if !e.exists("raw/articles/r.md") || e.exists("raw/_quarantine/articles/r.md") {
+		t.Fatal("the kept source must stay in place")
+	}
+	labels, _ := e.fresh().Labels()
+	if len(labels) != 1 || labels[0].Verdict != review.VerdictPositive {
+		t.Fatalf("labels = %+v", labels)
 	}
 }
 
@@ -334,15 +370,27 @@ func TestApplyQueues(t *testing.T) {
 // and refetched bodies (spec §7 stage 4): a longer good refetch replaces the
 // body and clears the classify banks of the state row so the next classify
 // judges it; a refetch that is not longer leaves the old body, which is
-// quarantined when it still fails and kept when it no longer does.
+// quarantined when it still fails and kept when it no longer does. The fresh
+// body is judged with the title of the same fetch. A quality judgment that
+// is undecided never reads as "no longer fails": the body, the quality key
+// and the item are left as they are and no label is written.
 func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("Typed judges answer questions with calibrated probabilities. ", 60)
+	malformedQuality := func(_ fakes.Call, q fakes.Question) any {
+		if q.Type == "noul" {
+			return map[string]any{"type": "noul", "noul": 2}
+		}
+		return nil
+	}
 	tests := []struct {
 		name       string
+		title      string
+		decide     fakes.DecideFunc
 		oldBody    string
 		fresh      firecrawl.ScrapeResult
 		action     string
+		undecided  bool
 		wantBody   string
 		wantReason string
 	}{
@@ -350,13 +398,17 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 		{name: "shorter refetch and a still thin capture quarantine", oldBody: "Loading the page, please wait.\n", fresh: firecrawl.ScrapeResult{Markdown: "x", StatusCode: 200}, action: DidQuarantined, wantReason: "thin"},
 		{name: "longer refetch that still fails quarantines", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: "# Not Found\n\nThe page does not exist anymore.\n", Title: "Not Found", StatusCode: 404}, action: DidQuarantined, wantReason: "error_page"},
 		{name: "shorter refetch keeps a good old body", oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200}, action: DidKept, wantBody: long},
+		{name: "recovered page is judged with the refetched title", title: "404 Not Found", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, Title: "Recovered article", StatusCode: 200}, action: DidRecaptured, wantBody: long},
+		{name: "undecided quality leaves a longer refetch unapplied", decide: malformedQuality, oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200}, undecided: true, wantBody: "Loading...\n"},
+		{name: "undecided quality never keeps the old body as recovered", decide: malformedQuality, oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200}, undecided: true, wantBody: long},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			e := newEnv(t)
+			e := newEnvWith(t, tt.decide)
 			rel := "raw/articles/p.md"
-			e.write(t, rel, map[string]any{"title": "Typed judges", "source_kind": "article", "source_url": "https://example.com/posts/typed-judges"}, tt.oldBody)
+			title := firstNonEmpty(tt.title, "Typed judges")
+			e.write(t, rel, map[string]any{"title": title, "source_kind": "article", "source_url": "https://example.com/posts/typed-judges"}, tt.oldBody)
 			doc, err := corpus.ReadDocument(e.root, rel, corpus.KindSource)
 			if err != nil {
 				t.Fatal(err)
@@ -372,6 +424,24 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 				return &fresh, nil
 			}}
 			result, err := Apply(context.Background(), e.s, deps, item, Accept)
+			if tt.undecided {
+				if !errors.Is(err, ErrUndecided) || !strings.Contains(err.Error(), "invalid_receipt") {
+					t.Fatalf("Apply = %+v, %v; want ErrUndecided with its reasons", result, err)
+				}
+				stored, readErr := corpus.ReadDocument(e.root, rel, corpus.KindSource)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if stored.Body != tt.wantBody || stored.Frontmatter["quality"] != "thin" || stored.Frontmatter["recaptured"] != nil {
+					t.Fatalf("undecided recapture changed the source: %v\n%s", stored.Frontmatter, stored.Body)
+				}
+				pending, _, _ := e.fresh().Get(item.ID)
+				labels, _ := e.fresh().Labels()
+				if pending.Status != review.StatusPending || len(labels) != 0 {
+					t.Fatalf("item = %+v labels = %+v", pending, labels)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}

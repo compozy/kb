@@ -3,6 +3,7 @@ package gate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/compozy/kb/internal/classify"
@@ -54,13 +55,16 @@ type Checker struct {
 	s         *session.Session
 	index     *Index
 	hostLines map[string]map[string]int
-	sources   []*corpus.Document
-	near      *nearDuplicates
+	// sources is the near-duplicate candidate pool: live sources that may
+	// enter a model call (never a decisions.exclude match).
+	sources []*corpus.Document
+	near    *nearDuplicates
 }
 
 // NewChecker loads what the gates compare against: the topic's sources
 // (dedupe, same-host lines, near-duplicate candidates) and the quarantined
-// ones (dedupe only).
+// ones (dedupe only). Sources matching decisions.exclude are kept for exact
+// dedupe but never become near-duplicate candidates (spec §14).
 func NewChecker(s *session.Session) (*Checker, error) {
 	c, err := s.Corpus()
 	if err != nil {
@@ -75,7 +79,7 @@ func NewChecker(s *session.Session) (*Checker, error) {
 		s:         s,
 		index:     index,
 		hostLines: quality.HostLineCounts(sources),
-		sources:   sources,
+		sources:   slices.DeleteFunc(slices.Clone(sources), func(doc *corpus.Document) bool { return s.Excluded(doc.Path) }),
 		near:      newNearDuplicates(s),
 	}, nil
 }
@@ -119,10 +123,13 @@ func (c *Checker) dedupe(ref Ref, out *Outcome) (Outcome, bool) {
 }
 
 // Register adds a source written (or quarantined) by this run, so later
-// items dedupe and near-dedupe against it.
+// items dedupe and near-dedupe against it. A source matching
+// decisions.exclude is registered for exact dedupe only: it never becomes a
+// near-duplicate candidate of a later item, since candidates are sent to
+// the model (spec §14).
 func (c *Checker) Register(doc *corpus.Document, quarantined bool) {
 	c.index.Add(doc, quarantined)
-	if !quarantined {
+	if !quarantined && !c.s.Excluded(doc.Path) {
 		c.sources = append(c.sources, doc)
 		c.near.reset()
 	}
@@ -324,7 +331,10 @@ func (c *Checker) words(doc *corpus.Document) int {
 }
 
 // refetch runs the one stage-4 scrape and returns the refetched document
-// when its body is longer than the current one.
+// when its body is longer than the current one. The refetched document
+// carries the title the refetch reported (the first capture's title only
+// when the refetch has none), so the quality checks judge the title and the
+// body of the same fetch.
 func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document, out *Outcome) (*corpus.Document, fetchInfo, bool) {
 	result, err := in.Refetch(ctx)
 	if err != nil || result == nil {
@@ -338,11 +348,7 @@ func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document,
 	if len(strings.TrimSpace(result.Markdown)) <= len(strings.TrimSpace(doc.Body)) {
 		return nil, fetchInfo{}, false
 	}
-	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		title = result.Title
-	}
-	refetched, err := in.Build(title, result.Markdown)
+	refetched, err := in.Build(firstNonEmpty(result.Title, in.Title), result.Markdown)
 	if err != nil {
 		out.Undecided = append(out.Undecided, "refetch:"+err.Error())
 		return nil, fetchInfo{}, false

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,5 +251,66 @@ func TestSessionDecidesThroughFakeAndSharesBudget(t *testing.T) {
 	}
 	if len(s.SummaryLines()) == 0 {
 		t.Fatal("empty summary")
+	}
+}
+
+// TestOpenBudgetFlag: an explicit --budget 0 is honored as a cache-only run
+// (no request reaches the endpoint) instead of falling back to
+// [decisions].budget_usd; an unset flag uses the configured ceiling; a
+// negative, NaN or infinite amount is rejected before the session opens.
+func TestOpenBudgetFlag(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		flags     Flags
+		wantLimit float64
+		wantErr   bool
+	}{
+		{name: "Should use the configured ceiling when --budget is not given", flags: Flags{}, wantLimit: config.Default().Decisions.BudgetUSD},
+		{name: "Should honor an explicit zero budget as cache-only", flags: Flags{BudgetUSD: 0, BudgetSet: true}, wantLimit: 0},
+		{name: "Should honor an explicit positive budget", flags: Flags{BudgetUSD: 0.25, BudgetSet: true}, wantLimit: 0.25},
+		{name: "Should reject a negative budget", flags: Flags{BudgetUSD: -1, BudgetSet: true}, wantErr: true},
+		{name: "Should reject a NaN budget", flags: Flags{BudgetUSD: math.NaN(), BudgetSet: true}, wantErr: true},
+		{name: "Should reject an infinite budget", flags: Flags{BudgetUSD: math.Inf(1), BudgetSet: true}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fake := fakes.NewOpenRouter(nil, nil)
+			t.Cleanup(fake.Close)
+			vault, _ := newTopic(t)
+			s, err := Open(Options{Config: testConfig(fake.URL), VaultPath: vault, Topic: "demo", Command: "kb classify", Flags: tt.flags})
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "--budget") {
+					t.Fatalf("Open() error = %v, want a --budget error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			if got := s.Engine.Budget().Limit(); got != tt.wantLimit {
+				t.Fatalf("budget limit = %v, want %v", got, tt.wantLimit)
+			}
+			if tt.wantLimit != 0 {
+				return
+			}
+			bank := questions.MustLoad("quality")
+			q, err := bank.Question("paywall_or_login", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := map[string]any{"document": map[string]any{"title": "x", "excerpt": "y"}}
+			result, err := s.Engine.Decide(context.Background(), s.Request(decisions.PurposeQuality, "raw/articles/x.md", bank, state, []questions.Q{q}))
+			if err != nil {
+				t.Fatalf("Decide: %v", err)
+			}
+			if answer := result.Answers["paywall_or_login"]; answer.Decided() || answer.Reason != decisions.ReasonBudget {
+				t.Fatalf("answer = %+v, want undecided:budget", answer)
+			}
+			if calls := len(fake.Calls()); calls != 0 {
+				t.Fatalf("a zero budget must make no request, got %d", calls)
+			}
+		})
 	}
 }

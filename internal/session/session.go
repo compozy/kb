@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,10 +49,28 @@ var ErrDecisionsRequired = errors.New("decision model is required")
 
 // Flags are the per-run overrides shared by decision-backed commands.
 type Flags struct {
-	// BudgetUSD overrides [decisions].budget_usd when > 0.
+	// BudgetUSD overrides [decisions].budget_usd when BudgetSet (or when
+	// > 0). An explicit 0 is a cache-only run: no new call is made.
 	BudgetUSD float64
+	// BudgetSet reports that --budget was given, so an explicit 0 is
+	// honored instead of read as "not set".
+	BudgetSet bool
 	// Decisions overrides the decision mode for this run: "", shadow or apply.
 	Decisions string
+}
+
+// Budget returns the run budget the flags ask for: nil when --budget was
+// not given (the engine then uses [decisions].budget_usd), else a budget of
+// BudgetUSD (0 = cache-only). A negative, NaN or infinite amount is an
+// error.
+func (f Flags) Budget() (*decisions.Budget, error) {
+	if math.IsNaN(f.BudgetUSD) || math.IsInf(f.BudgetUSD, 0) || f.BudgetUSD < 0 {
+		return nil, fmt.Errorf("--budget must be a finite amount in US$ >= 0 (0 = cached answers only): %v", f.BudgetUSD)
+	}
+	if !f.BudgetSet && f.BudgetUSD == 0 {
+		return nil, nil
+	}
+	return decisions.NewBudget(f.BudgetUSD), nil
 }
 
 // Options configures Open.
@@ -108,6 +127,10 @@ func Open(opts Options) (*Session, error) {
 	default:
 		return nil, fmt.Errorf("%s: --decisions must be shadow or apply: %q", command, opts.Flags.Decisions)
 	}
+	budget, err := opts.Flags.Budget()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", command, err)
+	}
 
 	info, err := topic.Resolve(opts.VaultPath, opts.Topic)
 	if err != nil {
@@ -128,10 +151,6 @@ func Open(opts Options) (*Session, error) {
 	}
 
 	decisionsConfig := opts.Config.Decisions
-	var budget *decisions.Budget
-	if opts.Flags.BudgetUSD > 0 {
-		budget = decisions.NewBudget(opts.Flags.BudgetUSD)
-	}
 	engine, err := decisions.New(decisions.Options{
 		Config:     decisionsConfig,
 		APIKey:     opts.Config.OpenRouter.APIKey,

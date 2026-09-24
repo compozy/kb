@@ -15,6 +15,7 @@ import (
 	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/fakes"
+	"github.com/compozy/kb/internal/firecrawl"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/quality"
 	"github.com/compozy/kb/internal/review"
@@ -517,6 +518,92 @@ func TestEvaluateNearDuplicatePolicy(t *testing.T) {
 				t.Fatalf("duplicate outcome = %+v", out)
 			}
 		})
+	}
+}
+
+// TestCheckerKeepsExcludedOutOfNearDuplicates: a source written earlier in
+// the same run that matches decisions.exclude stays available to exact
+// dedupe but never becomes a near-duplicate candidate of a later item, so
+// its title, excerpt and path reach no model call (spec §14).
+func TestCheckerKeepsExcludedOutOfNearDuplicates(t *testing.T) {
+	t.Parallel()
+	const marker = "privatemarker"
+	tests := []struct {
+		name     string
+		yaml     string
+		excluded bool
+	}{
+		{name: "Should keep an excluded source out of the candidates", yaml: "decisions:\n  exclude:\n    - raw/articles/secret.md\n", excluded: true},
+		{name: "Should propose a source that is not excluded", yaml: "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := newEvalEnv(t, nil, session.Flags{}, tt.yaml)
+			checker, err := NewChecker(env.s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			secretBody := longBody(marker+" judges handbook", 400)
+			secret := &corpus.Document{
+				Path: "raw/articles/secret.md", Title: "Typed judges handbook", Kind: corpus.KindSource,
+				Body: secretBody, BodyHash: corpus.BodyHash(secretBody),
+				Frontmatter: map[string]any{"title": "Typed judges handbook", "source_url": "https://example.com/secret", "source_kind": "article"},
+			}
+			checker.Register(secret, false)
+
+			if _, _, err := checker.Evaluate(context.Background(), env.fetched("Typed judges handbook 2", "https://example.com/v2", longBody("judges handbook", 400))); err != nil {
+				t.Fatal(err)
+			}
+			leaked := false
+			for _, call := range env.or.Calls() {
+				if strings.Contains(call.StateString(), marker) || strings.Contains(call.StateString(), "raw/articles/secret.md") {
+					leaked = true
+				}
+			}
+			if leaked == tt.excluded {
+				t.Fatalf("excluded=%v but candidate sent=%v (%d calls)", tt.excluded, leaked, len(env.or.Calls()))
+			}
+
+			out, _, err := checker.Evaluate(context.Background(), env.fetched("Copy", "https://example.com/copy", secretBody))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Triage != TriageDuplicateSkipped || out.DuplicateOf != "raw/articles/secret.md" {
+				t.Fatalf("exact dedupe must still see the source: %+v", out)
+			}
+		})
+	}
+}
+
+// TestEvaluateRefetchJudgesRecoveredTitle: after a refetch, the quality
+// checks use the title the refetch reported, so a recovered page first
+// captured as "404 Not Found" is kept and written under its new title.
+func TestEvaluateRefetchJudgesRecoveredTitle(t *testing.T) {
+	t.Parallel()
+	env := newEvalEnv(t, nil, session.Flags{}, "")
+	checker, err := NewChecker(env.s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := longBody("recovered", 400)
+	in := env.fetched("404 Not Found", "https://example.com/posts/recovered", "# 404 Not Found\n\nLoading...\n")
+	in.StatusCode = 200
+	in.Refetch = func(context.Context) (*firecrawl.ScrapeResult, error) {
+		return &firecrawl.ScrapeResult{Markdown: full, Title: "Recovered article", StatusCode: 200, FinalURL: "https://example.com/posts/recovered"}, nil
+	}
+	out, doc, err := checker.Evaluate(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Triage != TriageKept || !out.Refetched || len(out.Flags) != 0 {
+		t.Fatalf("outcome = %+v", out)
+	}
+	if doc.Title != "Recovered article" || doc.Body != full {
+		t.Fatalf("kept document = %q %q", doc.Title, doc.Body[:40])
+	}
+	if calls := env.or.Calls(); len(calls) != 1 || !strings.Contains(calls[0].StateString(), "Recovered article") {
+		t.Fatalf("the quality judgment must see the refetched title: %d calls", len(calls))
 	}
 }
 

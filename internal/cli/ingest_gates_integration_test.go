@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -770,5 +772,243 @@ func TestReviewAcceptRecaptureRemoveAndLink(t *testing.T) {
 	}
 	if left := env.pending(t, ""); len(left) != 0 {
 		t.Fatalf("pending after accepts = %+v", left)
+	}
+}
+
+// addReviewItems queues items (ids derived like the producers do) and
+// returns their ids in order.
+func (e *gateEnv) addReviewItems(t *testing.T, items ...review.Item) []string {
+	t.Helper()
+	store := review.Open(e.root, nil)
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		item.ID = review.ItemID(item.Queue, item.Subject, item.Target, item.Question)
+		if _, err := store.Add(item); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+// TestIngestGatesExcludedSourceStaysOutOfLaterRequests: in one batch, a
+// source matching decisions.exclude ingested first is never sent as a
+// near-duplicate candidate (or in any other request) of a related public
+// source ingested after it (spec §14).
+func TestIngestGatesExcludedSourceStaysOutOfLaterRequests(t *testing.T) {
+	const private = "PRIVATEMARKER confidential roadmap figures"
+	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/secret": {Markdown: article("Roadmap secret plan", 400) + "\n" + private + "\n", Title: "Secret"},
+		"https://example.com/posts/public": {Markdown: article("Roadmap public plan", 400), Title: "Roadmap public plan"},
+	}))
+	path := filepath.Join(env.root, "topic.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, string(data)+"decisions:\n  exclude:\n    - raw/articles/secret.md\n")
+	list := filepath.Join(t.TempDir(), "batch.txt")
+	writeFile(t, list, "https://example.com/posts/secret Secret\nhttps://example.com/posts/public Roadmap public plan\n")
+
+	stdout, stderr := env.mustRun(t, "ingest", "url", "--from", list, "--topic", "demo")
+	var summary urlListSummary
+	if err := json.Unmarshal([]byte(stdout), &summary); err != nil {
+		t.Fatalf("summary: %v\n%s", err, stdout)
+	}
+	if len(summary.Results) != 2 || !summary.Results[0].Excluded || summary.Results[0].FilePath != "demo/raw/articles/secret.md" || summary.Results[1].Excluded {
+		t.Fatalf("results = %+v\n%s", summary.Results, stderr)
+	}
+	if len(env.or.Calls()) == 0 {
+		t.Fatal("the public source must still be judged")
+	}
+	for _, call := range env.or.Calls() {
+		state := call.StateString()
+		if strings.Contains(state, "PRIVATEMARKER") || strings.Contains(state, "raw/articles/secret.md") {
+			t.Fatalf("an excluded source reached a decision request:\n%s", state)
+		}
+	}
+	for _, call := range env.or.GenCalls() {
+		if strings.Contains(call.Prompt, "PRIVATEMARKER") || strings.Contains(call.Prompt, "raw/articles/secret.md") {
+			t.Fatalf("an excluded source reached a generation request:\n%s", call.Prompt)
+		}
+	}
+}
+
+// TestIngestGatesRefetchRecoversErrorTitle: a thin first capture titled
+// "404 Not Found" whose fresh refetch returns the full article under a new
+// title is judged (and written) with the refetched title, so it is kept
+// instead of quarantined as error_page.
+func TestIngestGatesRefetchRecoversErrorTitle(t *testing.T) {
+	full := article("Recovered decision article", 400)
+	env := newGateEnv(t, nil, func(req fakes.ScrapeRequest) fakes.ScrapeResponse {
+		if req.MaxAge != nil && *req.MaxAge == 0 {
+			return fakes.ScrapeResponse{Markdown: full, Title: "Recovered article"}
+		}
+		return fakes.ScrapeResponse{Markdown: "# 404 Not Found\n\nLoading...\n", Title: "404 Not Found"}
+	})
+
+	result := env.ingestURL(t, "https://example.com/posts/recovered")
+	if result.Triage != gate.TriageKept || !result.Refetched || result.TriageReason != "" {
+		t.Fatalf("result = %+v", result)
+	}
+	values, body := env.read(t, topicRel(result.FilePath))
+	if body != full || values["title"] != "Recovered article" || values["quality"] != nil {
+		t.Fatalf("kept document: %v\n%s", values, body)
+	}
+	if active, _ := refs.List(env.root); len(active) != 0 {
+		t.Fatalf("a recovered page must not be quarantined: %+v", active)
+	}
+}
+
+// TestIngestGatesBudgetFlag: an explicit --budget 0 is a cache-only run (no
+// request reaches the decision or generation endpoint; the judgment is
+// undecided, never kept), and a negative --budget is rejected before
+// anything is fetched or written.
+func TestIngestGatesBudgetFlag(t *testing.T) {
+	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/typed-judges": {Markdown: article("Typed judges in practice", 400), Title: "Typed judges in practice"},
+		"https://example.com/posts/other":        {Markdown: article("Other judges notes", 400), Title: "Other judges notes"},
+	}))
+
+	_, stderr, err := env.run(t, "ingest", "url", "https://example.com/posts/other", "--topic", "demo", "--budget=-1")
+	if err == nil || !strings.Contains(err.Error(), "--budget") {
+		t.Fatalf("a negative budget must be rejected: %v\n%s", err, stderr)
+	}
+	if requests := env.fc.Requests(); len(requests) != 0 {
+		t.Fatalf("nothing may be fetched with an invalid budget: %+v", requests)
+	}
+	if written, _ := filepath.Glob(filepath.Join(env.root, "raw", "articles", "*.md")); len(written) != 0 {
+		t.Fatalf("nothing may be written with an invalid budget: %v", written)
+	}
+
+	result := env.ingestURL(t, "https://example.com/posts/typed-judges", "--budget", "0")
+	if calls, gen := len(env.or.Calls()), len(env.or.GenCalls()); calls != 0 || gen != 0 {
+		t.Fatalf("--budget 0 must make no request: %d decision and %d generation calls", calls, gen)
+	}
+	if result.Triage != gate.TriageReview || result.TriageReason != gate.ReasonUndecided {
+		t.Fatalf("a judgment the budget stopped is undecided, never kept: %+v", result)
+	}
+}
+
+// TestReviewAcceptRecaptureUndecidedLeavesItemPending: when the quality
+// judgment of a longer refetch is undecided (malformed nouls), accept fails
+// with the reasons and leaves the body, the quality key and the item as
+// they are, with no label (spec §2 principle 3).
+func TestReviewAcceptRecaptureUndecidedLeavesItemPending(t *testing.T) {
+	env := newGateEnv(t, func(_ fakes.Call, q fakes.Question) any {
+		if q.Type == "noul" {
+			return map[string]any{"type": "noul", "noul": 2}
+		}
+		return nil
+	}, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/calibration": {Markdown: article("Calibrating decision thresholds", 400), Title: "Calibrating decision thresholds"},
+	}))
+	thin := "# Calibrating\n\nLoading...\n"
+	writeMarkdownDocument(t, env.root, "raw/articles/calibration.md", map[string]any{
+		"title": "Calibrating decision thresholds", "type": "source", "source_kind": "article",
+		"source_url": "https://example.com/posts/calibration", "quality": "thin",
+	}, thin)
+	ids := env.addReviewItems(t, review.Item{Queue: review.QueueRecapture, Purpose: "quality", Subject: "raw/articles/calibration.md", Question: "code:thin", Probability: 1, Action: map[string]any{"reason": "thin"}})
+
+	stdout, stderr, err := env.run(t, "review", "accept", "--topic", "demo", ids[0])
+	if err == nil || !strings.Contains(err.Error(), "undecided") || !strings.Contains(err.Error(), "invalid_receipt") {
+		t.Fatalf("accept must fail with the undecided reasons: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if strings.Contains(stdout, "recaptured") {
+		t.Fatalf("an undecided capture must not be reported recovered:\n%s", stdout)
+	}
+	values, body := env.read(t, "raw/articles/calibration.md")
+	if body != thin || values["quality"] != "thin" || values["recaptured"] != nil {
+		t.Fatalf("source changed: %v\n%s", values, body)
+	}
+	if pending := env.pending(t, review.QueueRecapture); len(pending) != 1 || pending[0].ID != ids[0] {
+		t.Fatalf("the item must stay pending: %+v", pending)
+	}
+	if labels := env.labels(t); len(labels) != 0 {
+		t.Fatalf("labels = %+v", labels)
+	}
+}
+
+// TestReviewAcceptBulkSkipsSiblingClosedEarlier: a bulk accept over a mixed
+// queue where keeping a source from the gate queue closes its remove
+// sibling must skip that sibling instead of quarantining the source and
+// recording the opposite label.
+func TestReviewAcceptBulkSkipsSiblingClosedEarlier(t *testing.T) {
+	env := newGateEnv(t, nil, nil)
+	writeMarkdownDocument(t, env.root, "raw/articles/recipes.md", map[string]any{
+		"title": "Weekend recipes", "type": "source", "source_kind": "article", "triage": "review", "triage_reason": "off_topic",
+	}, article("Weekend recipes", 300))
+	ids := env.addReviewItems(t,
+		review.Item{Queue: review.QueueGate, Purpose: "relevance", Subject: "raw/articles/recipes.md", Question: "role", Probability: 0.9, Action: map[string]any{"reason": "off_topic"}},
+		review.Item{Queue: review.QueueRemove, Purpose: "relevance", Subject: "raw/articles/recipes.md", Question: "role", Probability: 0.8, Action: map[string]any{"reason": "off_topic"}},
+	)
+
+	stdout, stderr := env.mustRun(t, "review", "accept", "--topic", "demo", "--all-purpose", "relevance", "--topic-wide")
+	if !strings.Contains(stdout, "accepted "+ids[0]) || strings.Contains(stdout, "accepted "+ids[1]) {
+		t.Fatalf("only the gate item may be applied:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "skipped "+ids[1]+": already resolved by "+ids[0]) {
+		t.Fatalf("the closed sibling must be reported as skipped:\n%s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(env.root, "raw/articles/recipes.md")); err != nil {
+		t.Fatalf("the kept source must stay in place: %v", err)
+	}
+	if active, _ := refs.List(env.root); len(active) != 0 {
+		t.Fatalf("quarantines = %+v", active)
+	}
+	labels := env.labels(t)
+	if len(labels) != 1 || labels[0].ItemID != ids[0] || labels[0].Verdict != review.VerdictPositive {
+		t.Fatalf("labels = %+v", labels)
+	}
+	if left := env.pending(t, ""); len(left) != 0 {
+		t.Fatalf("pending = %+v", left)
+	}
+}
+
+// TestReviewAcceptStopsOnAuthFailure: a 401 from the decision endpoint
+// during the first item's quality judgment stops the run (spec §4.1): the
+// later remove item is not applied, its source is not quarantined and no
+// label is recorded.
+func TestReviewAcceptStopsOnAuthFailure(t *testing.T) {
+	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/calibration": {Markdown: article("Calibrating decision thresholds", 400), Title: "Calibrating decision thresholds"},
+	}))
+	refused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"invalid key"}}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(refused.Close)
+	t.Setenv("OPENROUTER_API_URL", refused.URL)
+
+	thin := "# Calibrating\n\nLoading...\n"
+	writeMarkdownDocument(t, env.root, "raw/articles/calibration.md", map[string]any{
+		"title": "Calibrating decision thresholds", "type": "source", "source_kind": "article",
+		"source_url": "https://example.com/posts/calibration",
+	}, thin)
+	writeMarkdownDocument(t, env.root, "raw/articles/recipes.md", map[string]any{
+		"title": "Weekend recipes", "type": "source", "source_kind": "article",
+	}, article("Weekend recipes", 300))
+	ids := env.addReviewItems(t,
+		review.Item{Queue: review.QueueRecapture, Purpose: "quality", Subject: "raw/articles/calibration.md", Question: "code:thin", Probability: 1, Action: map[string]any{"reason": "thin"}},
+		review.Item{Queue: review.QueueRemove, Purpose: "relevance", Subject: "raw/articles/recipes.md", Question: "role", Probability: 0.9, Action: map[string]any{"reason": "off_topic"}},
+	)
+
+	_, stderr, err := env.run(t, "review", "accept", "--topic", "demo", ids[0], ids[1])
+	if err == nil || !strings.Contains(err.Error(), "refused the key") {
+		t.Fatalf("accept must fail on the auth error: %v\n%s", err, stderr)
+	}
+	if _, statErr := os.Stat(filepath.Join(env.root, "raw/articles/recipes.md")); statErr != nil {
+		t.Fatalf("the later item's source must not be touched: %v", statErr)
+	}
+	if active, _ := refs.List(env.root); len(active) != 0 {
+		t.Fatalf("quarantines = %+v", active)
+	}
+	if _, body := env.read(t, "raw/articles/calibration.md"); body != thin {
+		t.Fatalf("recapture body changed:\n%s", body)
+	}
+	if pending := env.pending(t, ""); len(pending) != 2 {
+		t.Fatalf("both items must stay pending: %+v", pending)
+	}
+	if labels := env.labels(t); len(labels) != 0 {
+		t.Fatalf("labels = %+v", labels)
 	}
 }
