@@ -3,8 +3,11 @@ package ingest
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/compozy/kb/internal/convert"
+	"github.com/compozy/kb/internal/decisions"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/topic"
@@ -21,6 +25,28 @@ import (
 )
 
 var bookmarkURLPattern = regexp.MustCompile(`https?://[^\s<>()]+`)
+
+// lockedKey is user-owned (spec §6): ingest extras never set it either.
+const lockedKey = "locked"
+
+// batchEntropy supplies the random run id of NewBatchID; tests replace it.
+var batchEntropy io.Reader = rand.Reader
+
+// NewBatchID returns the default ingest batch name
+// `<command>-<YYYY-MM-DD>-<6 hex run id>` (spec §4.4). The date is taken in
+// UTC, matching the `scraped` stamp.
+func NewBatchID(command string, now time.Time) string {
+	name := "ingest"
+	if trimmed := strings.TrimSpace(command); trimmed != "" {
+		name = vault.SlugifySegment(trimmed)
+	}
+	runID := make([]byte, 3)
+	if _, err := io.ReadFull(batchEntropy, runID); err != nil {
+		nanos := now.UnixNano()
+		runID = []byte{byte(nanos >> 16), byte(nanos >> 8), byte(nanos)}
+	}
+	return fmt.Sprintf("%s-%s-%s", name, now.UTC().Format(frontmatter.DateLayout), hex.EncodeToString(runID))
+}
 
 // Registry converts file-backed inputs into markdown content.
 type Registry interface {
@@ -40,6 +66,12 @@ type Options struct {
 	ConvertOptions   map[string]any
 	Registry         Registry
 	ScrapedAt        time.Time
+	// Batch names the ingest run (spec §4.4) and is written as ingest_batch.
+	// Bulk runs pass the same value for every item. Empty omits the key.
+	Batch string
+	// Query is what produced the item (search query, channel URL, bookmark
+	// label or file name) and is written as ingest_query. Empty omits the key.
+	Query string
 }
 
 // Ingest validates the target topic, optionally converts the source, writes the
@@ -181,6 +213,12 @@ func buildFrontmatter(
 	if sourcePath := normalizedSourcePath(options.SourcePath); sourcePath != "" {
 		values["source_path"] = sourcePath
 	}
+	if batch := strings.TrimSpace(options.Batch); batch != "" {
+		values["ingest_batch"] = batch
+	}
+	if query := strings.TrimSpace(options.Query); query != "" {
+		values["ingest_query"] = query
+	}
 	if err := mergeExtraFrontmatter(values, options.ExtraFrontmatter); err != nil {
 		return nil, err
 	}
@@ -222,6 +260,9 @@ func mergeExtraFrontmatter(values map[string]any, extra map[string]any) error {
 		}
 		if _, exists := reserved[cleanKey]; exists {
 			return fmt.Errorf("extra frontmatter cannot override reserved key %q", cleanKey)
+		}
+		if decisions.IsOwnedKey(cleanKey) || cleanKey == lockedKey {
+			return fmt.Errorf("extra frontmatter cannot set kb-owned key %q", cleanKey)
 		}
 		values[cleanKey] = value
 	}

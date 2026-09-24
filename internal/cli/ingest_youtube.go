@@ -28,6 +28,7 @@ func newIngestYouTubeCommand() *cobra.Command {
 	var transcribe string
 	var subLangs string
 	var lang string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "youtube <url>",
@@ -88,6 +89,7 @@ func newIngestYouTubeCommand() *cobra.Command {
 				Title:            extractResult.Metadata.Title,
 				Markdown:         extractResult.Markdown,
 				ExtraFrontmatter: youtubeFrontmatter(extractResult),
+				Batch:            resolveIngestBatch("youtube", batch),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest youtube: %w", err)
@@ -101,6 +103,7 @@ func newIngestYouTubeCommand() *cobra.Command {
 	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
 	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
 	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
+	addBatchFlag(command, &batch)
 
 	return command
 }

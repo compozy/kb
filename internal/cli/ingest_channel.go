@@ -65,6 +65,15 @@ type ingestChannelCommandOptions struct {
 	createTopic bool
 	subLangs    string
 	lang        string
+	batch       string
+}
+
+// channelProvenance is the ingest_batch/ingest_query pair shared by every
+// video of one channel run: one batch, and the channel/playlist URL argument
+// as the query.
+type channelProvenance struct {
+	batch string
+	query string
 }
 
 func newIngestChannelCommand() *cobra.Command {
@@ -78,6 +87,7 @@ func newIngestChannelCommand() *cobra.Command {
 	var createTopic bool
 	var subLangs string
 	var lang string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "channel <url>",
@@ -95,6 +105,7 @@ func newIngestChannelCommand() *cobra.Command {
 				createTopic: createTopic,
 				subLangs:    subLangs,
 				lang:        lang,
+				batch:       batch,
 			})
 		},
 	}
@@ -109,6 +120,7 @@ func newIngestChannelCommand() *cobra.Command {
 	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and list videos without ingesting")
 	command.Flags().BoolVar(&createTopic, "create-topic", true, "Create the target topic when it does not exist")
+	addBatchFlag(command, &batch)
 
 	return command
 }
@@ -200,8 +212,12 @@ func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options inge
 		return fmt.Errorf("%s: %w", action, err)
 	}
 
+	provenance := channelProvenance{
+		batch: resolveIngestBatch("channel", options.batch),
+		query: strings.TrimSpace(channelURL),
+	}
 	bulkErr := extractor.BulkExtract(ctx, toFetch, bulkOptions, func(outcome youtube.VideoOutcome) {
-		recordChannelOutcome(ctx, target, outcome, &summary)
+		recordChannelOutcome(ctx, target, provenance, outcome, &summary)
 	})
 	if writeErr := writeJSON(cmd, summary); writeErr != nil {
 		return writeErr
@@ -270,6 +286,7 @@ func newChannelVideosToFetch(
 func recordChannelOutcome(
 	ctx context.Context,
 	target ingestTarget,
+	provenance channelProvenance,
 	outcome youtube.VideoOutcome,
 	summary *channelIngestSummary,
 ) {
@@ -279,7 +296,7 @@ func recordChannelOutcome(
 		summary.Failures = append(summary.Failures, entry)
 		return
 	}
-	result, err := ingestChannelVideo(ctx, target, outcome)
+	result, err := ingestChannelVideo(ctx, target, provenance, outcome)
 	if err != nil {
 		entry.Error = err.Error()
 		summary.Failures = append(summary.Failures, entry)
@@ -357,7 +374,12 @@ func resolveChannelBulkOptions(
 	}, nil
 }
 
-func ingestChannelVideo(ctx context.Context, target ingestTarget, outcome youtube.VideoOutcome) (models.IngestResult, error) {
+func ingestChannelVideo(
+	ctx context.Context,
+	target ingestTarget,
+	provenance channelProvenance,
+	outcome youtube.VideoOutcome,
+) (models.IngestResult, error) {
 	result := outcome.Result
 	sourceURL := strings.TrimSpace(result.Metadata.URL)
 	if sourceURL == "" {
@@ -375,6 +397,8 @@ func ingestChannelVideo(ctx context.Context, target ingestTarget, outcome youtub
 		Title:            title,
 		Markdown:         result.Markdown,
 		ExtraFrontmatter: youtubeFrontmatter(result),
+		Batch:            provenance.batch,
+		Query:            provenance.query,
 	})
 }
 

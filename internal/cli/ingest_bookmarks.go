@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -11,6 +12,7 @@ import (
 
 func newIngestBookmarksCommand() *cobra.Command {
 	var topic string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "bookmarks <path>",
@@ -33,6 +35,10 @@ func newIngestBookmarksCommand() *cobra.Command {
 				SourceKind: models.SourceKindBookmarkCluster,
 				SourcePath: sourcePath,
 				Registry:   newIngestRegistry(),
+				Batch:      resolveIngestBatch("bookmarks", batch),
+				// The bookmark file name is the cluster's label; its title is
+				// only known after conversion, so it is not guessed here.
+				Query: filepath.Base(sourcePath),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest bookmarks: %w", err)
@@ -43,6 +49,7 @@ func newIngestBookmarksCommand() *cobra.Command {
 	}
 
 	requireTopicFlag(command, &topic)
+	addBatchFlag(command, &batch)
 
 	return command
 }

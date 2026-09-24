@@ -25,6 +25,7 @@ type firecrawlConfig = kconfig.FirecrawlConfig
 
 func newIngestURLCommand() *cobra.Command {
 	var topic string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "url <url>",
@@ -58,6 +59,7 @@ func newIngestURLCommand() *cobra.Command {
 				SourceURL:  sourceURL,
 				Title:      scrapeResult.Title,
 				Markdown:   scrapeResult.Markdown,
+				Batch:      resolveIngestBatch("url", batch),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest url: %w", err)
@@ -68,6 +70,7 @@ func newIngestURLCommand() *cobra.Command {
 	}
 
 	requireTopicFlag(command, &topic)
+	addBatchFlag(command, &batch)
 
 	return command
 }

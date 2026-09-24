@@ -25,6 +25,7 @@ var newInstagramTranscriptExtractor = func(cfg kconfig.Config) instagramTranscri
 func newIngestInstagramCommand() *cobra.Command {
 	var topic string
 	var transcribe string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "instagram <url>",
@@ -73,6 +74,7 @@ func newIngestInstagramCommand() *cobra.Command {
 				Title:            extractResult.Metadata.Title,
 				Markdown:         extractResult.Markdown,
 				ExtraFrontmatter: instagramFrontmatter(extractResult),
+				Batch:            resolveIngestBatch("instagram", batch),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest instagram: %w", err)
@@ -84,6 +86,7 @@ func newIngestInstagramCommand() *cobra.Command {
 
 	requireTopicFlag(command, &topic)
 	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
+	addBatchFlag(command, &batch)
 
 	return command
 }

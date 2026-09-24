@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,7 @@ var newIngestRegistry = func() kingest.Registry {
 
 func newIngestFileCommand() *cobra.Command {
 	var topic string
+	var batch string
 
 	command := &cobra.Command{
 		Use:   "file <path>",
@@ -38,6 +40,8 @@ func newIngestFileCommand() *cobra.Command {
 				SourceKind: models.SourceKindDocument,
 				SourcePath: sourcePath,
 				Registry:   newIngestRegistry(),
+				Batch:      resolveIngestBatch("file", batch),
+				Query:      filepath.Base(sourcePath),
 			})
 			if err != nil {
 				return fmt.Errorf("ingest file: %w", err)
@@ -48,6 +52,7 @@ func newIngestFileCommand() *cobra.Command {
 	}
 
 	requireTopicFlag(command, &topic)
+	addBatchFlag(command, &batch)
 
 	return command
 }

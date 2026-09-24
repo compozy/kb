@@ -6,6 +6,18 @@
 
 This file is the **schema document** for the topic (per Karpathy's LLM Wiki pattern). It tells the LLM how this topic is structured, its conventions, and its current state. Co-evolve it as the topic matures. Follow the shared conventions in the [root CLAUDE.md](../CLAUDE.md) for architecture, frontmatter, lifecycle, and tools — this file captures only topic-specific context.
 
+TOPIC_SELECTION_CONTRACT
+
+## Decision workflow
+
+kb judges relevance, classifies, and links documents against the selection contract above; `topic.yaml` is its only source of truth.
+
+- `kb topic contract TOPIC_SLUG --draft|--import-claude|--accept` — draft or import the contract, then accept it after the impact preview.
+- `kb classify TOPIC_SLUG` — fill the kb-owned frontmatter facets (`summary`, `concepts`, `relevance`, ...).
+- `kb link TOPIC_SLUG` — write typed links (`related`, `extends`, ...) between sources and articles.
+- `kb find TOPIC_SLUG "<question>"` — retrieve the documents that answer a question.
+- `kb review TOPIC_SLUG` — accept or reject the decisions queued for review.
+
 ## Audit log
 
 See [log.md](log.md) for the chronological record of every ingest / compile / query / lint operation. Append an entry there after each operation (skill Procedure 7).

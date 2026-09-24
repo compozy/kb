@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -222,6 +223,7 @@ func TestIngestURLCommandScrapesAndWritesJSON(t *testing.T) {
 	if gotIngest.Markdown != "# Latency Budget\n\nKeep the service fast.\n" {
 		t.Fatalf("ingest markdown = %q", gotIngest.Markdown)
 	}
+	assertIngestProvenance(t, gotIngest, "url", "", "")
 
 	var result models.IngestResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
@@ -267,6 +269,7 @@ func TestIngestFileCommandRoutesToOrchestrator(t *testing.T) {
 	if gotIngest.SourceKind != models.SourceKindDocument {
 		t.Fatalf("source kind = %q, want %q", gotIngest.SourceKind, models.SourceKindDocument)
 	}
+	assertIngestProvenance(t, gotIngest, "file", "", "whitepaper.md")
 	if gotIngest.SourcePath != sourcePath {
 		t.Fatalf("source path = %q, want %q", gotIngest.SourcePath, sourcePath)
 	}
@@ -376,6 +379,7 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 		"--vault", "/tmp/vault",
 		"--transcribe", "auto",
 		"--sub-langs", "pt, es",
+		"--batch", " conference-talks ",
 	})
 
 	if err := command.ExecuteContext(context.Background()); err != nil {
@@ -403,6 +407,7 @@ func TestIngestYouTubeCommandAcceptsTranscribePolicy(t *testing.T) {
 	if gotIngest.Title != "Queueing Theory Deep Dive" {
 		t.Fatalf("ingest title = %q", gotIngest.Title)
 	}
+	assertIngestProvenance(t, gotIngest, "youtube", "conference-talks", "")
 	if got := gotIngest.ExtraFrontmatter["view_count"]; got != viewCount {
 		t.Fatalf("view_count = %#v, want %d", got, viewCount)
 	}
@@ -941,6 +946,7 @@ func TestIngestBookmarksCommandRoutesToOrchestrator(t *testing.T) {
 	if gotIngest.SourceKind != models.SourceKindBookmarkCluster {
 		t.Fatalf("source kind = %q, want %q", gotIngest.SourceKind, models.SourceKindBookmarkCluster)
 	}
+	assertIngestProvenance(t, gotIngest, "bookmarks", "", "bookmarks.md")
 	if gotIngest.SourcePath != sourcePath {
 		t.Fatalf("source path = %q, want %q", gotIngest.SourcePath, sourcePath)
 	}
@@ -972,6 +978,9 @@ func restoreIngestGlobals(t *testing.T) {
 	originalExistingYouTubeVideoIDs := existingYouTubeVideoIDs
 	originalRegistry := newIngestRegistry
 	originalRunGenerate := runGenerate
+	originalIngestNow := ingestNow
+
+	ingestNow = func() time.Time { return fixedIngestNow }
 
 	t.Cleanup(func() {
 		runIngest = originalRunIngest
@@ -986,7 +995,27 @@ func restoreIngestGlobals(t *testing.T) {
 		existingYouTubeVideoIDs = originalExistingYouTubeVideoIDs
 		newIngestRegistry = originalRegistry
 		runGenerate = originalRunGenerate
+		ingestNow = originalIngestNow
 	})
+}
+
+// fixedIngestNow pins the date of generated ingest batch ids.
+var fixedIngestNow = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+
+// assertIngestProvenance checks the batch (exact value, or the generated
+// `<command>-2026-09-24-<6 hex>` form when wantBatch is empty) and the query.
+func assertIngestProvenance(t *testing.T, options kingest.Options, command, wantBatch, wantQuery string) {
+	t.Helper()
+	if wantBatch != "" {
+		if options.Batch != wantBatch {
+			t.Fatalf("batch = %q, want %q", options.Batch, wantBatch)
+		}
+	} else if pattern := regexp.MustCompile(`^` + command + `-2026-09-24-[0-9a-f]{6}$`); !pattern.MatchString(options.Batch) {
+		t.Fatalf("batch = %q, want generated %s", options.Batch, pattern)
+	}
+	if options.Query != wantQuery {
+		t.Fatalf("query = %q, want %q", options.Query, wantQuery)
+	}
 }
 
 type fakeFirecrawlScraper struct {
@@ -1026,6 +1055,7 @@ func TestIngestChannelCommand(t *testing.T) {
 		var gotBulkLanguages []string
 		var gotBulkAllowTranslated bool
 		var ingestCalls int
+		var gotIngest kingest.Options
 
 		loadIngestConfig = func() (kconfig.Config, error) {
 			return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
@@ -1067,6 +1097,7 @@ func TestIngestChannelCommand(t *testing.T) {
 		}
 		runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
 			ingestCalls++
+			gotIngest = options
 			return models.IngestResult{
 				Topic:      options.Topic,
 				SourceType: options.SourceKind,
@@ -1113,6 +1144,7 @@ func TestIngestChannelCommand(t *testing.T) {
 		if ingestCalls != 1 {
 			t.Fatalf("runIngest calls = %d, want 1 (only the successful fresh video)", ingestCalls)
 		}
+		assertIngestProvenance(t, gotIngest, "channel", "", "https://www.youtube.com/@aiDotEngineer")
 
 		var summary channelIngestSummary
 		if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
@@ -1132,6 +1164,72 @@ func TestIngestChannelCommand(t *testing.T) {
 		}
 		if len(summary.Failures) != 1 || summary.Failures[0].VideoID != "vid00000003" {
 			t.Fatalf("failures = %+v, want only vid00000003", summary.Failures)
+		}
+	})
+
+	t.Run("Should stamp one batch and the channel URL on every video", func(t *testing.T) {
+		for _, batchFlag := range []string{"", "brand-audit-2026-09-06"} {
+			restoreIngestGlobals(t)
+
+			loadIngestConfig = func() (kconfig.Config, error) {
+				return kconfig.Config{YouTube: kconfig.Default().YouTube}, nil
+			}
+			runIngestTopicInfo = func(_, slug string) (models.TopicInfo, error) {
+				return models.TopicInfo{Slug: slug, Title: "Chan", Domain: "youtube-channel"}, nil
+			}
+			existingYouTubeVideoIDs = func(_, _ string) (map[string]struct{}, error) {
+				return map[string]struct{}{}, nil
+			}
+			newYouTubeChannelExtractor = func(kconfig.Config) youtubeChannelExtractor {
+				return fakeYouTubeChannelExtractor{
+					list: func(context.Context, string, int) (youtube.ChannelListing, error) {
+						return youtube.ChannelListing{Channel: "Chan", Videos: []youtube.ChannelVideo{
+							{VideoID: "vid00000011", Title: "One", URL: "https://www.youtube.com/watch?v=vid00000011"},
+							{VideoID: "vid00000012", Title: "Two", URL: "https://www.youtube.com/watch?v=vid00000012"},
+						}}, nil
+					},
+					bulk: func(_ context.Context, videos []youtube.ChannelVideo, _ youtube.BulkOptions, sink func(youtube.VideoOutcome)) error {
+						for _, video := range videos {
+							sink(youtube.VideoOutcome{Video: video, Result: &youtube.Result{
+								Metadata: youtube.Metadata{VideoID: video.VideoID, URL: video.URL, Title: video.Title},
+								Markdown: "transcript",
+							}})
+						}
+						return nil
+					},
+				}
+			}
+			var got []kingest.Options
+			runIngest = func(_ context.Context, options kingest.Options) (models.IngestResult, error) {
+				got = append(got, options)
+				return models.IngestResult{Topic: options.Topic, FilePath: "chan/raw/youtube/" + options.Title + ".md", Title: options.Title}, nil
+			}
+
+			args := []string{
+				"ingest", "channel", " https://www.youtube.com/@chan ",
+				"--topic", "yt-channels/chan",
+				"--vault", t.TempDir(),
+			}
+			if batchFlag != "" {
+				args = append(args, "--batch", batchFlag)
+			}
+			command := newRootCommand()
+			command.SetOut(new(bytes.Buffer))
+			command.SetErr(new(bytes.Buffer))
+			command.SetArgs(args)
+			if err := command.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext returned error: %v", err)
+			}
+
+			if len(got) != 2 {
+				t.Fatalf("runIngest calls = %d, want 2", len(got))
+			}
+			for _, options := range got {
+				assertIngestProvenance(t, options, "channel", batchFlag, "https://www.youtube.com/@chan")
+			}
+			if got[0].Batch != got[1].Batch {
+				t.Fatalf("videos of one run got different batches: %q vs %q", got[0].Batch, got[1].Batch)
+			}
 		}
 	})
 
