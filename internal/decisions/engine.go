@@ -553,6 +553,11 @@ func (e *Engine) post(ctx context.Context, payload []byte) (int, http.Header, []
 		return 0, nil, nil, ctx.Err()
 	}
 	defer func() { <-e.sem }()
+	// A 429 may have paused the pool while this attempt queued for a
+	// transport slot; honour it immediately before dispatch.
+	if err := e.waitPause(ctx); err != nil {
+		return 0, nil, nil, err
+	}
 
 	attemptCtx, cancel := context.WithTimeout(ctx, e.deadline)
 	defer cancel()
@@ -594,15 +599,24 @@ func (e *Engine) pause(wait time.Duration) {
 	}
 }
 
-// waitPause blocks while a 429 has paused the whole pool.
+// waitPause blocks while a 429 has paused the whole pool. Another worker
+// may extend the pause while this one sleeps, so the shared deadline is
+// re-read after every wake until it has passed.
 func (e *Engine) waitPause(ctx context.Context) error {
-	e.pauseMu.Lock()
-	wait := e.pauseUntil.Sub(e.now())
-	e.pauseMu.Unlock()
-	if wait <= 0 {
-		return nil
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		e.pauseMu.Lock()
+		wait := e.pauseUntil.Sub(e.now())
+		e.pauseMu.Unlock()
+		if wait <= 0 {
+			return nil
+		}
+		if err := e.sleep(ctx, wait); err != nil {
+			return err
+		}
 	}
-	return e.sleep(ctx, wait)
 }
 
 func retryableStatus(status int) bool {

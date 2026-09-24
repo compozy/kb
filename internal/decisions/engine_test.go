@@ -939,3 +939,129 @@ func TestSummaryLines(t *testing.T) {
 		}
 	}
 }
+
+func TestWaitPauseRereadsAnExtendedDeadline(t *testing.T) {
+	t.Parallel()
+
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var engine *Engine
+	var slept []time.Duration
+	engine, err := New(Options{
+		Config: config.Default().Decisions,
+		APIKey: "k",
+		Now:    func() time.Time { return clock },
+		Sleep: func(ctx context.Context, d time.Duration) error {
+			slept = append(slept, d)
+			clock = clock.Add(d)
+			if len(slept) == 1 {
+				// Another worker hits a longer 429 while this one sleeps.
+				engine.pause(700 * time.Millisecond)
+			}
+			return ctx.Err()
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	start := clock
+	engine.pause(200 * time.Millisecond)
+	if err := engine.waitPause(context.Background()); err != nil {
+		t.Fatalf("waitPause: %v", err)
+	}
+	if waited := clock.Sub(start); waited < 900*time.Millisecond {
+		t.Fatalf("waited %v (sleeps %v), want at least the extended 900ms", waited, slept)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	engine.pause(time.Second)
+	if err := engine.waitPause(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitPause on a cancelled context = %v, want context.Canceled", err)
+	}
+}
+
+func TestDecideHonoursExtendedSharedPause(t *testing.T) {
+	t.Parallel()
+
+	const (
+		shortWait = 200 * time.Millisecond
+		longWait  = 800 * time.Millisecond
+	)
+	var (
+		mu       sync.Mutex
+		extendAt time.Time
+		retries  []time.Time
+		arrived  atomic.Int32
+	)
+	bothArrived := make(chan struct{})
+	rateLimited := func(w http.ResponseWriter, wait time.Duration) {
+		w.Header().Set("retry-after-ms", strconv.FormatInt(wait.Milliseconds(), 10))
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": map[string]any{"code": 429, "message": "slow down"}})
+	}
+	fake := newFakeServer(t, func(w http.ResponseWriter, _ *http.Request, call int, req decisionRequest) {
+		arrival := time.Now()
+		if call >= 2 {
+			mu.Lock()
+			retries = append(retries, arrival)
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, validResponse(req))
+			return
+		}
+		if arrived.Add(1) == 2 {
+			close(bothArrived)
+		}
+		select {
+		case <-bothArrived:
+		case <-time.After(5 * time.Second):
+			t.Errorf("the first two requests were not in flight together")
+		}
+		if call == 0 {
+			rateLimited(w, shortWait)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		mu.Lock()
+		extendAt = time.Now()
+		mu.Unlock()
+		rateLimited(w, longWait)
+	})
+	cfg := config.Default().Decisions
+	cfg.Concurrency = 2
+	engine, err := New(Options{Config: cfg, APIKey: "sk-or-v1-test-key-0000000000000000", APIURL: fake.url()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	root := t.TempDir()
+	var wg sync.WaitGroup
+	for index := range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req := qualityRequest(t, root)
+			req.State = map[string]any{"n": index}
+			result, err := engine.Decide(context.Background(), req)
+			if err != nil {
+				t.Errorf("Decide: %v", err)
+				return
+			}
+			for id, answer := range result.Answers {
+				if !answer.Decided() {
+					t.Errorf("%s = %+v, want decided after the pause", id, answer)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if extendAt.IsZero() || len(retries) != 2 {
+		t.Fatalf("extendAt=%v retries=%d, want the pause extended and both requests retried", extendAt, len(retries))
+	}
+	deadline := extendAt.Add(longWait)
+	for _, at := range retries {
+		if at.Before(deadline) {
+			t.Errorf("a retry reached the server %v before the extended pause ended", deadline.Sub(at))
+		}
+	}
+}
