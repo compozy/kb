@@ -409,6 +409,188 @@ func TestQuarantineKeepsKBOwnedRelationsOwned(t *testing.T) {
 	}
 }
 
+// ledgerFault decides, for the n-th ledger append (1-based) of entry,
+// whether the row still reaches the ledger and whether the append fails.
+type ledgerFault func(n int, entry LedgerEntry) (write, fail bool)
+
+func faultyAppend(fault ledgerFault) func(string, LedgerEntry) error {
+	n := 0
+	return func(topicRoot string, entry LedgerEntry) error {
+		n++
+		write, fail := fault(n, entry)
+		if write {
+			if err := appendLedger(topicRoot, entry); err != nil {
+				return err
+			}
+		}
+		if fail {
+			return errors.New("injected ledger failure")
+		}
+		return nil
+	}
+}
+
+// onEdit fails the k-th edit-row append, writing the row first when write.
+func onEdit(k int, write bool) ledgerFault {
+	edits := 0
+	return func(_ int, entry LedgerEntry) (bool, bool) {
+		if entry.Op != OpEdit {
+			return true, false
+		}
+		edits++
+		if edits == k {
+			return write, true
+		}
+		return true, false
+	}
+}
+
+// TestQuarantineRecordingFailureIsRecoverable: recovery information is
+// durable before every mutation, so a quarantine whose ledger append fails
+// leaves nothing moved without a ledger row and Restore brings every file
+// back byte-identical afterwards.
+func TestQuarantineRecordingFailureIsRecoverable(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		// setup prepares the failure; it returns the appender for the
+		// quarantine (nil = the real ledger file).
+		setup func(t *testing.T, fx fixture) func(string, LedgerEntry) error
+		// moved reports whether the source is expected in raw/_quarantine/
+		// after the failed quarantine.
+		moved bool
+		// active reports whether a quarantine is left active to restore.
+		active bool
+		// retry makes the ledger writable again and runs the full cycle.
+		retry func(t *testing.T, fx fixture)
+	}{
+		{
+			name: "unwritable ledger fails before the move",
+			setup: func(t *testing.T, fx fixture) func(string, LedgerEntry) error {
+				if os.Geteuid() == 0 {
+					t.Skip("root ignores file permissions")
+				}
+				writeFile(t, LedgerPath(fx.topic), "")
+				if err := os.Chmod(LedgerPath(fx.topic), 0o444); err != nil {
+					t.Fatal(err)
+				}
+				return nil
+			},
+			retry: func(t *testing.T, fx fixture) {
+				if err := os.Chmod(LedgerPath(fx.topic), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				result, err := Quarantine(context.Background(), Options{VaultPath: fx.vault, TopicRoot: fx.topic, Path: "raw/articles/x.md", Reason: "off_topic"})
+				if err != nil {
+					t.Fatalf("retried Quarantine: %v", err)
+				}
+				if _, err := Restore(context.Background(), Options{VaultPath: fx.vault, TopicRoot: fx.topic, ID: result.ID}); err != nil {
+					t.Fatalf("Restore after retry: %v", err)
+				}
+			},
+		},
+		{
+			name: "move row recorded but the move and its rollback row fail",
+			setup: func(*testing.T, fixture) func(string, LedgerEntry) error {
+				return faultyAppend(func(_ int, entry LedgerEntry) (bool, bool) {
+					switch entry.Op {
+					case OpMove:
+						return true, true // on disk, but reported as failed
+					case OpRestore:
+						return false, true
+					}
+					return true, false
+				})
+			},
+			active: true,
+		},
+		{
+			name:   "second reference edit cannot be recorded",
+			setup:  func(*testing.T, fixture) func(string, LedgerEntry) error { return faultyAppend(onEdit(2, false)) },
+			moved:  true,
+			active: true,
+		},
+		{
+			name:   "reference edit recorded but never performed",
+			setup:  func(*testing.T, fixture) func(string, LedgerEntry) error { return faultyAppend(onEdit(1, true)) },
+			moved:  true,
+			active: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t)
+			touched := []string{"wiki/index/Source Index.md", "wiki/concepts/Article.md", "wiki/concepts/Locked.md"}
+			originals := map[string]string{}
+			for _, rel := range touched {
+				originals[rel] = readString(t, filepath.Join(fx.topic, filepath.FromSlash(rel)))
+			}
+			source := filepath.Join(fx.topic, "raw/articles/x.md")
+			quarantined := filepath.Join(fx.topic, "raw/_quarantine/articles/x.md")
+
+			opts := Options{VaultPath: fx.vault, TopicRoot: fx.topic, Path: "raw/articles/x.md", Reason: "off_topic", Now: fixedNow}
+			opts.appendRow = tc.setup(t, fx)
+			if _, err := Quarantine(context.Background(), opts); err == nil {
+				t.Fatal("Quarantine succeeded despite the ledger failure")
+			}
+
+			_, movedErr := os.Stat(quarantined)
+			if gotMoved := movedErr == nil; gotMoved != tc.moved {
+				t.Fatalf("source moved = %v, want %v", gotMoved, tc.moved)
+			}
+			if !tc.moved {
+				values, _, err := frontmatter.Parse(readString(t, source))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if values["triage"] == TriageQuarantined {
+					t.Errorf("unmoved source still marked quarantined: %v", values)
+				}
+			}
+			active, err := List(fx.topic)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.moved && len(active) != 1 {
+				t.Fatalf("moved source has no active ledger row: %+v", active)
+			}
+			if (len(active) == 1) != tc.active {
+				t.Fatalf("active quarantines = %+v, want active=%v", active, tc.active)
+			}
+
+			if tc.active {
+				restored, err := Restore(context.Background(), Options{VaultPath: fx.vault, TopicRoot: fx.topic, ID: active[0].ID, Now: fixedNow})
+				if err != nil {
+					t.Fatalf("Restore after failed quarantine: %v", err)
+				}
+				if len(restored.Manual) != 0 {
+					t.Errorf("restore left manual repairs: %+v", restored.Manual)
+				}
+				if left, _ := List(fx.topic); len(left) != 0 {
+					t.Errorf("quarantine still active after restore: %+v", left)
+				}
+			}
+			if tc.retry != nil {
+				tc.retry(t, fx)
+			}
+
+			if _, err := os.Stat(quarantined); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("source left in quarantine: %v", err)
+			}
+			if _, err := os.Stat(source); err != nil {
+				t.Errorf("source not at its original path: %v", err)
+			}
+			for _, rel := range touched {
+				if got := readString(t, filepath.Join(fx.topic, filepath.FromSlash(rel))); got != originals[rel] {
+					t.Errorf("%s not byte-identical after recovery:\n%s", rel, got)
+				}
+			}
+		})
+	}
+}
+
 func TestIsIndexEntry(t *testing.T) {
 	t.Parallel()
 	testCases := map[string]bool{

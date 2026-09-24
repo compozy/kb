@@ -93,6 +93,18 @@ type Options struct {
 	State *corpus.StateStore
 	// Now defaults to time.Now.
 	Now func() time.Time
+
+	// appendRow replaces the ledger append (a test seam for recording
+	// failures); nil appends to the topic's ledger file.
+	appendRow func(topicRoot string, entry LedgerEntry) error
+}
+
+// record appends one ledger row.
+func (o Options) record(entry LedgerEntry) error {
+	if o.appendRow != nil {
+		return o.appendRow(o.TopicRoot, entry)
+	}
+	return appendLedger(o.TopicRoot, entry)
 }
 
 // Result reports a quarantine.
@@ -149,7 +161,14 @@ type Quarantined struct {
 //     removed from other topic documents, deleting exactly their lines;
 //  5. body links are left in place and returned in BodyRefs.
 //
-// Every change is appended to the quarantine ledger.
+// Recovery information is durable before each mutation: the move row is
+// appended before the file moves and every edit row before its file is
+// rewritten, so Restore can always undo what happened. A row whose mutation
+// never took place (the process failed in between) is recognized by Restore
+// from the file state: the quarantined file is still at its original path,
+// or a touched file still hashes to the row's hash_before. When the move row
+// cannot be recorded, or the move itself fails, the triage keys are rolled
+// back and nothing is left moved.
 func Quarantine(ctx context.Context, opts Options) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -186,6 +205,10 @@ func Quarantine(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	hashBefore := hashString(doc.Raw)
+	revert := map[string]any{}
+	for _, key := range []string{"triage", "triage_reason"} {
+		revert[key] = doc.Frontmatter[key] // absent → nil deletes the key
+	}
 	written, err := writer.Apply(doc, map[string]any{"triage": TriageQuarantined, "triage_reason": opts.Reason}, corpus.StateMeta{})
 	if err != nil {
 		return Result{}, fmt.Errorf("refs: mark %s quarantined: %w", rel, err)
@@ -196,32 +219,35 @@ func Quarantine(ctx context.Context, opts Options) (Result, error) {
 	case corpus.StatusSkippedChanged:
 		return Result{}, fmt.Errorf("refs: %s changed while it was being quarantined; retry", rel)
 	}
-	moved, err := readFile(source)
-	if err != nil {
-		return Result{}, err
-	}
-
 	stamp := now().UTC().Format(time.RFC3339Nano)
 	id := strings.TrimSpace(opts.ID)
 	if id == "" {
 		id = quarantineID(rel, stamp)
 	}
-
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return Result{}, fmt.Errorf("refs: create %s: %w", filepath.Dir(newRel), err)
+	undo := func(cause error, recorded bool) error {
+		return errors.Join(cause, rollbackMove(opts, writer, rel, pick(revert, written.Written), id, stamp, recorded))
 	}
-	if err := os.Rename(source, dest); err != nil {
-		return Result{}, fmt.Errorf("refs: move %s to %s: %w", rel, newRel, err)
+	moved, err := readFile(source)
+	if err != nil {
+		return Result{}, undo(err, false)
 	}
 
-	result := Result{ID: id, NewPath: newRel, SkippedUserKeys: written.SkippedUserKeys}
 	moveRow := LedgerEntry{
 		QuarantineID: id, Time: stamp, Op: OpMove, File: newRel, Original: rel, LineOrKey: MarkerMove,
 		HashBefore: hashBefore, HashAfter: hashString(moved), Reason: opts.Reason,
 	}
-	if err := appendLedger(opts.TopicRoot, moveRow); err != nil {
-		return result, err
+	if err := opts.record(moveRow); err != nil {
+		// The row may have reached the disk anyway: close it as well.
+		return Result{}, undo(err, true)
 	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return Result{}, undo(fmt.Errorf("refs: create %s: %w", filepath.Dir(newRel), err), true)
+	}
+	if err := os.Rename(source, dest); err != nil {
+		return Result{}, undo(fmt.Errorf("refs: move %s to %s: %w", rel, newRel, err), true)
+	}
+
+	result := Result{ID: id, NewPath: newRel, SkippedUserKeys: written.SkippedUserKeys}
 	result.Removed = append(result.Removed, moveRow)
 
 	for _, scan := range scans {
@@ -246,9 +272,49 @@ func Quarantine(ctx context.Context, opts Options) (Result, error) {
 	return result, nil
 }
 
+// rollbackMove undoes a quarantine whose file was not moved: the triage keys
+// kb wrote are put back to their previous values and, when a move row may
+// have been recorded, a restore row closes it. If the ledger cannot take the
+// restore row the move row stays active, and Restore recognizes the file at
+// its original path.
+func rollbackMove(opts Options, writer *corpus.Writer, rel string, revert map[string]any, id, stamp string, recorded bool) error {
+	var errs []error
+	if len(revert) > 0 {
+		doc, err := corpus.ReadDocument(opts.TopicRoot, rel, corpus.KindSource)
+		if err == nil {
+			_, err = writer.Apply(doc, revert, corpus.StateMeta{})
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("refs: roll back triage of %s: %w", rel, err))
+		}
+	}
+	if recorded {
+		row := LedgerEntry{
+			QuarantineID: id, Time: stamp, Op: OpRestore, File: rel, Original: rel,
+			LineOrKey: MarkerMove, Reason: "rollback",
+		}
+		if err := opts.record(row); err != nil {
+			errs = append(errs, fmt.Errorf("refs: close quarantine %s: %w", id, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// pick returns the entries of values whose key is in keys.
+func pick(values map[string]any, keys []string) map[string]any {
+	out := map[string]any{}
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 // removeSpans deletes the removable spans of one file bottom-up (so every
-// recorded line number is valid in the file state right before its edit) and
-// appends one ledger row per deletion.
+// recorded line number is valid in the file state right before its edit).
+// Each deletion's ledger row is appended before the file is rewritten, so
+// the removed bytes are durable before they leave the file.
 func removeSpans(opts Options, scan fileScan, id, stamp string) ([]LedgerEntry, error) {
 	removable := make([]span, 0, len(scan.spans))
 	for _, sp := range scan.spans {
@@ -274,25 +340,28 @@ func removeSpans(opts Options, scan fileScan, id, stamp string) ([]LedgerEntry, 
 		lines := splitLines(current)
 		before := strings.Join(lines[sp.start:sp.end], "")
 		edited := strings.Join(lines[:sp.start], "") + strings.Join(lines[sp.end:], "")
-		if err := writeAtomic(scan.abs, edited); err != nil {
-			return rows, err
-		}
 		key := MarkerIndex
 		if sp.ref.Kind == KindFrontmatter {
 			key = sp.ref.Key
-			if err := syncWritten(opts, scan.rel, key, current, edited); err != nil {
-				return rows, err
-			}
 		}
 		row := LedgerEntry{
 			QuarantineID: id, Time: stamp, Op: OpEdit, File: scan.rel, LineOrKey: key, Line: sp.start + 1,
 			Before: before, HashBefore: hashString(current), HashAfter: hashString(edited), Reason: opts.Reason,
 		}
-		if err := appendLedger(opts.TopicRoot, row); err != nil {
+		if err := opts.record(row); err != nil {
+			return rows, err
+		}
+		if err := writeAtomic(scan.abs, edited); err != nil {
 			return rows, err
 		}
 		rows = append(rows, row)
+		previous := current
 		current = edited
+		if key != MarkerIndex {
+			if err := syncWritten(opts, scan.rel, key, previous, edited); err != nil {
+				return rows, err
+			}
+		}
 	}
 	return rows, nil
 }
@@ -321,10 +390,17 @@ func Restore(ctx context.Context, opts Options) (RestoreResult, error) {
 	}
 	source := joinTopic(opts.TopicRoot, move.File)
 	dest := joinTopic(opts.TopicRoot, move.Original)
-	if _, err := os.Stat(source); err != nil {
-		return RestoreResult{}, fmt.Errorf("refs: quarantined file %s: %w", move.File, err)
-	}
-	if _, err := os.Stat(dest); err == nil {
+	_, sourceErr := os.Stat(source)
+	_, destErr := os.Stat(dest)
+	// notMoved: the move row was recorded but the move never happened (a
+	// failed quarantine); only the triage keys and any recorded edits need
+	// undoing.
+	notMoved := errors.Is(sourceErr, fs.ErrNotExist) && destErr == nil
+	switch {
+	case notMoved:
+	case sourceErr != nil:
+		return RestoreResult{}, fmt.Errorf("refs: quarantined file %s: %w", move.File, sourceErr)
+	case destErr == nil:
 		return RestoreResult{}, fmt.Errorf("refs: cannot restore %s: %s already exists", move.File, move.Original)
 	}
 
@@ -351,8 +427,10 @@ func Restore(ctx context.Context, opts Options) (RestoreResult, error) {
 		}
 	}
 
-	if err := os.Rename(source, dest); err != nil {
-		return result, fmt.Errorf("refs: move %s back to %s: %w", move.File, move.Original, err)
+	if !notMoved {
+		if err := os.Rename(source, dest); err != nil {
+			return result, fmt.Errorf("refs: move %s back to %s: %w", move.File, move.Original, err)
+		}
 	}
 	writer, err := topicWriter(opts)
 	if err != nil {
@@ -369,7 +447,7 @@ func Restore(ctx context.Context, opts Options) (RestoreResult, error) {
 		QuarantineID: move.QuarantineID, Time: stamp, Op: OpRestore, File: move.Original, Original: move.File,
 		LineOrKey: MarkerMove, Reason: move.Reason,
 	}
-	if err := appendLedger(opts.TopicRoot, row); err != nil {
+	if err := opts.record(row); err != nil {
 		return result, err
 	}
 	result.Restored = append(result.Restored, move)
@@ -387,8 +465,10 @@ func replay(opts Options, entry LedgerEntry, stamp string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if hashString(current) != entry.HashAfter {
-		return false, nil
+	if sum := hashString(current); sum != entry.HashAfter {
+		// A row recorded ahead of an edit that never happened: the file is
+		// still in its pre-edit state, so there is nothing to put back.
+		return sum == entry.HashBefore && entry.HashBefore != "", nil
 	}
 	lines := splitLines(current)
 	start := entry.Line - 1
@@ -411,7 +491,7 @@ func replay(opts Options, entry LedgerEntry, stamp string) (bool, error) {
 		Line: entry.Line, Before: entry.After, After: entry.Before,
 		HashBefore: hashString(current), HashAfter: hashString(restored), Reason: entry.Reason,
 	}
-	return true, appendLedger(opts.TopicRoot, row)
+	return true, opts.record(row)
 }
 
 // List returns the active quarantines of a topic (move rows without a
