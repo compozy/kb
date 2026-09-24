@@ -319,10 +319,7 @@ func normalizeAnswer(q Question, answer any) any {
 		}
 		return choiceAnswer(probs)
 	case levelAnswer:
-		levels := q.Levels()
-		if levels < 2 {
-			levels = 2
-		}
+		levels := max(q.Levels(), 2)
 		probs := map[string]float64{}
 		legend := map[string]any{}
 		for level := range levels {
