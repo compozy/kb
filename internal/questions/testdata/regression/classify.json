@@ -1,0 +1,74 @@
+{
+  "bank": "classify",
+  "state_defaults": {
+    "contract": {
+      "purpose": "Collect material on typed decision models (Jev by TypeSafe) and on building software with them.",
+      "core": ["Typed decision models such as Jev", "Engineering integrations of decision models"],
+      "adjacent": ["LLM-as-judge evaluation methods"],
+      "collected_on_purpose": ["API reference pages and SDK READMEs"],
+      "out_of_scope": ["Sports results and celebrity news"]
+    }
+  },
+  "cases": [
+    {
+      "name": "paper abstract",
+      "question": "kind",
+      "state": {"document": {"title": "Calibrated Typed Judgments", "excerpt": "Abstract. We introduce a model that answers typed questions with calibrated distributions. Section 2 describes the method; Section 4 reports results on six benchmarks. References: [1] ...", "provenance": {"path": "raw/papers/calibrated.md", "source_host": "arxiv.org"}}},
+      "allowed": ["paper"]
+    },
+    {
+      "name": "step by step tutorial",
+      "question": "kind",
+      "state": {"document": {"title": "Build a ticket router in 10 minutes", "excerpt": "Step 1: install the client. Step 2: write the state builder. Step 3: add a choice question with an other option. Step 4: route on confidence above 0.8.", "provenance": {"path": "raw/articles/router-tutorial.md"}}},
+      "allowed": ["tutorial_or_guide"]
+    },
+    {
+      "name": "release note",
+      "question": "kind",
+      "state": {"document": {"title": "Jev 1.13 is now available", "excerpt": "Today we are releasing Jev 1.13 with better calibration on Portuguese text and a new dated model slug. It is available on OpenRouter starting today.", "provenance": {"path": "raw/articles/jev-113.md"}}},
+      "allowed": ["announcement_or_news"]
+    },
+    {
+      "name": "forum thread",
+      "question": "kind",
+      "state": {"document": {"title": "Anyone using decision models in prod?", "excerpt": "user1: We tried it for triage, works well. user2: Latency is great but I am not sure about non-English text. user3: +1, we saw the same.", "provenance": {"path": "raw/articles/thread.md", "source_host": "news.ycombinator.com"}}},
+      "allowed": ["opinion_or_discussion"]
+    },
+    {
+      "name": "api reference page",
+      "question": "kind",
+      "state": {"document": {"title": "POST /alpha/decisions", "excerpt": "Parameters: model (string, required); state (string | object, required); questions (map, required). Responses: 200 answers; 400 invalid request; 401 unauthorized; 429 rate limited.", "provenance": {"path": "raw/api-docs/decisions.md", "source_host": "openrouter.ai"}}},
+      "allowed": ["reference_docs"]
+    },
+    {
+      "name": "passing mention has low depth",
+      "question": "depth",
+      "state": {"document": {"title": "Ten AI tools I tried this year", "excerpt": "I tried many tools this year: an image generator, a meeting summarizer, a coding assistant, and a decision model called Jev that I only tested once. My favourite was the meeting summarizer because it saved me an hour a week.", "provenance": {"path": "raw/articles/tools.md"}}},
+      "allowed": ["0", "1"]
+    },
+    {
+      "name": "detailed engineering write-up",
+      "question": "depth",
+      "state": {"document": {"title": "Our Jev gate: state, questions and thresholds", "excerpt": "The state holds the contract, a 12k-token section-aware excerpt and provenance. We ask four quality nouls and one role choice. Quarantine happens at P(off_topic) >= 0.8 because precision at 0.7 was 0.67 on one topic; between 0.5 and 0.8 items go to review. Retries: two, jittered backoff from 0.5 s, 20 s deadline per attempt.", "provenance": {"path": "raw/articles/gate.md"}}},
+      "allowed": ["2", "3"]
+    },
+    {
+      "name": "original benchmark data",
+      "question": "depth",
+      "state": {"document": {"title": "Benchmark: Jev versus cross-encoders on 3 datasets", "excerpt": "We ran 6,234 requests. Table 1: nDCG@10 0.71 (Jev) vs 0.68 (cross-encoder) on SciFact; p50 latency 0.33 s, p95 0.51 s. Code and raw receipts are in the repository.", "provenance": {"path": "raw/papers/benchmark.md"}}},
+      "allowed": ["3", "2"]
+    },
+    {
+      "name": "title only is not enough text",
+      "question": "enough_text_to_judge",
+      "state": {"document": {"title": "Decision models and you", "excerpt": "", "provenance": {"path": "raw/articles/untitled.md"}}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "full paragraph is enough text",
+      "question": "enough_text_to_judge",
+      "state": {"document": {"title": "Why receipts matter", "excerpt": "Every decision should be replayable from its receipt: the request hash, bank version, reported model, latency, tokens and cost. With receipts, a threshold change never needs a new call, and a model change is visible in the log.", "provenance": {"path": "raw/articles/receipts.md"}}},
+      "allowed": ["yes"]
+    }
+  ]
+}

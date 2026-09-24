@@ -1,0 +1,80 @@
+{
+  "bank": "link",
+  "state_defaults": {
+    "candidates": [
+      {"id": "mcp", "title": "Model Context Protocol", "aliases": ["MCP"], "criterion": "Documents that specify, implement or evaluate the Model Context Protocol, the protocol that connects LLM applications to tools and data sources."},
+      {"id": "jev", "title": "Jev", "aliases": ["Jev decision model"], "criterion": "Documents about the Jev decision model by TypeSafe: its typed questions, answers, confidence and integrations."}
+    ]
+  },
+  "cases": [
+    {
+      "name": "mcp server article should link to mcp",
+      "question": "should_link_{id}",
+      "vars": {"id": "mcp"},
+      "state": {"document": {"title": "Writing your first MCP server", "summary": "A walkthrough of an MCP server exposing two tools.", "excerpt": "An MCP server declares tools with JSON schemas; the client lists them and calls them over stdio or HTTP."}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "cooking protocol should not link to mcp",
+      "question": "should_link_{id}",
+      "vars": {"id": "mcp"},
+      "state": {"document": {"title": "Kitchen hygiene protocol", "summary": "Steps for cleaning a restaurant kitchen.", "excerpt": "Our protocol: sanitize surfaces every two hours, label containers and log fridge temperatures."}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "auth extension extends mcp",
+      "question": "relation_{id}",
+      "vars": {"id": "mcp"},
+      "state": {"document": {"title": "OAuth authorization for MCP servers", "summary": "Adds an OAuth flow on top of the MCP transport.", "excerpt": "This extension adds OAuth 2.1 authorization to MCP HTTP transports so servers can require user consent before tool calls."}},
+      "allowed": ["extends", "related"]
+    },
+    {
+      "name": "github server is an example of mcp",
+      "question": "relation_{id}",
+      "vars": {"id": "mcp"},
+      "state": {"document": {"title": "Building an MCP server for GitHub issues", "summary": "A concrete MCP server that lists and comments on GitHub issues.", "excerpt": "Here is the full code of a server that exposes list_issues and add_comment as MCP tools."}},
+      "allowed": ["example_of", "related"]
+    },
+    {
+      "name": "unrelated document has no relation",
+      "question": "relation_{id}",
+      "vars": {"id": "jev"},
+      "state": {"document": {"title": "Tomato gardening tips", "summary": "How to grow tomatoes on a balcony.", "excerpt": "Water early in the morning, stake the plants and pinch side shoots."}},
+      "allowed": ["none"]
+    },
+    {
+      "name": "mention refers to the decision model",
+      "question": "mention_sense_{n}",
+      "vars": {"n": "1"},
+      "state": {
+        "document": {"title": "Filtering sources", "summary": "", "excerpt": ""},
+        "mentions": [{"n": 1, "id": "jev", "candidate": "Jev", "sentence": "We ask Jev a choice question per document and keep the ones it labels core."}]
+      },
+      "allowed": ["yes"]
+    },
+    {
+      "name": "mention is a person's name",
+      "question": "mention_sense_{n}",
+      "vars": {"n": "2"},
+      "state": {
+        "document": {"title": "Local restaurants", "summary": "", "excerpt": ""},
+        "mentions": [{"n": 2, "id": "jev", "candidate": "Jev", "sentence": "Chef Jev Morales opened a new taqueria downtown last week."}]
+      },
+      "allowed": ["no"]
+    },
+    {
+      "name": "new measurement affects the article",
+      "question": "affects_{id}",
+      "vars": {"id": "jev"},
+      "state": {"document": {"title": "Jev 1.13 latency and cost, measured", "summary": "New measurements of Jev latency and cost.", "excerpt": "Over 10,840 calls Jev's p50 latency was 0.36 s and p95 0.52 s, and one call hung for 30 s; the list price is US$ 0.042 per million input tokens and output is free."}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "passing mention does not affect the article",
+      "question": "affects_{id}",
+      "vars": {"id": "mcp"},
+      "state": {"document": {"title": "My home office setup", "summary": "Desk, chair and monitor choices.", "excerpt": "I use a standing desk and two monitors; somewhere in my bookmarks there is an MCP tutorial I never read."}},
+      "allowed": ["no"]
+    }
+  ]
+}

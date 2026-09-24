@@ -3,7 +3,12 @@
 // per-topic receipts cache, banding, budget, concurrency and run summaries.
 package decisions
 
-import "github.com/compozy/kb/internal/questions"
+import (
+	"maps"
+	"slices"
+
+	"github.com/compozy/kb/internal/questions"
+)
 
 // Purpose names why a decision is asked; it selects thresholds and groups the
 // run summary.
@@ -87,6 +92,10 @@ type Answer struct {
 	Score      *float64           `json:"score,omitempty"`
 	Probs      map[string]float64 `json:"probabilities,omitempty"`
 	Confidence *float64           `json:"confidence,omitempty"`
+	// Receipt is the receipts key of the request that produced the answer
+	// (requests over 48 questions are split, so answers of one Result may
+	// come from different receipts).
+	Receipt string `json:"receipt,omitempty"`
 }
 
 // Decided reports whether the answer carries a usable judgment.
@@ -132,12 +141,7 @@ var RelationKeys = []string{"related", "extends", "prerequisite", "example_of", 
 
 // IsOwnedKey reports whether key is kb-owned.
 func IsOwnedKey(key string) bool {
-	for _, owned := range OwnedKeys {
-		if owned == key {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(OwnedKeys, key)
 }
 
 // Thresholds maps named thresholds (link_apply, relevance_quarantine, ...)
@@ -176,16 +180,9 @@ func (t Thresholds) Get(name string) float64 {
 
 // Merge returns a copy of t with every entry of override applied.
 func (t Thresholds) Merge(override map[string]float64) Thresholds {
-	merged := Thresholds{}
-	for key, value := range DefaultThresholds() {
-		merged[key] = value
-	}
-	for key, value := range t {
-		merged[key] = value
-	}
-	for key, value := range override {
-		merged[key] = value
-	}
+	merged := DefaultThresholds()
+	maps.Copy(merged, t)
+	maps.Copy(merged, override)
 	return merged
 }
 

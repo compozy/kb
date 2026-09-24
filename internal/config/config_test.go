@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfigFile(t *testing.T, content string) string {
@@ -35,6 +36,8 @@ func clearServiceEnv(t *testing.T) {
 	t.Setenv(EnvYouTubeCookiesFile, "")
 	t.Setenv(EnvYouTubeUserAgent, "")
 	t.Setenv(EnvYouTubeCaptionLanguages, "")
+	t.Setenv(EnvDecisionsModel, "")
+	t.Setenv(EnvGenerationModel, "")
 }
 
 func TestDefaultConfigHasValidDefaults(t *testing.T) {
@@ -244,6 +247,117 @@ allow_translated_captions = true
 	}
 }
 
+func TestLoadDecisionsAndGenerationSections(t *testing.T) {
+	testCases := []struct {
+		name    string
+		content string
+		assert  func(*testing.T, Config)
+	}{
+		{
+			name:    "Should default decisions, generation and refetch settings when sections are missing",
+			content: "[app]\nname = \"kb\"\nenv = \"development\"\n",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				want := DecisionsConfig{
+					Model:         "typesafe/jev-1.13",
+					Deadline:      "20s",
+					Retries:       2,
+					Concurrency:   8,
+					MaxStateBytes: 98304,
+					BudgetUSD:     1.0,
+					Mode:          DecisionModeShadow,
+				}
+				if !reflect.DeepEqual(cfg.Decisions, want) {
+					t.Fatalf("decisions = %#v, want %#v", cfg.Decisions, want)
+				}
+				wantGen := GenerationConfig{
+					Model:           "xiaomi/mimo-v2.6-flash",
+					FallbackModel:   "deepseek/deepseek-v4-flash",
+					Deadline:        "90s",
+					Retries:         1,
+					SummaryLanguage: "en",
+				}
+				if cfg.Generation != wantGen {
+					t.Fatalf("generation = %#v, want %#v", cfg.Generation, wantGen)
+				}
+				if cfg.Firecrawl.RefetchWaitMS != 3000 || cfg.Firecrawl.RefetchOnlyMainContent {
+					t.Fatalf("unexpected firecrawl refetch defaults: %#v", cfg.Firecrawl)
+				}
+				deadline, err := cfg.Decisions.DeadlineDuration()
+				if err != nil || deadline != 20*time.Second {
+					t.Fatalf("decisions deadline = %v, %v", deadline, err)
+				}
+				genDeadline, err := cfg.Generation.DeadlineDuration()
+				if err != nil || genDeadline != 90*time.Second {
+					t.Fatalf("generation deadline = %v, %v", genDeadline, err)
+				}
+			},
+		},
+		{
+			name: "Should load every decisions, generation and refetch key from TOML",
+			content: `
+[firecrawl]
+refetch_wait_ms = 5000
+refetch_only_main_content = true
+
+[decisions]
+model = "typesafe/jev-1.14"
+deadline = "15s"
+retries = 0
+concurrency = 4
+max_state_bytes = 65536
+budget_usd = 2.5
+mode = "APPLY"
+
+[decisions.thresholds]
+link_apply = 0.9
+relevance_quarantine = 0.75
+
+[generation]
+model = "acme/gen"
+fallback_model = ""
+deadline = "30s"
+retries = 2
+summary_language = "pt"
+`,
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				want := DecisionsConfig{
+					Model:         "typesafe/jev-1.14",
+					Deadline:      "15s",
+					Retries:       0,
+					Concurrency:   4,
+					MaxStateBytes: 65536,
+					BudgetUSD:     2.5,
+					Mode:          DecisionModeApply,
+					Thresholds:    map[string]float64{"link_apply": 0.9, "relevance_quarantine": 0.75},
+				}
+				if !reflect.DeepEqual(cfg.Decisions, want) {
+					t.Fatalf("decisions = %#v, want %#v", cfg.Decisions, want)
+				}
+				wantGen := GenerationConfig{Model: "acme/gen", Deadline: "30s", Retries: 2, SummaryLanguage: "pt"}
+				if cfg.Generation != wantGen {
+					t.Fatalf("generation = %#v, want %#v", cfg.Generation, wantGen)
+				}
+				if cfg.Firecrawl.RefetchWaitMS != 5000 || !cfg.Firecrawl.RefetchOnlyMainContent {
+					t.Fatalf("unexpected firecrawl refetch settings: %#v", cfg.Firecrawl)
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearServiceEnv(t)
+			cfg, err := Load(writeConfigFile(t, tc.content))
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			tc.assert(t, cfg)
+		})
+	}
+}
+
 func TestLoadEmptyPathUsesDefaults(t *testing.T) {
 	clearServiceEnv(t)
 
@@ -341,6 +455,81 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name:            "empty youtube caption languages",
 			mutate:          func(c *Config) { c.YouTube.CaptionLanguages = []string{" "} },
 			wantErrContains: "youtube.caption_languages",
+		},
+		{
+			name:            "negative firecrawl refetch wait",
+			mutate:          func(c *Config) { c.Firecrawl.RefetchWaitMS = -1 },
+			wantErrContains: "firecrawl.refetch_wait_ms",
+		},
+		{
+			name:            "empty decisions model",
+			mutate:          func(c *Config) { c.Decisions.Model = " " },
+			wantErrContains: "decisions.model",
+		},
+		{
+			name:            "invalid decisions deadline",
+			mutate:          func(c *Config) { c.Decisions.Deadline = "soon" },
+			wantErrContains: "decisions.deadline",
+		},
+		{
+			name:            "non-positive decisions deadline",
+			mutate:          func(c *Config) { c.Decisions.Deadline = "0s" },
+			wantErrContains: "decisions.deadline",
+		},
+		{
+			name:            "negative decisions retries",
+			mutate:          func(c *Config) { c.Decisions.Retries = -1 },
+			wantErrContains: "decisions.retries",
+		},
+		{
+			name:            "zero decisions concurrency",
+			mutate:          func(c *Config) { c.Decisions.Concurrency = 0 },
+			wantErrContains: "decisions.concurrency",
+		},
+		{
+			name:            "tiny decisions max state bytes",
+			mutate:          func(c *Config) { c.Decisions.MaxStateBytes = 10 },
+			wantErrContains: "decisions.max_state_bytes",
+		},
+		{
+			name:            "zero decisions budget",
+			mutate:          func(c *Config) { c.Decisions.BudgetUSD = 0 },
+			wantErrContains: "decisions.budget_usd",
+		},
+		{
+			name:            "invalid decisions mode",
+			mutate:          func(c *Config) { c.Decisions.Mode = "live" },
+			wantErrContains: "decisions.mode",
+		},
+		{
+			name:            "unknown decisions threshold",
+			mutate:          func(c *Config) { c.Decisions.Thresholds = map[string]float64{"link_aply": 0.9} },
+			wantErrContains: "decisions.thresholds.link_aply is not a known threshold",
+		},
+		{
+			name:            "out of range decisions threshold",
+			mutate:          func(c *Config) { c.Decisions.Thresholds = map[string]float64{"link_apply": 1.5} },
+			wantErrContains: "decisions.thresholds.link_apply must be between 0 and 1",
+		},
+		{
+			name:            "empty generation model",
+			mutate:          func(c *Config) { c.Generation.Model = "" },
+			wantErrContains: "generation.model",
+		},
+		{
+			name:            "invalid generation deadline",
+			mutate:          func(c *Config) { c.Generation.Deadline = "-5s" },
+			wantErrContains: "generation.deadline",
+		},
+		{
+			name:            "negative generation retries",
+			mutate:          func(c *Config) { c.Generation.Retries = -2 },
+			wantErrContains: "generation.retries",
+		},
+		{
+			name:            "empty generation summary language",
+			mutate:          func(c *Config) { c.Generation.SummaryLanguage = "" },
+			wantErrContains: "generation.summary_language",
 		},
 	}
 
@@ -562,6 +751,28 @@ func TestLoadEnvOverridesServiceConfig(t *testing.T) {
 				t.Helper()
 				if !reflect.DeepEqual(cfg.YouTube.CaptionLanguages, []string{"orig", "pt", "es"}) {
 					t.Fatalf("expected youtube.caption_languages to be overridden, got %#v", cfg.YouTube.CaptionLanguages)
+				}
+			},
+		},
+		{
+			name:     "decisions model env overrides default",
+			envKey:   EnvDecisionsModel,
+			envValue: " typesafe/jev-1.14 ",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.Decisions.Model != "typesafe/jev-1.14" {
+					t.Fatalf("expected decisions.model to be overridden, got %q", cfg.Decisions.Model)
+				}
+			},
+		},
+		{
+			name:     "generation model env overrides default",
+			envKey:   EnvGenerationModel,
+			envValue: "acme/gen-1",
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if cfg.Generation.Model != "acme/gen-1" {
+					t.Fatalf("expected generation.model to be overridden, got %q", cfg.Generation.Model)
 				}
 			},
 		},

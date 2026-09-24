@@ -1,0 +1,85 @@
+{
+  "bank": "duplicate",
+  "cases": [
+    {
+      "name": "mirrored copy is the same content",
+      "question": "relation_{id}",
+      "vars": {"id": "c1"},
+      "state": {
+        "document": {"title": "Confidence is not accuracy", "excerpt": "Confidence says how peaked a distribution is. It does not say whether the answer is right. Calibrate thresholds on labeled data.", "provenance": {"path": "raw/articles/confidence-mirror.md", "source_host": "medium.com"}},
+        "candidates": [{"id": "c1", "title": "Confidence is not accuracy", "excerpt": "Confidence says how peaked a distribution is. It does not say whether the answer is right. Calibrate thresholds on labeled data.", "provenance": {"path": "raw/articles/confidence.md", "source_host": "blog.example"}}]
+      },
+      "allowed": ["same_content"]
+    },
+    {
+      "name": "second version of a paper is a new version",
+      "question": "relation_{id}",
+      "vars": {"id": "c1"},
+      "state": {
+        "document": {"title": "Typed Judgments for Retrieval (v2)", "excerpt": "Version 2 of this paper adds experiments on three new datasets and corrects Table 3. Abstract: we study typed judgment models as rerankers...", "provenance": {"path": "raw/papers/typed-v2.md", "source_host": "arxiv.org"}},
+        "candidates": [{"id": "c1", "title": "Typed Judgments for Retrieval", "excerpt": "Abstract: we study typed judgment models as rerankers and compare them with cross-encoders on two datasets.", "provenance": {"path": "raw/papers/typed-v1.md", "source_host": "arxiv.org"}}]
+      },
+      "allowed": ["new_version"]
+    },
+    {
+      "name": "two articles on the same subject are related",
+      "question": "relation_{id}",
+      "vars": {"id": "c2"},
+      "state": {
+        "document": {"title": "Retry policies for LLM APIs", "excerpt": "Use exponential backoff with jitter, cap the total deadline and honour Retry-After headers.", "provenance": {"path": "raw/articles/retries.md", "source_host": "blog.example"}},
+        "candidates": [{"id": "c2", "title": "Timeouts that actually work", "excerpt": "Socket timeouts are defeated by keep-alive bytes; wrap the whole request in a deadline instead.", "provenance": {"path": "raw/articles/timeouts.md", "source_host": "other.example"}}]
+      },
+      "allowed": ["related"]
+    },
+    {
+      "name": "unrelated documents are different",
+      "question": "relation_{id}",
+      "vars": {"id": "c3"},
+      "state": {
+        "document": {"title": "Question banks as instruments", "excerpt": "Keep questions in versioned files and hash the bank into every cache key.", "provenance": {"path": "raw/articles/banks.md"}},
+        "candidates": [{"id": "c3", "title": "Sourdough starter guide", "excerpt": "Feed the starter twice a day with equal parts flour and water.", "provenance": {"path": "raw/articles/sourdough.md"}}]
+      },
+      "allowed": ["different"]
+    },
+    {
+      "name": "same author on another subject is different",
+      "question": "relation_{id}",
+      "vars": {"id": "c4"},
+      "state": {
+        "document": {"title": "Jane Doe: calibrating decision thresholds", "excerpt": "Jane Doe explains how to split labels into dev and holdout before choosing thresholds.", "provenance": {"path": "raw/articles/jane-calibration.md", "source_host": "janedoe.example"}},
+        "candidates": [{"id": "c4", "title": "Jane Doe: my favourite hiking trails", "excerpt": "Jane Doe lists five mountain trails she walked this summer.", "provenance": {"path": "raw/articles/jane-hiking.md", "source_host": "janedoe.example"}}]
+      },
+      "allowed": ["different"]
+    },
+    {
+      "name": "translation of the same post",
+      "question": "relation_{id}",
+      "vars": {"id": "c5"},
+      "state": {
+        "document": {"title": "Código faz conta, Jev julga texto", "excerpt": "Números, datas e contagens ficam no código; o modelo de decisão só julga texto.", "provenance": {"path": "raw/articles/codigo-faz-conta.md", "source_host": "blog.example"}},
+        "candidates": [{"id": "c5", "title": "Code does the math, Jev judges text", "excerpt": "Numbers, dates and counts stay in code; the decision model only judges text.", "provenance": {"path": "raw/articles/code-does-math.md", "source_host": "blog.example"}}]
+      },
+      "allowed": ["same_content", "new_version"]
+    },
+    {
+      "name": "updated docs page",
+      "question": "relation_{id}",
+      "vars": {"id": "c6"},
+      "state": {
+        "document": {"title": "Decisions API reference (updated September 2026)", "excerpt": "POST /alpha/decisions. New in this update: the response now includes usage.cost and the dated model slug.", "provenance": {"path": "raw/api-docs/decisions-2026-09.md", "source_host": "openrouter.ai"}},
+        "candidates": [{"id": "c6", "title": "Decisions API reference", "excerpt": "POST /alpha/decisions with model, state and questions. Returns answers and usage.", "provenance": {"path": "raw/api-docs/decisions.md", "source_host": "openrouter.ai"}}]
+      },
+      "allowed": ["new_version", "same_content"]
+    },
+    {
+      "name": "same website different subject",
+      "question": "relation_{id}",
+      "vars": {"id": "c7"},
+      "state": {
+        "document": {"title": "Scores are expectations over levels", "excerpt": "A score of 1.6 is an expectation, not a probability of being right.", "provenance": {"path": "raw/articles/scores.md", "source_host": "docs.typesafe.ai"}},
+        "candidates": [{"id": "c7", "title": "Company careers page", "excerpt": "We are hiring engineers in Lisbon and remote.", "provenance": {"path": "raw/articles/careers.md", "source_host": "docs.typesafe.ai"}}]
+      },
+      "allowed": ["different"]
+    }
+  ]
+}

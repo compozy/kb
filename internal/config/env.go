@@ -32,6 +32,12 @@ const (
 	// EnvOpenRouterAPIURL stores the OpenRouter API URL override.
 	EnvOpenRouterAPIURL = "OPENROUTER_API_URL"
 
+	// EnvDecisionsModel overrides `[decisions].model`.
+	EnvDecisionsModel = "KB_DECISIONS_MODEL"
+
+	// EnvGenerationModel overrides `[generation].model`.
+	EnvGenerationModel = "KB_GENERATION_MODEL"
+
 	// EnvOpenAIAPIKey stores the OpenAI API key override for STT.
 	EnvOpenAIAPIKey = "OPENAI_API_KEY"
 
@@ -78,6 +84,12 @@ func ApplyEnvOverrides(cfg *Config) {
 	}
 	if value, ok := os.LookupEnv(EnvOpenRouterAPIURL); ok && value != "" {
 		cfg.OpenRouter.APIURL = value
+	}
+	if value, ok := os.LookupEnv(EnvDecisionsModel); ok && strings.TrimSpace(value) != "" {
+		cfg.Decisions.Model = strings.TrimSpace(value)
+	}
+	if value, ok := os.LookupEnv(EnvGenerationModel); ok && strings.TrimSpace(value) != "" {
+		cfg.Generation.Model = strings.TrimSpace(value)
 	}
 	if value, ok := os.LookupEnv(EnvSTTProvider); ok && value != "" {
 		cfg.STT.Provider = value

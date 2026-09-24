@@ -1,0 +1,65 @@
+{
+  "bank": "quality",
+  "cases": [
+    {
+      "name": "paywall teaser",
+      "question": "paywall_or_login",
+      "state": {"document": {"title": "The hidden cost of AI inference", "excerpt": "Inference budgets are growing faster than training budgets. Subscribe to continue reading. Already a subscriber? Sign in. Get unlimited access for $1 a week.", "provenance": {"path": "raw/articles/cost.md", "source_host": "news.example"}}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "complete article with newsletter box is not a paywall",
+      "question": "paywall_or_login",
+      "state": {"document": {"title": "Why typed judgments beat free text", "excerpt": "Free-text answers need parsing and drift between runs. Typed answers return a distribution the code can threshold. We measured 94% agreement on 500 tickets and kept every receipt for replay. In short: ask narrow questions, keep the raw answers and recompute policy. Subscribe to our newsletter for more posts like this.", "provenance": {"path": "raw/articles/typed.md", "source_host": "blog.example"}}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "login wall",
+      "question": "paywall_or_login",
+      "state": {"document": {"title": "Team workspace", "excerpt": "Sign in to continue. Email. Password. Forgot password? Continue with Google. Don't have an account? Sign up.", "provenance": {"path": "raw/articles/workspace.md", "source_host": "app.example"}}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "not found page",
+      "question": "error_or_placeholder_page",
+      "state": {"document": {"title": "Designing question banks", "excerpt": "404. Page not found. The page you are looking for does not exist or has been moved. Go back home.", "provenance": {"path": "raw/articles/banks.md", "source_host": "blog.example"}}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "cookie banner before real article",
+      "question": "error_or_placeholder_page",
+      "state": {"document": {"title": "Calibrating thresholds on labeled data", "excerpt": "We use cookies to improve your experience. Accept all. Manage preferences. Calibrating thresholds starts with a labeled set split into development and holdout buckets. Choose the threshold on development labels only, then report precision and recall on the holdout with sample sizes.", "provenance": {"path": "raw/articles/calibration.md", "source_host": "blog.example"}}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "article about http errors is not an error page",
+      "question": "error_or_placeholder_page",
+      "state": {"document": {"title": "Handling 404 and 503 responses in API clients", "excerpt": "A 404 means the resource does not exist, so retrying is pointless. A 503 is transient: retry with jittered exponential backoff and honour Retry-After. Log both with the request id so failures stay visible.", "provenance": {"path": "raw/articles/http-errors.md", "source_host": "blog.example"}}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "navigation only capture is thin",
+      "question": "thin_or_boilerplate",
+      "state": {"document": {"title": "Pricing", "excerpt": "Home | Products | Pricing | Docs | Blog | Careers | Contact\nLog in | Sign up\n© 2026 Example Inc. Privacy | Terms | Cookies\nFollow us: X LinkedIn GitHub", "provenance": {"path": "raw/articles/pricing.md", "source_host": "example.com"}}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "short complete release note is not thin",
+      "question": "thin_or_boilerplate",
+      "state": {"document": {"title": "kb 0.0.10 released", "excerpt": "kb 0.0.10 adds Instagram reel ingestion through yt-dlp and speech-to-text, fixes channel topic creation, and documents the new [instagram] config section. Upgrade with the usual release binary.", "provenance": {"path": "raw/articles/release.md", "source_host": "github.com"}}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "music only transcript",
+      "question": "no_speech_content",
+      "state": {"document": {"title": "Launch trailer", "excerpt": "[Music] [Music] [Applause] [Music] [Music] [Music]", "provenance": {"path": "raw/youtube/trailer.md", "source_kind": "youtube"}}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "spoken talk transcript with caption errors",
+      "question": "no_speech_content",
+      "state": {"document": {"title": "Decision models in production", "excerpt": "[Music] so today i want to talk about how we route tickets with a decision model uh the idea is simple we build the state in code we ask a choice question and we only act when the confidence is above point eight", "provenance": {"path": "raw/youtube/talk.md", "source_kind": "youtube"}}},
+      "allowed": ["no"]
+    }
+  ]
+}

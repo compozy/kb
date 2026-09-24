@@ -1,0 +1,73 @@
+{
+  "bank": "okf_type",
+  "cases": [
+    {
+      "name": "runbook is a playbook",
+      "question": "okf_type",
+      "criteria": {
+        "playbook": "A step-by-step procedure someone follows to get a task done",
+        "reference": "Facts, tables or definitions meant to be looked up",
+        "decision": "A recorded decision with its context, options and rationale"
+      },
+      "state": {"document": {"title": "Rotating the OpenRouter key", "excerpt": "1. Create a new key in the dashboard. 2. Update OPENROUTER_API_KEY in the secret store. 3. Restart the workers. 4. Revoke the old key after one hour."}},
+      "allowed": ["playbook"]
+    },
+    {
+      "name": "limits table is reference",
+      "question": "okf_type",
+      "criteria": {
+        "playbook": "A step-by-step procedure someone follows to get a task done",
+        "reference": "Facts, tables or definitions meant to be looked up",
+        "decision": "A recorded decision with its context, options and rationale"
+      },
+      "state": {"document": {"title": "Decision model limits", "excerpt": "| Limit | Value |\n| Options per choice | 255 |\n| Score levels | 2-10 |\n| State tokens | 32k |"}},
+      "allowed": ["reference"]
+    },
+    {
+      "name": "adr is a decision",
+      "question": "okf_type",
+      "criteria": {
+        "playbook": "A step-by-step procedure someone follows to get a task done",
+        "reference": "Facts, tables or definitions meant to be looked up",
+        "decision": "A recorded decision with its context, options and rationale"
+      },
+      "state": {"document": {"title": "ADR 7: pin the decision model version", "excerpt": "Context: aliases move without notice. Options: use jev-latest, or pin typesafe/jev-1.13. Decision: pin the version, because thresholds are tuned per version."}},
+      "allowed": ["decision"]
+    },
+    {
+      "name": "poem fits no type",
+      "question": "okf_type",
+      "criteria": {
+        "playbook": "A step-by-step procedure someone follows to get a task done",
+        "reference": "Facts, tables or definitions meant to be looked up",
+        "decision": "A recorded decision with its context, options and rationale"
+      },
+      "state": {"document": {"title": "Autumn", "excerpt": "Leaves drift down the quiet street, / the wind forgets the summer heat."}},
+      "allowed": ["none"]
+    },
+    {
+      "name": "paraphrased description is supported",
+      "question": "description_unsupported",
+      "state": {"concept": {"description": "Pinning the model version keeps thresholds valid.", "body": "Thresholds are tuned against one model version. When an alias moves to a new version, old thresholds may no longer fit, so we pin typesafe/jev-1.13."}},
+      "allowed": ["no"]
+    },
+    {
+      "name": "description adds a number",
+      "question": "description_unsupported",
+      "state": {"concept": {"description": "Pinning the model cut errors by 40%.", "body": "Thresholds are tuned against one model version, so we pin typesafe/jev-1.13 instead of using an alias."}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "description contradicts the body",
+      "question": "description_unsupported",
+      "state": {"concept": {"description": "We use the jev-latest alias so upgrades arrive automatically.", "body": "We pin typesafe/jev-1.13 and never use the jev-latest alias, because thresholds are tuned per version."}},
+      "allowed": ["yes"]
+    },
+    {
+      "name": "shorter summary is supported",
+      "question": "description_unsupported",
+      "state": {"concept": {"description": "How kb retries decision calls.", "body": "kb retries 408, 429 and 5xx responses twice with jittered exponential backoff from 0.5 s to 5 s and honours Retry-After."}},
+      "allowed": ["no"]
+    }
+  ]
+}
