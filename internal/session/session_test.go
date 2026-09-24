@@ -63,6 +63,7 @@ func TestModes(t *testing.T) {
 		{name: "gates apply", contract: accepted, gates: "apply", wantBody: ModeShadow, wantRelGate: ModeApply, wantQuality: ModeApply},
 		{name: "gates apply without contract stays shadow", gates: "apply", wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeApply, wantQuality: ModeApply},
+		{name: "imported labels alone stay shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":40,"holdout_labels":12,"imported_labels":40}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "under-calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":10,"holdout_labels":3}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "topic body apply", bodyMode: "apply", wantBody: ModeApply, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "flag shadow wins", contract: accepted, gates: "apply", bodyMode: "apply", flag: "shadow", wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeShadow},

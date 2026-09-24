@@ -294,7 +294,8 @@ func (s *Session) GateModeReason() string {
 }
 
 // RelevanceCalibrated reports whether calibration.json records ≥30
-// relevance labels (dev + holdout).
+// relevance labels given in review (dev + holdout minus imported): imported
+// labels never are the only evidence behind an automatic apply (spec §20).
 func (s *Session) RelevanceCalibrated() bool {
 	record, err := ReadCalibration(s.Root())
 	if err != nil || record == nil {
@@ -304,7 +305,7 @@ func (s *Session) RelevanceCalibrated() bool {
 	if !ok {
 		return false
 	}
-	return entry.DevLabels+entry.HoldoutLabels >= MinCalibrationLabels
+	return entry.DevLabels+entry.HoldoutLabels-entry.ImportedLabels >= MinCalibrationLabels
 }
 
 // StateMeta builds the state-row metadata for a write made from answers of
