@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/compozy/kb/internal/config"
 	"github.com/compozy/kb/internal/fakes"
 	kfind "github.com/compozy/kb/internal/find"
+	"github.com/compozy/kb/internal/qmd"
 	"github.com/compozy/kb/internal/session"
 	"github.com/compozy/kb/internal/topic"
 )
@@ -43,6 +45,7 @@ func useLinkFindFakeSession(t *testing.T, decide fakes.DecideFunc) *fakes.OpenRo
 	t.Helper()
 	fake := fakes.NewOpenRouter(decide, nil)
 	t.Cleanup(fake.Close)
+	useQMDCandidates(t, "")
 	original := openSession
 	t.Cleanup(func() { openSession = original })
 	openSession = func(cmd *cobra.Command, command, topicSlug string, flags session.Flags) (*session.Session, error) {
@@ -56,6 +59,91 @@ func useLinkFindFakeSession(t *testing.T, decide fakes.DecideFunc) *fakes.OpenRo
 		return session.Open(session.Options{Config: cfg, VaultPath: vaultPath, Topic: topicSlug, Command: command, Flags: flags})
 	}
 	return fake
+}
+
+// useQMDCandidates points the optional qmd candidates at a fake qmd
+// executable answering `status` (a fresh collection "demo") and `query`
+// with queryJSON; an empty queryJSON turns qmd candidates off. It returns
+// the fake's argument log path.
+func useQMDCandidates(t *testing.T, queryJSON string) string {
+	t.Helper()
+	original := openQMDCandidates
+	t.Cleanup(func() { openQMDCandidates = original })
+	if queryJSON == "" {
+		openQMDCandidates = func(context.Context, string, string) (*qmd.Candidates, string) { return nil, "" }
+		return ""
+	}
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "index.sqlite")
+	if err := os.WriteFile(indexPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(indexPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "args.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + logPath + "'\ncase \"$1\" in\n" +
+		"status) printf 'QMD Status\\n\\nIndex: " + indexPath + "\\n\\nDocuments\\n  Total:    1 files indexed\\n\\nCollections\\n  demo (qmd://demo/)\\n    Pattern:  **/*.md\\n    Files:    1 (updated 1m ago)\\n' ;;\n" +
+		"query) cat <<'EOF'\n" + queryJSON + "\nEOF\n;;\n*) exit 9 ;;\nesac\n"
+	binary := filepath.Join(dir, "qmd")
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	openQMDCandidates = func(ctx context.Context, collection, topicRoot string) (*qmd.Candidates, string) {
+		return qmd.NewClient(qmd.WithBinaryPath(binary)).OpenCandidates(ctx, collection, topicRoot)
+	}
+	return logPath
+}
+
+func TestFindCommandAddsQMDVectorCandidates(t *testing.T) {
+	vault := newLinkFindVault(t, map[string]string{
+		"raw/articles/guide.md":  "---\ntitle: Tuning HNSW\n---\nTune HNSW.\n",
+		"raw/articles/vector.md": "---\ntitle: Graph index parameters\n---\nEfConstruction and M trade recall for memory.\n",
+	})
+	useLinkFindFakeSession(t, func(_ fakes.Call, q fakes.Question) any {
+		if strings.HasPrefix(q.ID, "answers_") {
+			return fakes.Noul(0.9)
+		}
+		return nil
+	})
+	logPath := useQMDCandidates(t, `[{"docid":"#1","score":1,"file":"qmd://demo/raw/articles/vector.md","title":"x"}]`)
+
+	stdout, _, err := runLinkFindRoot(t, "find", "demo", "tune HNSW", "--vault", vault, "--json")
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	var result kfind.Result
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if result.Candidates != 2 {
+		t.Fatalf("candidates = %d, want 2 (BM25 hit + qmd vector hit): %+v", result.Candidates, result)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "query --json -n 30 --no-rerank -c demo vec: tune HNSW") {
+		t.Fatalf("qmd invocations:\n%s", log)
+	}
+
+	if err := os.Remove(logPath); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err = runLinkFindRoot(t, "find", "demo", "tune HNSW", "--vault", vault, "--json", "--no-qmd")
+	if err != nil {
+		t.Fatalf("find --no-qmd: %v", err)
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if result.Candidates != 1 {
+		t.Fatalf("--no-qmd candidates = %d, want 1", result.Candidates)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("--no-qmd still ran qmd (log stat err %v)", err)
+	}
 }
 
 func runLinkFindRoot(t *testing.T, args ...string) (string, string, error) {

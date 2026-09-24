@@ -26,6 +26,7 @@ type findCommandOptions struct {
 	json      bool
 	explain   bool
 	facets    bool
+	noQMD     bool
 }
 
 func newFindCommand() *cobra.Command {
@@ -35,8 +36,9 @@ func newFindCommand() *cobra.Command {
 		Use:   "find <topic> \"<question>\" | find --facets <topic>",
 		Short: "Find the documents of a topic that answer a question, ranked, with named exclusions",
 		Long: "Proposes candidates by code (facet filters, BM25, concepts), asks the decision model whether each\n" +
-			"candidate answers the question and ranks the survivors. --explain lists every dropped candidate with\n" +
-			"its reason. --facets prints the topic's facet counts without calling any model.",
+			"candidate answers the question and ranks the survivors. When qmd is installed and the topic collection\n" +
+			"is fresh, its vector hits are added as candidates (qmd scores never enter bands).\n" +
+			"--explain lists every dropped candidate with its reason. --facets prints the topic's facet counts without calling any model.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if options.facets {
 				return cobra.ExactArgs(1)(cmd, args)
@@ -60,6 +62,7 @@ func newFindCommand() *cobra.Command {
 	flags.BoolVar(&options.json, "json", false, "Print JSON instead of a table")
 	flags.BoolVar(&options.explain, "explain", false, "Also list every dropped candidate with its reason")
 	flags.BoolVar(&options.facets, "facets", false, "Print facet counts (genre, relevance, depth, concepts) without any model call")
+	flags.BoolVar(&options.noQMD, "no-qmd", false, "Do not add qmd vector search hits as candidates")
 	flags.Float64Var(&options.flags.BudgetUSD, "budget", 0, "Spend ceiling in US$ for this run (default [decisions].budget_usd)")
 	return command
 }
@@ -75,7 +78,7 @@ func runFind(cmd *cobra.Command, topicSlug, question string, options *findComman
 	if err != nil {
 		return err
 	}
-	result, err := kfind.Run(commandContext(cmd), s, kfind.Query{
+	query := kfind.Query{
 		Text:      question,
 		Limit:     options.limit,
 		Kind:      options.kind,
@@ -83,7 +86,11 @@ func runFind(cmd *cobra.Command, topicSlug, question string, options *findComman
 		Relevance: options.relevance,
 		MinDepth:  options.minDepth,
 		Explain:   options.explain,
-	})
+	}
+	if candidates := qmdCandidates(cmd, s, options.noQMD, ""); candidates != nil {
+		query.Vectors = candidates
+	}
+	result, err := kfind.Run(commandContext(cmd), s, query)
 	if err != nil {
 		s.WriteSummary(cmd.ErrOrStderr())
 		return fmt.Errorf("kb find: %w", err)
