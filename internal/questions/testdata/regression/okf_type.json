@@ -66,7 +66,7 @@
     {
       "name": "shorter summary is supported",
       "question": "description_unsupported",
-      "state": {"concept": {"description": "How kb retries decision calls.", "body": "kb retries 408, 429 and 5xx responses twice with jittered exponential backoff from 0.5 s to 5 s and honours Retry-After."}},
+      "state": {"concept": {"description": "How kb retries decision calls.", "body": "When a decision call fails, kb retries 408, 429 and 5xx responses twice with jittered exponential backoff from 0.5 s to 5 s and honours Retry-After."}},
       "allowed": ["no"]
     }
   ]

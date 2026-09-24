@@ -5,56 +5,56 @@
       "name": "broad exclusion swallows a core line",
       "question": "conflict_{n}",
       "vars": {"n": "1"},
-      "state": {"pairs": [{"n": 1, "a": "Sports science studies on basketball performance", "b": "Any sports science study"}]},
+      "state": {"pairs": [{"n": 1, "kept": "Sports science studies on basketball performance", "excluded": "Any sports science study"}]},
       "allowed": ["yes"]
     },
     {
       "name": "qualified exclusion keeps comparison studies",
       "question": "conflict_{n}",
       "vars": {"n": "2"},
-      "state": {"pairs": [{"n": 2, "a": "Rugby and badminton performance studies kept as comparison for transferable methods", "b": "Sports other than basketball or tennis that offer no method to transfer"}]},
+      "state": {"pairs": [{"n": 2, "kept": "Rugby and badminton performance studies kept as comparison for transferable methods", "excluded": "Sports other than basketball or tennis that offer no method to transfer"}]},
       "allowed": ["no"]
     },
     {
       "name": "sensor line versus product reviews",
       "question": "conflict_{n}",
       "vars": {"n": "3"},
-      "state": {"pairs": [{"n": 3, "a": "Wearable ECG, sweat and glucose sensors", "b": "Consumer product reviews with no sensing method"}]},
+      "state": {"pairs": [{"n": 3, "kept": "Wearable ECG, sweat and glucose sensors", "excluded": "Consumer product reviews with no sensing method"}]},
       "allowed": ["no"]
     },
     {
       "name": "sdk docs versus all documentation",
       "question": "conflict_{n}",
       "vars": {"n": "4"},
-      "state": {"pairs": [{"n": 4, "a": "Polymarket SDK documentation", "b": "Software documentation of any kind"}]},
+      "state": {"pairs": [{"n": 4, "kept": "Polymarket SDK documentation", "excluded": "Software documentation of any kind"}]},
       "allowed": ["yes"]
     },
     {
       "name": "microstructure kept by the qualifier",
       "question": "conflict_{n}",
       "vars": {"n": "5"},
-      "state": {"pairs": [{"n": 5, "a": "Equity market microstructure studies", "b": "Equity studies with no microstructure, execution or forecasting method"}]},
+      "state": {"pairs": [{"n": 5, "kept": "Equity market microstructure studies", "excluded": "Equity studies with no microstructure, execution or forecasting method"}]},
       "allowed": ["no"]
     },
     {
       "name": "unrelated lines",
       "question": "conflict_{n}",
       "vars": {"n": "6"},
-      "state": {"pairs": [{"n": 6, "a": "Typed decision models", "b": "Celebrity news"}]},
+      "state": {"pairs": [{"n": 6, "kept": "Typed decision models", "excluded": "Celebrity news"}]},
       "allowed": ["no"]
     },
     {
       "name": "retrieval line excluded by search engines",
       "question": "conflict_{n}",
       "vars": {"n": "7"},
-      "state": {"pairs": [{"n": 7, "a": "Retrieval and reranking pipelines", "b": "Anything about retrieval or search"}]},
+      "state": {"pairs": [{"n": 7, "kept": "Retrieval and reranking pipelines", "excluded": "Anything about retrieval or search"}]},
       "allowed": ["yes"]
     },
     {
       "name": "evaluation methods versus opinion pieces",
       "question": "conflict_{n}",
       "vars": {"n": "8"},
-      "state": {"pairs": [{"n": 8, "a": "LLM evaluation methods with labeled data", "b": "Opinion pieces that describe no method"}]},
+      "state": {"pairs": [{"n": 8, "kept": "LLM evaluation methods with labeled data", "excluded": "Opinion pieces that describe no method"}]},
       "allowed": ["no"]
     }
   ]
