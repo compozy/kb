@@ -24,7 +24,6 @@ var (
 	inlineCodePattern      = regexp.MustCompile("`[^`\n]+`")
 	leadingFrontmatterExpr = regexp.MustCompile(`(?s)^---\r?\n.*?\r?\n---\r?\n?`)
 	wikilinkPattern        = regexp.MustCompile(`\[\[([^\[\]|#]+?)(?:\|[^\[\]]*?)?(?:#[^\[\]]*?)?\]\]`)
-	linkTokenPattern       = regexp.MustCompile(`[\pL\pN]+`)
 )
 
 var formatterColumns = []string{"severity", "kind", "filePath", "target", "message"}
