@@ -57,8 +57,16 @@ topic_globs = ["*"]
 
 [okf]
 # Local OKF concept type vocabulary. Empty means `kb okf check` will not warn
-# about unknown types until the operator opts into a local standard.
+# about unknown types until the operator opts into a local standard. With a
+# vocabulary, `kb promote` without --type asks the decision model to pick one
+# (and warns when --type disagrees), so it then requires [decisions].
 types = []
+
+# Optional option text per type for those type suggestions; a type without a
+# description is offered by its name. Example:
+# [okf.type_descriptions]
+# Playbook = "A step-by-step procedure someone follows to get a task done"
+# Reference = "Facts, tables or definitions meant to be looked up"
 
 [firecrawl]
 api_key = ""

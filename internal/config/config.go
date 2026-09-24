@@ -127,6 +127,19 @@ type VaultConfig struct {
 // OKFConfig controls local Open Knowledge Format producer standards.
 type OKFConfig struct {
 	Types []string `toml:"types"`
+	// TypeDescriptions maps a type name to the description used as its option
+	// text when the decision model suggests a type (`kb promote` without
+	// --type, `kb okf check`). Types without a description use their name.
+	TypeDescriptions map[string]string `toml:"type_descriptions"`
+}
+
+// TypeDescription returns the configured description of an OKF type, or the
+// type name itself when none is configured.
+func (c OKFConfig) TypeDescription(name string) string {
+	if description := strings.TrimSpace(c.TypeDescriptions[name]); description != "" {
+		return description
+	}
+	return name
 }
 
 // FirecrawlConfig controls URL scraping API access.

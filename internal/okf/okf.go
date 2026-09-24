@@ -40,6 +40,13 @@ type PromoteInput struct {
 	Description   string
 	Types         []string
 	Clock         func() time.Time
+	// Suggester asks the decision model for the type (spec §11). Without
+	// Type, its suggestion is used when P(argmax) ≥ TypeThreshold; with
+	// Type, a disagreement at that probability becomes TypeWarning. nil
+	// means no decision model: Type is then required.
+	Suggester TypeSuggester
+	// TypeThreshold is the okf_type threshold (0 → DefaultTypeThreshold).
+	TypeThreshold float64
 }
 
 // ConceptResult reports the concept written by Promote.
@@ -49,12 +56,19 @@ type ConceptResult struct {
 	LinksRewritten  int      `json:"linksRewritten"`
 	UnresolvedLinks []string `json:"unresolvedLinks"`
 	Warnings        []string `json:"warnings,omitempty"`
+	// TypeSuggestion is the decision model's type suggestion, when asked.
+	TypeSuggestion *TypeSuggestion `json:"typeSuggestion,omitempty"`
+	// TypeWarning is set when --type disagrees with a confident suggestion.
+	TypeWarning string `json:"typeWarning,omitempty"`
 }
 
 // CheckOptions configures OKF conformance checking.
 type CheckOptions struct {
 	Types  []string
 	Strict bool
+	// Advisory enables the advisory findings type_mismatch and
+	// description_unsupported (never errors); nil skips them.
+	Advisory *AdvisoryOptions
 }
 
 // Promote performs a mechanical, non-destructive wiki-to-OKF conversion.
@@ -69,8 +83,11 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 		return ConceptResult{}, fmt.Errorf("promote: %w: %s", errTargetNotOKFTopic, input.TargetTopic.Slug)
 	}
 	conceptType := strings.TrimSpace(input.Type)
-	if conceptType == "" {
-		return ConceptResult{}, fmt.Errorf("promote: --type is required")
+	if conceptType == "" && len(normalizeTypeSet(input.Types)) == 0 {
+		return ConceptResult{}, fmt.Errorf("promote: %w: [okf].types is empty, so there is no type vocabulary to suggest from", ErrTypeRequired)
+	}
+	if conceptType == "" && input.Suggester == nil {
+		return ConceptResult{}, fmt.Errorf("promote: %w: suggesting a type needs the decision model", ErrTypeRequired)
 	}
 	if strings.TrimSpace(input.TargetTopic.RootPath) == "" {
 		return ConceptResult{}, fmt.Errorf("promote: target topic root path is required")
@@ -80,7 +97,6 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 	if err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: %w", err)
 	}
-	_ = sourceTopicRoot
 
 	sourceBytes, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -92,6 +108,23 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 	}
 
 	key := conceptKey(sourceRelativePath)
+	title := strings.TrimSpace(frontmatter.GetString(sourceValues, "title"))
+	if title == "" {
+		title = vault.HumanizeSlug(key)
+	}
+	clock := input.Clock
+	if clock == nil {
+		clock = func() time.Time { return time.Now().UTC() }
+	}
+	choice, err := chooseType(ctx, input, typeContext{
+		document:  TypeDocument{Subject: sourceRelativePath, Title: title, Body: body},
+		topicRoot: sourceTopicRoot,
+		clock:     clock,
+	})
+	if err != nil {
+		return ConceptResult{}, fmt.Errorf("promote: %w", err)
+	}
+	conceptType = choice.conceptType
 	writtenPath, absoluteTargetPath, targetFile, err := allocateConceptPath(input.TargetTopic.RootPath, key)
 	if err != nil {
 		return ConceptResult{}, fmt.Errorf("promote: allocate concept path: %w", err)
@@ -108,13 +141,8 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 	warnings := typeWarnings(conceptType, input.Types)
 	description, descriptionWarnings := resolveDescription(input.Description, body)
 	warnings = append(warnings, descriptionWarnings...)
-	title := strings.TrimSpace(frontmatter.GetString(sourceValues, "title"))
-	if title == "" {
-		title = vault.HumanizeSlug(key)
-	}
-	clock := input.Clock
-	if clock == nil {
-		clock = func() time.Time { return time.Now().UTC() }
+	if choice.warning != "" {
+		warnings = append(warnings, choice.warning)
 	}
 	now := clock().UTC()
 
@@ -154,6 +182,8 @@ func Promote(ctx context.Context, input PromoteInput) (ConceptResult, error) {
 		LinksRewritten:  rewriteCount,
 		UnresolvedLinks: unresolvedLinks,
 		Warnings:        warnings,
+		TypeSuggestion:  choice.suggestion,
+		TypeWarning:     choice.warning,
 	}, nil
 }
 
@@ -176,6 +206,7 @@ func Check(ctx context.Context, bundlePath string, options CheckOptions) ([]mode
 
 	typeSet := normalizeTypeSet(options.Types)
 	issues := make([]models.LintIssue, 0)
+	concepts := make([]conceptFile, 0)
 	err = filepath.WalkDir(cleanBundlePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -213,11 +244,19 @@ func Check(ctx context.Context, bundlePath string, options CheckOptions) ([]mode
 			return nil
 		default:
 			issues = append(issues, checkConceptFile(currentPath, relativePath, typeSet, options.Strict)...)
+			concepts = append(concepts, conceptFile{absolutePath: currentPath, relativePath: relativePath})
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("okf check: %w", err)
+	}
+	if options.Advisory != nil {
+		advisory, err := advisoryIssues(ctx, cleanBundlePath, concepts, *options.Advisory)
+		if err != nil {
+			return nil, fmt.Errorf("okf check: %w", err)
+		}
+		issues = append(issues, advisory...)
 	}
 
 	sortIssues(issues)

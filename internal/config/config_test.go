@@ -129,6 +129,9 @@ topic_globs = ["*", "harness/*"]
 [okf]
 types = ["Playbook", " Reference ", ""]
 
+[okf.type_descriptions]
+Playbook = "A step-by-step procedure someone follows to get a task done"
+
 [firecrawl]
 api_key = "firecrawl-key"
 api_url = "https://firecrawl.internal"
@@ -186,6 +189,14 @@ allow_translated_captions = true
 	t.Run("Should normalize OKF type vocabulary", func(t *testing.T) {
 		if !reflect.DeepEqual(cfg.OKF.Types, []string{"Playbook", "Reference"}) {
 			t.Errorf("expected normalized okf.types, got %#v", cfg.OKF.Types)
+		}
+	})
+	t.Run("Should use OKF type descriptions as option text", func(t *testing.T) {
+		if got := cfg.OKF.TypeDescription("Playbook"); got != "A step-by-step procedure someone follows to get a task done" {
+			t.Errorf("Playbook description = %q", got)
+		}
+		if got := cfg.OKF.TypeDescription("Reference"); got != "Reference" {
+			t.Errorf("Reference description = %q, want the type name", got)
 		}
 	})
 	if cfg.Firecrawl.APIKey != "firecrawl-key" {

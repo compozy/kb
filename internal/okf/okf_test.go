@@ -2,14 +2,20 @@ package okf
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/fakes"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/review"
 )
 
 func TestPromoteWritesConceptIndexAndLog(t *testing.T) {
@@ -350,4 +356,260 @@ func readFile(t *testing.T, filePath string) string {
 		t.Fatalf("read %s: %v", filePath, err)
 	}
 	return string(content)
+}
+
+type stubSuggester struct {
+	suggestion TypeSuggestion
+}
+
+func (s *stubSuggester) SuggestType(_ context.Context, _ TypeDocument) (TypeSuggestion, error) {
+	return s.suggestion, nil
+}
+
+func decided(probs map[string]float64) *TypeSuggestion {
+	suggestion := withRanking(TypeSuggestion{Status: decisions.StatusDecided, ReceiptKey: "receipt-1"}, probs)
+	return &suggestion
+}
+
+func TestPromoteTypeSuggestion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		flagType    string
+		types       []string
+		suggestion  *TypeSuggestion
+		wantType    string
+		wantErr     string
+		wantWarning string
+		wantQueued  bool
+	}{
+		{name: "no type and no vocabulary", wantErr: "[okf].types is empty"},
+		{name: "no type and no decision model", types: []string{"Playbook"}, wantErr: "needs the decision model"},
+		{
+			name: "confident suggestion is used", types: []string{"Playbook", "Reference"},
+			suggestion: decided(map[string]float64{"Playbook": 0.9, "Reference": 0.06, "none": 0.04}),
+			wantType:   "Playbook",
+		},
+		{
+			name: "review band asks for --type and queues", types: []string{"Playbook", "Reference"},
+			suggestion: decided(map[string]float64{"Playbook": 0.6, "Reference": 0.3, "none": 0.1}),
+			wantErr:    "top: Playbook 0.60, Reference 0.30, none 0.10", wantQueued: true,
+		},
+		{
+			name: "low confidence asks for --type without queueing", types: []string{"Playbook", "Reference"},
+			suggestion: decided(map[string]float64{"Playbook": 0.4, "Reference": 0.35, "none": 0.25}),
+			wantErr:    "no type reaches P ≥ 0.80",
+		},
+		{
+			name: "none fits", types: []string{"Playbook"},
+			suggestion: decided(map[string]float64{"Playbook": 0.1, "none": 0.9}),
+			wantErr:    "no configured OKF type fits",
+		},
+		{
+			name: "undecided suggestion", types: []string{"Playbook"},
+			suggestion: &TypeSuggestion{Status: decisions.StatusUndecided, Reason: decisions.ReasonTimeout},
+			wantErr:    "undecided (timeout)",
+		},
+		{
+			name: "explicit type disagreeing at 0.8 warns", flagType: "Reference", types: []string{"Playbook", "Reference"},
+			suggestion: decided(map[string]float64{"Playbook": 0.85, "Reference": 0.1, "none": 0.05}),
+			wantType:   "Reference", wantWarning: `suggests type "Playbook" (P=0.85), not "Reference"`,
+		},
+		{
+			name: "explicit type with weak disagreement stays quiet", flagType: "Reference", types: []string{"Playbook", "Reference"},
+			suggestion: decided(map[string]float64{"Playbook": 0.7, "Reference": 0.2, "none": 0.1}),
+			wantType:   "Reference",
+		},
+		{name: "explicit type without vocabulary", flagType: "Playbook", wantType: "Playbook"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			vaultPath, sourceTopic, targetTopic, sourcePath := newPromoteFixture(t)
+			input := PromoteInput{
+				SourceDocPath: sourcePath,
+				VaultPath:     vaultPath,
+				TargetTopic:   models.TopicInfo{Slug: "catalog", Mode: models.TopicModeOKF, RootPath: targetTopic},
+				Type:          tt.flagType,
+				Types:         tt.types,
+			}
+			if tt.suggestion != nil {
+				input.Suggester = &stubSuggester{suggestion: *tt.suggestion}
+			}
+
+			result, err := Promote(context.Background(), input)
+			if tt.wantErr != "" {
+				if err == nil || !errors.Is(err, ErrTypeRequired) || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Promote() error = %v, want ErrTypeRequired containing %q", err, tt.wantErr)
+				}
+				if _, statErr := os.Stat(filepath.Join(targetTopic, "alpha-note.md")); !os.IsNotExist(statErr) {
+					t.Fatalf("concept written despite error: %v", statErr)
+				}
+				pending, loadErr := review.Open(sourceTopic, nil).Pending(review.QueueOKFType)
+				if loadErr != nil {
+					t.Fatalf("Pending: %v", loadErr)
+				}
+				if queued := len(pending) == 1; queued != tt.wantQueued {
+					t.Fatalf("okf-type review items = %#v, want queued=%t", pending, tt.wantQueued)
+				}
+				if tt.wantQueued && (pending[0].Subject != "wiki/concepts/Alpha Note.md" || pending[0].Target != "catalog" || pending[0].ReceiptKey != "receipt-1" || !strings.Contains(err.Error(), pending[0].ID)) {
+					t.Fatalf("review item = %#v, error = %v", pending[0], err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Promote() error = %v", err)
+			}
+			if result.Type != tt.wantType {
+				t.Fatalf("type = %q, want %q", result.Type, tt.wantType)
+			}
+			values, _ := parseMarkdown(t, filepath.Join(targetTopic, result.WrittenPath))
+			if values["type"] != tt.wantType {
+				t.Fatalf("concept type = %#v, want %q", values["type"], tt.wantType)
+			}
+			if (tt.wantWarning == "") != (result.TypeWarning == "") || !strings.Contains(result.TypeWarning, tt.wantWarning) {
+				t.Fatalf("type warning = %q, want %q", result.TypeWarning, tt.wantWarning)
+			}
+			if (tt.suggestion != nil) != (result.TypeSuggestion != nil) {
+				t.Fatalf("type suggestion = %#v", result.TypeSuggestion)
+			}
+		})
+	}
+}
+
+func TestEngineTypeSuggesterAsksOKFTypeChoice(t *testing.T) {
+	t.Parallel()
+
+	fake := fakes.NewOpenRouter(func(call fakes.Call, q fakes.Question) any {
+		return fakes.Dist(map[string]float64{"Playbook": 0.7, "Reference": 0.2, "none": 0.1})
+	}, nil)
+	t.Cleanup(fake.Close)
+	suggester := EngineTypeSuggester{
+		Decider: newTestEngine(t, fake),
+		Topic:   decisions.TopicRef{Slug: "research", Root: t.TempDir(), Thresholds: decisions.DefaultThresholds()},
+		Options: TypeOptions([]string{"Playbook", "Reference", "Playbook"}, func(name string) string {
+			if name == "Playbook" {
+				return "A step-by-step procedure"
+			}
+			return ""
+		}),
+	}
+
+	suggestion, err := suggester.SuggestType(context.Background(), TypeDocument{Subject: "wiki/concepts/Alpha.md", Title: "Alpha", Body: "1. Do this.\n2. Then that.\n"})
+	if err != nil {
+		t.Fatalf("SuggestType: %v", err)
+	}
+	if !suggestion.Decided() || suggestion.Type != "Playbook" || suggestion.Probability != 0.7 || len(suggestion.Top) != 3 || suggestion.ReceiptKey == "" {
+		t.Fatalf("suggestion = %#v", suggestion)
+	}
+
+	calls := fake.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	question, ok := calls[0].Questions["okf_type"]
+	if !ok {
+		t.Fatalf("questions = %#v, want okf_type", calls[0].Questions)
+	}
+	criteria, _ := question.Criteria.(map[string]any)
+	if criteria["Playbook"] != "A step-by-step procedure" || criteria["Reference"] != "Reference" || criteria["none"] == nil || len(criteria) != 3 {
+		t.Fatalf("okf_type options = %#v", criteria)
+	}
+	if state := calls[0].StateString(); !strings.Contains(state, `"title":"Alpha"`) || !strings.Contains(state, "Do this.") {
+		t.Fatalf("state = %s", state)
+	}
+}
+
+func TestCheckAdvisoryFindings(t *testing.T) {
+	t.Parallel()
+
+	fake := fakes.NewOpenRouter(func(call fakes.Call, q fakes.Question) any {
+		switch q.ID {
+		case "okf_type":
+			return fakes.Pick("Playbook", 0.9)
+		case "description_unsupported":
+			return fakes.Noul(0.85)
+		}
+		return nil
+	}, nil)
+	t.Cleanup(fake.Close)
+
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "index.md"), "---\nokf_version: \"0.1\"\n---\n# Index\n")
+	conceptPath := filepath.Join(bundle, "rotate-key.md")
+	writeFile(t, conceptPath, "---\ntitle: Rotate Key\ntype: Reference\ndescription: Rotating cut errors by 40%.\ntimestamp: 2026-06-27T10:11:12Z\n---\n1. Create a key. 2. Restart workers.\n")
+	options := []TypeOption{{Name: "Playbook", Description: "Procedure"}, {Name: "Reference", Description: "Facts"}}
+
+	check := func(decider Decider) []models.LintIssue {
+		t.Helper()
+		advisory := &AdvisoryOptions{Options: options, Decider: decider}
+		if decider != nil {
+			advisory.Topic = decisions.TopicRef{Slug: "catalog", Root: bundle, Thresholds: decisions.DefaultThresholds()}
+		}
+		issues, err := Check(context.Background(), bundle, CheckOptions{Types: []string{"Playbook", "Reference"}, Strict: true, Advisory: advisory})
+		if err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if HasErrors(issues) {
+			t.Fatalf("advisory findings must never fail the check: %#v", issues)
+		}
+		return issues
+	}
+	advisoryKinds := func(issues []models.LintIssue) string {
+		kinds := make([]string, 0)
+		for _, issue := range issues {
+			if issue.Kind == models.LintIssueKindTypeMismatch || issue.Kind == models.LintIssueKindDescriptionUnsupported {
+				if issue.Severity != models.SeverityInfo || issue.FilePath != "rotate-key.md" {
+					t.Fatalf("advisory issue = %#v", issue)
+				}
+				kinds = append(kinds, string(issue.Kind))
+			}
+		}
+		sort.Strings(kinds)
+		return strings.Join(kinds, ",")
+	}
+
+	if got := advisoryKinds(check(nil)); got != "" || len(fake.Calls()) != 0 {
+		t.Fatalf("receipts-only check without receipts: findings %q, calls %d", got, len(fake.Calls()))
+	}
+	want := "description_unsupported,type_mismatch"
+	if got := advisoryKinds(check(newTestEngine(t, fake))); got != want || len(fake.Calls()) != 2 {
+		t.Fatalf("--decide findings = %q (calls %d), want %q after 2 calls", got, len(fake.Calls()), want)
+	}
+	if got := advisoryKinds(check(nil)); got != want || len(fake.Calls()) != 2 {
+		t.Fatalf("receipts-only findings = %q (calls %d), want %q without new calls", got, len(fake.Calls()), want)
+	}
+	if got := advisoryKinds(check(newTestEngine(t, fake))); got != want || len(fake.Calls()) != 2 {
+		t.Fatalf("second --decide findings = %q (calls %d), want cached answers", got, len(fake.Calls()))
+	}
+
+	writeFile(t, conceptPath, "---\ntitle: Rotate Key\ntype: Reference\ndescription: Rotating cut errors by 40%.\ntimestamp: 2026-06-27T10:11:12Z\n---\nA table of limits.\n")
+	if got := advisoryKinds(check(nil)); got != "" {
+		t.Fatalf("edited concept reused stale receipts: %q", got)
+	}
+}
+
+func newPromoteFixture(t *testing.T) (vaultPath, sourceTopic, targetTopic, sourcePath string) {
+	t.Helper()
+	vaultPath = t.TempDir()
+	sourceTopic = filepath.Join(vaultPath, "research")
+	targetTopic = filepath.Join(vaultPath, "catalog")
+	mkdirAll(t, filepath.Join(sourceTopic, "wiki", "concepts"))
+	mkdirAll(t, targetTopic)
+	writeFile(t, filepath.Join(sourceTopic, "CLAUDE.md"), "# Research\n")
+	writeFile(t, filepath.Join(targetTopic, "CLAUDE.md"), "# Catalog\n")
+	sourcePath = filepath.Join(sourceTopic, "wiki", "concepts", "Alpha Note.md")
+	writeFile(t, sourcePath, "---\ntitle: Alpha Note\ntype: wiki\nstage: compiled\n---\nAlpha note explains the operational flow.\n")
+	return vaultPath, sourceTopic, targetTopic, sourcePath
+}
+
+func newTestEngine(t *testing.T, fake *fakes.OpenRouter) *decisions.Engine {
+	t.Helper()
+	engine, err := decisions.New(decisions.Options{Config: config.Default().Decisions, APIKey: "test-key", APIURL: fake.URL})
+	if err != nil {
+		t.Fatalf("decisions.New: %v", err)
+	}
+	return engine
 }
