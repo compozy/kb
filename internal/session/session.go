@@ -356,26 +356,58 @@ func (s *Session) GateModeReason() string {
 		return "decisions.gates: apply in topic.yaml"
 	case strings.EqualFold(s.Settings.Decisions.Gates, ModeShadow):
 		return "decisions.gates: shadow in topic.yaml"
-	case s.RelevanceCalibrated():
+	}
+	switch calibrated, stale := s.relevanceCalibration(); {
+	case calibrated:
 		return "calibrated"
+	case stale != "":
+		return "not calibrated: " + stale
 	default:
 		return fmt.Sprintf("not calibrated: needs ≥%d relevance labels and `kb review calibrate --write`", MinCalibrationLabels)
 	}
 }
 
+// relevanceBank is the built-in bank whose version a relevance calibration
+// is bound to.
+const relevanceBank = "relevance"
+
 // RelevanceCalibrated reports whether calibration.json records ≥30
 // relevance labels given in review (dev + holdout minus imported): imported
 // labels never are the only evidence behind an automatic apply (spec §20).
+// The calibration must also belong to the active decision context: the
+// active contract, the engine's model and the current relevance bank
+// version. A contract, model or bank change invalidates it until
+// `kb review calibrate --write` runs again.
 func (s *Session) RelevanceCalibrated() bool {
+	ok, _ := s.relevanceCalibration()
+	return ok
+}
+
+// relevanceCalibration reports RelevanceCalibrated and, when a stored
+// calibration exists but no longer applies, why.
+func (s *Session) relevanceCalibration() (bool, string) {
 	record, err := ReadCalibration(s.Root())
 	if err != nil || record == nil {
-		return false
+		return false, ""
 	}
 	entry, ok := record.Purposes[string(decisions.PurposeRelevance)]
 	if !ok {
-		return false
+		return false, ""
 	}
-	return entry.DevLabels+entry.HoldoutLabels-entry.ImportedLabels >= MinCalibrationLabels
+	var stale []string
+	if entry.Contract != s.ContractHash() {
+		stale = append(stale, "contract")
+	}
+	if s.Engine == nil || entry.Model != s.Engine.Model() {
+		stale = append(stale, "model")
+	}
+	if bank, err := questions.Load(relevanceBank); err != nil || entry.Banks[relevanceBank] != bank.Version {
+		stale = append(stale, "relevance bank")
+	}
+	if len(stale) > 0 {
+		return false, "calibration is stale (" + strings.Join(stale, ", ") + " changed): run `kb review calibrate " + s.Topic.Slug + " --write`"
+	}
+	return entry.DevLabels+entry.HoldoutLabels-entry.ImportedLabels >= MinCalibrationLabels, ""
 }
 
 // StateMeta builds the state-row metadata for a write made from answers of
@@ -451,8 +483,14 @@ type Calibration struct {
 	Purposes map[string]CalibrationPurpose `json:"purposes"`
 }
 
-// CalibrationPurpose is the stored calibration of one purpose.
+// CalibrationPurpose is the stored calibration of one purpose, with the
+// decision context its scores were joined under: the contract hash, the
+// decision model and the version of each built-in bank asking the gate
+// quantity (bank id → version).
 type CalibrationPurpose struct {
+	Contract       string             `json:"contract"`
+	Model          string             `json:"model"`
+	Banks          map[string]string  `json:"banks"`
 	DevLabels      int                `json:"dev_labels"`
 	HoldoutLabels  int                `json:"holdout_labels"`
 	ImportedLabels int                `json:"imported_labels,omitempty"`

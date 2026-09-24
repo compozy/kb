@@ -86,6 +86,7 @@ func TestCLIIntegrationTopicContractImpactPreview(t *testing.T) {
 	t.Setenv("APP_CONFIG", configPath)
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("OPENROUTER_API_URL", fake.URL)
+	t.Setenv("KB_DECISIONS_MODEL", reviewModel)
 
 	vaultRoot := t.TempDir()
 	info := scaffoldTopicForIntegration(t, vaultRoot, "demo", "Demo", "demo")
@@ -221,7 +222,7 @@ func TestCLIIntegrationTopicContractImpactPreview(t *testing.T) {
 			holdout++
 		}
 	}
-	report, err := review.Calibrate(root, review.CalibrateOptions{ContractHash: draftHash})
+	report, err := review.Calibrate(root, review.CalibrateOptions{ContractHash: draftHash, Model: reviewModel})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +234,7 @@ func TestCLIIntegrationTopicContractImpactPreview(t *testing.T) {
 	if err := contract.SetContract(root, &changed); err != nil {
 		t.Fatal(err)
 	}
-	report, err = review.Calibrate(root, review.CalibrateOptions{ContractHash: changed.Hash()})
+	report, err = review.Calibrate(root, review.CalibrateOptions{ContractHash: changed.Hash(), Model: reviewModel})
 	if err != nil {
 		t.Fatal(err)
 	}

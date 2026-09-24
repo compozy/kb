@@ -11,6 +11,7 @@ import (
 
 	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/questions"
 )
 
 func roleAnswer(offTopic float64) json.RawMessage {
@@ -37,9 +38,68 @@ func appendReceipt(t *testing.T, store *decisions.Receipts, root string, receipt
 	}
 }
 
-// relevanceFixture writes n relevance labels with receipts: even subjects are
-// off-topic (negative, P(off_topic)=0.85); subjects ≡ 1 mod 4 are relevant but
-// look off-topic (0.72); the rest are relevant (0.2).
+// Decision context of the fixtures: receipts are judged under contract
+// fixtureContract by testModel with the current built-in banks.
+const (
+	fixtureContract = "c1"
+	testModel       = "test/jev"
+)
+
+// calibrateOptions calibrates in the fixtures' decision context under
+// contractHash.
+func calibrateOptions(contractHash string) CalibrateOptions {
+	return CalibrateOptions{ContractHash: contractHash, Model: testModel, Now: fixedClock}
+}
+
+// inContext stamps a receipt with a decision context: contractHash,
+// testModel, and bank — a built-in bank id or a "+"-joined composite —
+// at the current built-in versions.
+func inContext(receipt decisions.Receipt, contractHash, bank string) decisions.Receipt {
+	ids := strings.Split(bank, "+")
+	versions := make([]string, len(ids))
+	for index, id := range ids {
+		versions[index] = questions.MustLoad(id).Version
+	}
+	receipt.Contract, receipt.Model = contractHash, testModel
+	receipt.Bank, receipt.BankVersion = bank, strings.Join(versions, "+")
+	return receipt
+}
+
+// relevanceSubject returns subject i of the relevance fixture with its
+// verdict and P(off_topic): even subjects are off-topic (negative, 0.85);
+// subjects ≡ 1 mod 4 are relevant but look off-topic (0.72); the rest are
+// relevant (0.2).
+func relevanceSubject(i int) (subject, verdict string, p float64) {
+	subject, verdict, p = fmt.Sprintf("raw/s%03d.md", i), VerdictPositive, 0.2
+	switch {
+	case i%2 == 0:
+		verdict, p = VerdictNegative, 0.85
+	case i%4 == 1:
+		p = 0.72
+	}
+	return subject, verdict, p
+}
+
+// appendRelevanceReceipts judges the n fixture subjects again: one gate
+// receipt per subject, keyed prefix+i, adjusted by mutate.
+func appendRelevanceReceipts(t *testing.T, root string, n int, prefix string, mutate func(*decisions.Receipt)) {
+	t.Helper()
+	receipts := decisions.NewReceipts()
+	for i := range n {
+		subject, _, p := relevanceSubject(i)
+		receipt := inContext(decisions.Receipt{
+			Key: fmt.Sprintf("%s%03d", prefix, i), Subject: subject, Purpose: "relevance",
+			Answers: map[string]json.RawMessage{"role": roleAnswer(p)},
+		}, fixtureContract, "relevance+quality")
+		if mutate != nil {
+			mutate(&receipt)
+		}
+		appendReceipt(t, receipts, root, receipt)
+	}
+}
+
+// relevanceFixture writes n relevance labels, each pinned to a gate receipt
+// of the fixture decision context (see relevanceSubject).
 func relevanceFixture(t *testing.T, n int) string {
 	t.Helper()
 	return relevanceFixtureWithOrigin(t, n, func(int) string { return "" })
@@ -50,19 +110,11 @@ func relevanceFixture(t *testing.T, n int) string {
 func relevanceFixtureWithOrigin(t *testing.T, n int, origin func(i int) string) string {
 	t.Helper()
 	root := t.TempDir()
-	receipts := decisions.NewReceipts()
+	appendRelevanceReceipts(t, root, n, "k", nil)
 	store := Open(root, fixedClock)
 	for i := range n {
-		subject := fmt.Sprintf("raw/s%03d.md", i)
-		verdict, p := VerdictPositive, 0.2
-		switch {
-		case i%2 == 0:
-			verdict, p = VerdictNegative, 0.85
-		case i%4 == 1:
-			p = 0.72
-		}
+		subject, verdict, _ := relevanceSubject(i)
 		key := fmt.Sprintf("k%03d", i)
-		appendReceipt(t, receipts, root, decisions.Receipt{Key: key, Subject: subject, Purpose: "relevance+quality", Answers: map[string]json.RawMessage{"role": roleAnswer(p)}})
 		if err := store.AddLabel(Label{Subject: subject, Purpose: PurposeRelevance, Question: QuestionRole, Verdict: verdict, ReceiptKey: key, Origin: origin(i)}); err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +155,7 @@ func TestCalibrateChoosesThresholdOnDev(t *testing.T) {
 	t.Parallel()
 	root := relevanceFixture(t, 200)
 
-	report, err := Calibrate(root, CalibrateOptions{ContractHash: "c1", Now: fixedClock})
+	report, err := Calibrate(root, calibrateOptions(fixtureContract))
 	if err != nil {
 		t.Fatalf("Calibrate: %v", err)
 	}
@@ -137,7 +189,7 @@ func TestCalibrateFloorsAndF05Fallback(t *testing.T) {
 	t.Parallel()
 
 	few := relevanceFixture(t, 20)
-	report, err := Calibrate(few, CalibrateOptions{})
+	report, err := Calibrate(few, calibrateOptions(fixtureContract))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +245,7 @@ func TestCalibrateImportedLabelsNeverSetThresholdsAlone(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			root := relevanceFixtureWithOrigin(t, 200, tc.origin)
-			report, err := Calibrate(root, CalibrateOptions{ContractHash: "c1", Now: fixedClock})
+			report, err := Calibrate(root, calibrateOptions(fixtureContract))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -221,42 +273,110 @@ func TestCalibrateImportedLabelsNeverSetThresholdsAlone(t *testing.T) {
 	}
 }
 
-func TestCalibratePreviewDemotesToDev(t *testing.T) {
+// TestCalibrateAcrossContractChange: labels are joined only to scores of the
+// active decision context. After a contract change the labels given under
+// the old contract are unjoined (their receipts ask different questions)
+// until the subjects are judged again under the new contract; previewed
+// holdout labels are then demoted to dev.
+func TestCalibrateAcrossContractChange(t *testing.T) {
 	t.Parallel()
 	root := relevanceFixture(t, 200)
 	holdout := make([]string, 0)
 	for i := range 200 {
-		subject := fmt.Sprintf("raw/s%03d.md", i)
-		if !DevBucket(subject) {
+		if subject, _, _ := relevanceSubject(i); !DevBucket(subject) {
 			holdout = append(holdout, subject)
 		}
 	}
 	shown := holdout[:5]
-	if err := AppendPreview(root, Preview{Contract: "old", Subjects: shown}); err != nil {
+	if err := AppendPreview(root, Preview{Contract: fixtureContract, Subjects: shown}); err != nil {
 		t.Fatal(err)
 	}
 
-	testCases := []struct {
-		contract    string
-		wantDemoted int
-	}{
-		{contract: "new", wantDemoted: 5},
-		{contract: "old", wantDemoted: 0},
-	}
-	base, err := Calibrate(root, CalibrateOptions{ContractHash: "old"})
+	base, err := Calibrate(root, calibrateOptions(fixtureContract))
 	if err != nil {
 		t.Fatal(err)
 	}
 	baseRel := purposeReport(t, base, PurposeRelevance)
+	if baseRel.Demoted != 0 || baseRel.DevLabels+baseRel.HoldoutLabels != 200 || !baseRel.Recommended {
+		t.Fatalf("under the labels' contract: %+v", baseRel)
+	}
+
+	// The contract changes: every label still pins a receipt of the old
+	// contract, so none is joined and nothing can be recommended or written.
+	changed, err := Calibrate(root, calibrateOptions("c2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := purposeReport(t, changed, PurposeRelevance)
+	if rel.Unjoined != 200 || rel.DevLabels+rel.HoldoutLabels != 0 || rel.Recommended || rel.Demoted != len(shown) {
+		t.Fatalf("after the contract change: %+v", rel)
+	}
+	if err := WriteCalibration(root, changed); !errors.Is(err, ErrNotEnoughLabels) {
+		t.Fatalf("WriteCalibration with only old-contract scores = %v, want ErrNotEnoughLabels", err)
+	}
+
+	// The subjects are judged again under the new contract: current scores
+	// exist, labels join them, and the previewed holdout labels move to dev.
+	appendRelevanceReceipts(t, root, 200, "n", func(r *decisions.Receipt) { r.Contract = "c2" })
+	rejudged, err := Calibrate(root, calibrateOptions("c2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel = purposeReport(t, rejudged, PurposeRelevance)
+	if rel.Unjoined != 0 || rel.Demoted != len(shown) || !rel.Recommended ||
+		rel.HoldoutLabels != baseRel.HoldoutLabels-len(shown) || rel.DevLabels != baseRel.DevLabels+len(shown) {
+		t.Fatalf("after re-judging: unjoined %d demoted %d dev %d holdout %d (base dev %d holdout %d)",
+			rel.Unjoined, rel.Demoted, rel.DevLabels, rel.HoldoutLabels, baseRel.DevLabels, baseRel.HoldoutLabels)
+	}
+	if err := WriteCalibration(root, rejudged); err != nil {
+		t.Fatal(err)
+	}
+	record := readCalibrationRecord(t, root)
+	entry := record.Purposes[PurposeRelevance]
+	if entry.Contract != "c2" || entry.Model != testModel || entry.Banks["relevance"] != questions.MustLoad("relevance").Version {
+		t.Fatalf("calibration context = %q %q %v", entry.Contract, entry.Model, entry.Banks)
+	}
+}
+
+// TestCalibrateJoinsOnlyTheActiveDecisionContext: a receipt from another
+// contract, model or bank version is never joined, even when a label pins it.
+func TestCalibrateJoinsOnlyTheActiveDecisionContext(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name       string
+		mutate     func(*decisions.Receipt)
+		wantJoined int
+	}{
+		{name: "active context", wantJoined: 200},
+		{name: "other contract", mutate: func(r *decisions.Receipt) { r.Contract = "c0" }},
+		{name: "other model", mutate: func(r *decisions.Receipt) { r.Model = "other/model" }},
+		{name: "stale relevance bank", mutate: func(r *decisions.Receipt) { r.BankVersion = "2020-01-01.1+" + questions.MustLoad("quality").Version }},
+		{name: "bank without relevance", mutate: func(r *decisions.Receipt) { r.Bank, r.BankVersion = "quality", questions.MustLoad("quality").Version }},
+	}
 	for _, tc := range testCases {
-		report, err := Calibrate(root, CalibrateOptions{ContractHash: tc.contract})
-		if err != nil {
-			t.Fatal(err)
-		}
-		rel := purposeReport(t, report, PurposeRelevance)
-		if rel.Demoted != tc.wantDemoted || rel.HoldoutLabels != baseRel.HoldoutLabels-tc.wantDemoted || rel.DevLabels != baseRel.DevLabels+tc.wantDemoted {
-			t.Errorf("contract %s: demoted %d dev %d holdout %d (base dev %d holdout %d)", tc.contract, rel.Demoted, rel.DevLabels, rel.HoldoutLabels, baseRel.DevLabels, baseRel.HoldoutLabels)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			appendRelevanceReceipts(t, root, 200, "k", tc.mutate)
+			store := Open(root, fixedClock)
+			for i := range 200 {
+				subject, verdict, _ := relevanceSubject(i)
+				if err := store.AddLabel(Label{Subject: subject, Purpose: PurposeRelevance, Question: QuestionRole, Verdict: verdict, ReceiptKey: fmt.Sprintf("k%03d", i)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report, err := Calibrate(root, calibrateOptions(fixtureContract))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rel := purposeReport(t, report, PurposeRelevance)
+			if joined := rel.DevLabels + rel.HoldoutLabels; joined != tc.wantJoined || rel.Unjoined != 200-tc.wantJoined {
+				t.Fatalf("joined %d unjoined %d, want %d joined", joined, rel.Unjoined, tc.wantJoined)
+			}
+			if rel.Recommended != (tc.wantJoined > 0) {
+				t.Fatalf("recommended = %v with %d joined labels", rel.Recommended, tc.wantJoined)
+			}
+		})
 	}
 }
 
@@ -265,25 +385,44 @@ func TestCalibrateJoinsLinkAndQualityLabels(t *testing.T) {
 	root := t.TempDir()
 	receipts := decisions.NewReceipts()
 	store := Open(root, fixedClock)
+	const subject = "wiki/concepts/A.md"
 
-	appendReceipt(t, receipts, root, decisions.Receipt{Key: "L1", Subject: "wiki/concepts/A.md", Purpose: "link", Answers: map[string]json.RawMessage{"should_link_c1": noulAnswer(0.9), "should_link_c2": noulAnswer(0.3)}})
-	if _, err := store.Add(Item{Queue: QueueLink, Purpose: PurposeLink, Subject: "wiki/concepts/A.md", Target: "wiki/concepts/B.md", Question: "should_link_c2", ReceiptKey: "L1"}); err != nil {
+	appendReceipt(t, receipts, root, inContext(decisions.Receipt{Key: "L0", Subject: subject, Purpose: "link", Answers: map[string]json.RawMessage{"should_link_c1": noulAnswer(0.8)}}, "c0", "link"))
+	appendReceipt(t, receipts, root, inContext(decisions.Receipt{Key: "L1", Subject: subject, Purpose: "link", Answers: map[string]json.RawMessage{"should_link_c1": noulAnswer(0.9), "should_link_c2": noulAnswer(0.3)}}, fixtureContract, "link"))
+	// The shape the link producer writes: the producing question and its
+	// receipt, with the queue identity on the generic question name.
+	item := Item{
+		ID:    ItemID(QueueLink, subject, "wiki/concepts/B.md", QuestionShouldLink),
+		Queue: QueueLink, Purpose: PurposeLink, Subject: subject, Target: "wiki/concepts/B.md", Question: "should_link_c2", ReceiptKey: "L1",
+	}
+	if _, err := store.Add(item); err != nil {
 		t.Fatal(err)
 	}
 	labels := []Label{
-		{Subject: "wiki/concepts/A.md", Target: "wiki/concepts/C.md", Purpose: PurposeLink, Question: "should_link_c1", Verdict: VerdictPositive, ReceiptKey: "L1"},
-		{Subject: "wiki/concepts/A.md", Target: "wiki/concepts/B.md", Purpose: PurposeLink, Question: QuestionShouldLink, Verdict: VerdictNegative, Origin: OriginImportLinks},
-		{Subject: "wiki/concepts/A.md", Target: "wiki/concepts/Z.md", Purpose: PurposeLink, Question: QuestionShouldLink, Verdict: VerdictPositive, Origin: OriginImportLinks},
+		{Subject: subject, Target: "wiki/concepts/C.md", Purpose: PurposeLink, Question: "should_link_c1", Verdict: VerdictPositive, ReceiptKey: "L1"},
+		{Subject: subject, Target: "wiki/concepts/B.md", Purpose: PurposeLink, Question: QuestionShouldLink, Verdict: VerdictNegative, Origin: OriginImportLinks},
+		{Subject: subject, Target: "wiki/concepts/Z.md", Purpose: PurposeLink, Question: QuestionShouldLink, Verdict: VerdictPositive, Origin: OriginImportLinks},
 		{Subject: "raw/q.md", Purpose: PurposeQuality, Verdict: VerdictNegative},
+		// Pinned to a receipt of another contract: not joined.
+		{Subject: subject, Target: "wiki/concepts/D.md", Purpose: PurposeLink, Question: "should_link_c1", Verdict: VerdictPositive, ReceiptKey: "L0"},
+		// A positional question id without its receipt is ambiguous: another
+		// receipt of the subject may ask c1 about a different target.
+		{Subject: subject, Target: "wiki/concepts/E.md", Purpose: PurposeLink, Question: "should_link_c1", Verdict: VerdictPositive},
 	}
-	appendReceipt(t, receipts, root, decisions.Receipt{Key: "Q1", Subject: "raw/q.md", Purpose: "relevance+quality", Answers: map[string]json.RawMessage{"thin_or_boilerplate": noulAnswer(0.4), "error_or_placeholder_page": noulAnswer(0.95), "role": roleAnswer(0.1)}})
+	appendReceipt(t, receipts, root, inContext(decisions.Receipt{Key: "Q1", Subject: "raw/q.md", Purpose: "relevance+quality", Answers: map[string]json.RawMessage{"thin_or_boilerplate": noulAnswer(0.4), "error_or_placeholder_page": noulAnswer(0.95), "role": roleAnswer(0.1)}}, fixtureContract, "relevance+quality"))
 	for _, label := range labels {
 		if err := store.AddLabel(label); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	joiner := newReceiptJoiner(mustReceipts(t, root), mustItems(t, store))
+	context := decisionContext{contract: fixtureContract, model: testModel, banks: map[string]string{}}
+	specs := map[string]purposeSpec{}
+	for _, spec := range calibratedPurposes {
+		context.banks[spec.bank] = questions.MustLoad(spec.bank).Version
+		specs[spec.purpose] = spec
+	}
+	joiner := newReceiptJoiner(mustReceipts(t, root), mustItems(t, store), context)
 	testCases := []struct {
 		label  Label
 		want   float64
@@ -293,22 +432,37 @@ func TestCalibrateJoinsLinkAndQualityLabels(t *testing.T) {
 		{label: labels[1], want: 0.3, joined: true},
 		{label: labels[2], joined: false},
 		{label: labels[3], want: 0.95, joined: true},
+		{label: labels[4], joined: false},
+		{label: labels[5], joined: false},
 	}
 	for _, tc := range testCases {
-		got, ok := joiner.quantity(tc.label.Purpose, tc.label)
+		got, ok := joiner.quantity(specs[tc.label.Purpose], tc.label)
 		if ok != tc.joined || got != tc.want {
 			t.Errorf("quantity(%+v) = %.2f %v, want %.2f %v", tc.label, got, ok, tc.want, tc.joined)
 		}
 	}
 
-	report, err := Calibrate(root, CalibrateOptions{})
+	report, err := Calibrate(root, calibrateOptions(fixtureContract))
 	if err != nil {
 		t.Fatal(err)
 	}
 	link := purposeReport(t, report, PurposeLink)
-	if link.Unjoined != 1 || link.DevLabels+link.HoldoutLabels != 2 || link.ImportedLabels != 1 {
+	if link.Unjoined != 3 || link.DevLabels+link.HoldoutLabels != 2 || link.ImportedLabels != 1 {
 		t.Fatalf("link report = %+v", link)
 	}
+}
+
+func readCalibrationRecord(t *testing.T, root string) calibrationRecord {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, decisions.ReceiptsDir, CalibrationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record calibrationRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func mustReceipts(t *testing.T, root string) []decisions.Receipt {
@@ -335,7 +489,7 @@ func TestWriteCalibrationStoresThresholdsAndRecord(t *testing.T) {
 	if err := os.WriteFile(contract.SettingsPath(root), []byte("# topic settings\ndecisions:\n  mode: shadow\n  thresholds:\n    link_apply: 0.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := Calibrate(root, CalibrateOptions{Now: fixedClock})
+	report, err := Calibrate(root, calibrateOptions(fixtureContract))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +512,7 @@ func TestWriteCalibrationStoresThresholdsAndRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := record.Purposes[PurposeRelevance]
-	if !ok || entry.DevLabels+entry.HoldoutLabels != 200 || entry.Thresholds["relevance_quarantine"] != 0.75 || entry.Holdout.N != entry.HoldoutLabels {
+	if !ok || entry.DevLabels+entry.HoldoutLabels != 200 || entry.Thresholds["relevance_quarantine"] != 0.75 || entry.Holdout.N != entry.HoldoutLabels || entry.Contract != fixtureContract || entry.Model != testModel || entry.Banks["relevance"] != questions.MustLoad("relevance").Version {
 		t.Fatalf("record = %+v", record)
 	}
 	if record.Time != "2026-09-24T12:00:00Z" {

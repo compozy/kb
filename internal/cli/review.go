@@ -244,6 +244,7 @@ func runReviewCalibrate(cmd *cobra.Command, options *reviewCalibrateOptions, top
 	}
 	report, err := review.Calibrate(topic.root, review.CalibrateOptions{
 		ContractHash: active.Hash(),
+		Model:        strings.TrimSpace(cfg.Decisions.Model),
 		Thresholds:   decisions.Thresholds(nil).Merge(cfg.Decisions.Thresholds).Merge(settings.Decisions.Thresholds),
 	})
 	if err != nil {

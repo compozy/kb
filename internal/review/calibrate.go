@@ -15,6 +15,7 @@ import (
 
 	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/questions"
 )
 
 // Calibration floors and targets (spec §12.3).
@@ -51,6 +52,9 @@ type purposeSpec struct {
 	review   string
 	// target is the label verdict the gate quantity predicts.
 	target string
+	// bank is the built-in question bank that asks the gate quantity; its
+	// version is part of the decision context scores are joined under.
+	bank string
 }
 
 // calibratedPurposes lists the calibrated purposes and their gate quantity:
@@ -61,16 +65,20 @@ type purposeSpec struct {
 //   - quality: the maximum of the quality nouls predicts a negative (broken
 //     capture) label; threshold quality_apply.
 var calibratedPurposes = []purposeSpec{
-	{purpose: PurposeRelevance, quantity: "P(off_topic) of role predicts a negative label", apply: "relevance_quarantine", review: "relevance_review", target: VerdictNegative},
-	{purpose: PurposeLink, quantity: "P(yes) of should_link_<id> predicts a positive label", apply: "link_apply", review: "link_review", target: VerdictPositive},
-	{purpose: PurposeQuality, quantity: "max quality noul predicts a negative label", apply: "quality_apply", review: "quality_review", target: VerdictNegative},
+	{purpose: PurposeRelevance, quantity: "P(off_topic) of role predicts a negative label", apply: "relevance_quarantine", review: "relevance_review", target: VerdictNegative, bank: "relevance"},
+	{purpose: PurposeLink, quantity: "P(yes) of should_link_<id> predicts a positive label", apply: "link_apply", review: "link_review", target: VerdictPositive, bank: "link"},
+	{purpose: PurposeQuality, quantity: "max quality noul predicts a negative label", apply: "quality_apply", review: "quality_review", target: VerdictNegative, bank: "quality"},
 }
 
 // CalibrateOptions configures Calibrate.
 type CalibrateOptions struct {
-	// ContractHash is the active contract hash; labels shown in a preview
-	// made under another contract are forced to dev.
+	// ContractHash is the active contract hash. Only receipts judged under
+	// it are joined, and labels shown in a preview made under another
+	// contract are forced to dev.
 	ContractHash string
+	// Model is the active decision model; only receipts it produced are
+	// joined.
+	Model string
 	// Thresholds are the current thresholds; nil means the defaults merged
 	// with topic.yaml `decisions.thresholds`.
 	Thresholds decisions.Thresholds
@@ -109,6 +117,10 @@ type SweepPoint struct {
 type PurposeReport struct {
 	Purpose  string `json:"purpose"`
 	Quantity string `json:"quantity"`
+	// Banks maps the built-in bank asking the gate quantity to the version
+	// scores were joined under (with Report.Contract and Report.Model, the
+	// decision context of this calibration).
+	Banks map[string]string `json:"banks"`
 	// ApplyName and ReviewName are the threshold names calibrated.
 	ApplyName  string  `json:"apply_name"`
 	ReviewName string  `json:"review_name"`
@@ -155,6 +167,7 @@ type ImportedPart struct {
 type Report struct {
 	Time     string          `json:"time"`
 	Contract string          `json:"contract"`
+	Model    string          `json:"model"`
 	Purposes []PurposeReport `json:"purposes"`
 }
 
@@ -170,10 +183,17 @@ type scored struct {
 
 // Calibrate measures, per purpose, precision, recall, coverage and review
 // rate at the current thresholds and over a sweep, from labels only (spec
-// §12.3). Each label is joined to a receipt (Label.ReceiptKey when it carries
-// the needed answer, else the latest decided receipt for the same subject;
-// link labels use the question id of the label or of the matching review
-// item). Labels are split by the first byte of sha256(subject) mod 10:
+// §12.3). Each label is joined to a decided receipt of the active decision
+// context only: judged under opts.ContractHash, by opts.Model, with the
+// current version of the purpose's built-in bank. A receipt of another
+// context scores different questions and is never joined; such labels count
+// as unjoined until current scores exist. Relevance and quality labels use
+// Label.ReceiptKey when that receipt is compatible and carries the needed
+// answer, else the latest compatible receipt for the same subject. Link
+// labels join only through their producing evidence: the `should_link_<id>`
+// question id and receipt key of the label or of its review item (candidate
+// ids are positional, so another receipt of the subject may ask the same id
+// about a different target). Labels are split by the first byte of sha256(subject) mod 10:
 // buckets 0–6 are dev, 7–9 holdout; subjects that appeared in a preview
 // under another contract are forced to dev. Thresholds 0.50..0.95 (step
 // 0.05) are swept on dev only: the lowest threshold with dev precision ≥
@@ -221,9 +241,17 @@ func Calibrate(topicRoot string, opts CalibrateOptions) (Report, error) {
 			demoted[subject] = true
 		}
 	}
-	joiner := newReceiptJoiner(receipts, items)
+	versions := map[string]string{}
+	for _, spec := range calibratedPurposes {
+		bank, err := questions.Load(spec.bank)
+		if err != nil {
+			return Report{}, fmt.Errorf("review: %w", err)
+		}
+		versions[spec.bank] = bank.Version
+	}
+	joiner := newReceiptJoiner(receipts, items, decisionContext{contract: opts.ContractHash, model: opts.Model, banks: versions})
 
-	report := Report{Time: now().UTC().Format(time.RFC3339), Contract: opts.ContractHash}
+	report := Report{Time: now().UTC().Format(time.RFC3339), Contract: opts.ContractHash, Model: opts.Model}
 	latest := latestLabels(labels)
 	for _, spec := range calibratedPurposes {
 		rows := make([]scored, 0)
@@ -231,7 +259,7 @@ func Calibrate(topicRoot string, opts CalibrateOptions) (Report, error) {
 			if label.Purpose != spec.purpose {
 				continue
 			}
-			value, ok := joiner.quantity(spec.purpose, label)
+			value, ok := joiner.quantity(spec, label)
 			row := scored{label: label, value: value, joined: ok, imported: isImported(label.Origin)}
 			row.dev = DevBucket(label.Subject)
 			if !row.dev && demoted[label.Subject] {
@@ -239,7 +267,9 @@ func Calibrate(topicRoot string, opts CalibrateOptions) (Report, error) {
 			}
 			rows = append(rows, row)
 		}
-		report.Purposes = append(report.Purposes, calibratePurpose(spec, rows, thresholds))
+		result := calibratePurpose(spec, rows, thresholds)
+		result.Banks = map[string]string{spec.bank: versions[spec.bank]}
+		report.Purposes = append(report.Purposes, result)
 	}
 	return report, nil
 }
@@ -406,15 +436,54 @@ type rawAnswer struct {
 	Probabilities map[string]float64 `json:"probabilities"`
 }
 
-// receiptJoiner finds the gate quantity of a label in the receipts.
+// decisionContext is what a score depends on besides the document: the
+// contract the question was asked under, the model that answered, and the
+// version of each built-in bank (bank id → version).
+type decisionContext struct {
+	contract string
+	model    string
+	banks    map[string]string
+}
+
+// admits reports whether receipt was judged in this context for the gate
+// quantity asked by bank.
+func (c decisionContext) admits(bank string, receipt decisions.Receipt) bool {
+	return receipt.Contract == c.contract && receipt.Model == c.model &&
+		c.banks[bank] != "" && receiptBankVersion(receipt, bank) == c.banks[bank]
+}
+
+// receiptBankVersion returns the version of member bank id in a receipt
+// whose bank may be a composite ("relevance+quality" with versions joined
+// the same way), or "" when the receipt did not use that bank.
+func receiptBankVersion(receipt decisions.Receipt, id string) string {
+	ids := strings.Split(receipt.Bank, "+")
+	versions := strings.Split(receipt.BankVersion, "+")
+	if len(ids) != len(versions) {
+		return ""
+	}
+	for index, member := range ids {
+		if member == id {
+			return versions[index]
+		}
+	}
+	return ""
+}
+
+// receiptJoiner finds the gate quantity of a label in the receipts of one
+// decision context.
 type receiptJoiner struct {
+	context   decisionContext
 	byKey     map[string]decisions.Receipt
 	bySubject map[string][]decisions.Receipt
+	itemsByID map[string]Item
 	linkItems map[string]Item
 }
 
-func newReceiptJoiner(receipts []decisions.Receipt, items []Item) receiptJoiner {
-	j := receiptJoiner{byKey: map[string]decisions.Receipt{}, bySubject: map[string][]decisions.Receipt{}, linkItems: map[string]Item{}}
+func newReceiptJoiner(receipts []decisions.Receipt, items []Item, context decisionContext) receiptJoiner {
+	j := receiptJoiner{
+		context: context, byKey: map[string]decisions.Receipt{}, bySubject: map[string][]decisions.Receipt{},
+		itemsByID: map[string]Item{}, linkItems: map[string]Item{},
+	}
 	for _, receipt := range receipts {
 		if receipt.Status != decisions.StatusDecided {
 			continue
@@ -423,6 +492,7 @@ func newReceiptJoiner(receipts []decisions.Receipt, items []Item) receiptJoiner 
 		j.bySubject[receipt.Subject] = append(j.bySubject[receipt.Subject], receipt)
 	}
 	for _, item := range items {
+		j.itemsByID[item.ID] = item
 		if item.Purpose == PurposeLink || item.Queue == QueueLink {
 			j.linkItems[item.Subject+"\x00"+item.Target] = item
 		}
@@ -430,24 +500,17 @@ func newReceiptJoiner(receipts []decisions.Receipt, items []Item) receiptJoiner 
 	return j
 }
 
-func (j receiptJoiner) quantity(purpose string, label Label) (float64, bool) {
-	receiptKey := label.ReceiptKey
-	extract := func(r decisions.Receipt) (float64, bool) { return quantityOf(purpose, "", r) }
-	if purpose == PurposeLink {
-		question := label.Question
-		if !strings.HasPrefix(question, QuestionShouldLink+"_") {
-			item, ok := j.linkItems[label.Subject+"\x00"+label.Target]
-			if !ok || !strings.HasPrefix(item.Question, QuestionShouldLink+"_") {
-				return 0, false
-			}
-			question = item.Question
-			if receiptKey == "" {
-				receiptKey = item.ReceiptKey
-			}
-		}
-		extract = func(r decisions.Receipt) (float64, bool) { return quantityOf(purpose, question, r) }
+func (j receiptJoiner) quantity(spec purposeSpec, label Label) (float64, bool) {
+	if spec.purpose == PurposeLink {
+		return j.linkQuantity(spec, label)
 	}
-	if receipt, ok := j.byKey[receiptKey]; ok && receiptKey != "" {
+	extract := func(r decisions.Receipt) (float64, bool) {
+		if !j.context.admits(spec.bank, r) {
+			return 0, false
+		}
+		return quantityOf(spec.purpose, "", r)
+	}
+	if receipt, ok := j.byKey[label.ReceiptKey]; ok && label.ReceiptKey != "" {
 		if value, ok := extract(receipt); ok {
 			return value, true
 		}
@@ -459,6 +522,29 @@ func (j receiptJoiner) quantity(purpose string, label Label) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// linkQuantity joins a link label through the evidence of the producing
+// question: its `should_link_<id>` question id and the receipt that asked
+// it, from the label or else from its review item (by item id, then by
+// subject and target). The receipt must belong to the decision context.
+func (j receiptJoiner) linkQuantity(spec purposeSpec, label Label) (float64, bool) {
+	question, receiptKey := label.Question, label.ReceiptKey
+	if !strings.HasPrefix(question, QuestionShouldLink+"_") || receiptKey == "" {
+		item, ok := j.itemsByID[label.ItemID]
+		if !ok || label.ItemID == "" {
+			item, ok = j.linkItems[label.Subject+"\x00"+label.Target]
+		}
+		if !ok || !strings.HasPrefix(item.Question, QuestionShouldLink+"_") || item.Target != label.Target {
+			return 0, false
+		}
+		question, receiptKey = item.Question, item.ReceiptKey
+	}
+	receipt, ok := j.byKey[receiptKey]
+	if !ok || receiptKey == "" || receipt.Subject != label.Subject || !j.context.admits(spec.bank, receipt) {
+		return 0, false
+	}
+	return quantityOf(spec.purpose, question, receipt)
 }
 
 func quantityOf(purpose, question string, receipt decisions.Receipt) (float64, bool) {
@@ -505,7 +591,13 @@ type calibrationRecord struct {
 	Purposes map[string]calibrationPurpose `json:"purposes"`
 }
 
+// calibrationPurpose carries its decision context (contract, model, banks):
+// entries of other purposes are kept across writes, and a reader only trusts
+// an entry whose context is still the active one.
 type calibrationPurpose struct {
+	Contract       string             `json:"contract"`
+	Model          string             `json:"model"`
+	Banks          map[string]string  `json:"banks"`
 	DevLabels      int                `json:"dev_labels"`
 	HoldoutLabels  int                `json:"holdout_labels"`
 	ImportedLabels int                `json:"imported_labels,omitempty"`
@@ -546,6 +638,9 @@ func WriteCalibration(topicRoot string, report Report) error {
 		}
 		chosen[purpose.ApplyName] = purpose.Chosen
 		record.Purposes[purpose.Purpose] = calibrationPurpose{
+			Contract:       report.Contract,
+			Model:          report.Model,
+			Banks:          maps.Clone(purpose.Banks),
 			DevLabels:      purpose.DevLabels,
 			HoldoutLabels:  purpose.HoldoutLabels,
 			ImportedLabels: purpose.ImportedLabels,

@@ -56,7 +56,7 @@ All JSONL is append-only, one JSON object per line, UTF-8, `\n`. Readers take th
 | `review.jsonl` | review `Item` (below); status changes are new rows with the same id | review |
 | `labels.jsonl` | `{time, subject, purpose, question, verdict:"positive"|"negative", receipt_key, origin:"review"|"import:<file>@<sha256>"|"import-links", decided_by, item_id}` | review |
 | `previews.jsonl` | `{time, contract, subjects:[paths shown or used in precision]}` | contract CLI (E) |
-| `calibration.json` | `{time, purposes:{<purpose>:{dev_labels, holdout_labels, thresholds:{...}, dev:{precision,recall,coverage,review_rate}, holdout:{...}}}}` | review |
+| `calibration.json` | `{time, purposes:{<purpose>:{contract, model, banks:{<bank>:<version>}, dev_labels, holdout_labels, thresholds:{...}, dev:{precision,recall,coverage,review_rate}, holdout:{...}}}}` | review |
 | `banks/*.json` | user extra question banks (same schema as built-in, `purpose` required) | user |
 
 Quarantine location: `<topic>/raw/_quarantine/<original topic-relative path without leading raw/>` (so `raw/articles/x.md` → `raw/_quarantine/articles/x.md`). Everything under `raw/_quarantine/` and `.decisions/` is excluded by `corpus.Load`.

@@ -48,6 +48,9 @@ func TestOpenRequiresDecisionModel(t *testing.T) {
 func TestModes(t *testing.T) {
 	t.Parallel()
 	accepted := &contract.Contract{Purpose: "Demo purpose.", Core: []string{"demo subjects"}}
+	// calibrationContext is the active decision context of the accepted
+	// contract, the default model and the current relevance bank.
+	const calibrationContext = `"contract":"{contract}","model":"{model}","banks":{"relevance":"{relevance}"}`
 
 	tests := []struct {
 		name        string
@@ -66,9 +69,14 @@ func TestModes(t *testing.T) {
 		{name: "contract without calibration stays shadow", contract: accepted, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "gates apply", contract: accepted, gates: "apply", wantBody: ModeShadow, wantRelGate: ModeApply, wantQuality: ModeApply},
 		{name: "gates apply without contract stays shadow", gates: "apply", wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
-		{name: "calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeApply, wantQuality: ModeApply},
-		{name: "imported labels alone stay shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":40,"holdout_labels":12,"imported_labels":40}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
-		{name: "under-calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":10,"holdout_labels":3}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
+		{name: "calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{` + calibrationContext + `,"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeApply, wantQuality: ModeApply, wantReason: "calibrated"},
+		{name: "imported labels alone stay shadow", contract: accepted, calibration: `{"purposes":{"relevance":{` + calibrationContext + `,"dev_labels":40,"holdout_labels":12,"imported_labels":40}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
+		{name: "under-calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{` + calibrationContext + `,"dev_labels":10,"holdout_labels":3}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
+		// A calibration only enables apply in its own decision context.
+		{name: "calibration without a decision context stays shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "not calibrated: calibration is stale"},
+		{name: "calibration under another contract stays shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"contract":"other","model":"{model}","banks":{"relevance":"{relevance}"},"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "not calibrated: calibration is stale (contract changed)"},
+		{name: "calibration by another model stays shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"contract":"{contract}","model":"other/model","banks":{"relevance":"{relevance}"},"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "not calibrated: calibration is stale (model changed)"},
+		{name: "calibration on an old relevance bank stays shadow", contract: accepted, calibration: `{"purposes":{"relevance":{"contract":"{contract}","model":"{model}","banks":{"relevance":"2020-01-01.1"},"dev_labels":24,"holdout_labels":9}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "not calibrated: calibration is stale (relevance bank changed)"},
 		{name: "topic body apply", bodyMode: "apply", wantBody: ModeApply, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "flag shadow wins", contract: accepted, gates: "apply", bodyMode: "apply", flag: "shadow", wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeShadow},
 		{name: "flag apply wins with a contract", contract: accepted, flag: "apply", wantBody: ModeApply, wantRelGate: ModeApply, wantQuality: ModeApply, wantReason: "set by --decisions"},
@@ -91,7 +99,12 @@ func TestModes(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(root, ".decisions"), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(CalibrationPath(root), []byte(tt.calibration), 0o644); err != nil {
+				calibration := strings.NewReplacer(
+					"{contract}", accepted.Hash(),
+					"{model}", config.Default().Decisions.Model,
+					"{relevance}", questions.MustLoad("relevance").Version,
+				).Replace(tt.calibration)
+				if err := os.WriteFile(CalibrationPath(root), []byte(calibration), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

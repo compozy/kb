@@ -161,8 +161,8 @@ func TestReviewImportLabelsAndCalibrateCommands(t *testing.T) {
 func TestReviewCalibrationRecordReadBySession(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	report := review.Report{Time: "2026-09-24T12:00:00Z", Purposes: []review.PurposeReport{{
-		Purpose: "relevance", ApplyName: "relevance_quarantine", Recommended: true, Chosen: 0.75,
+	report := review.Report{Time: "2026-09-24T12:00:00Z", Contract: "c1", Model: "test/jev", Purposes: []review.PurposeReport{{
+		Purpose: "relevance", Banks: map[string]string{"relevance": "v1"}, ApplyName: "relevance_quarantine", Recommended: true, Chosen: 0.75,
 		DevLabels: 40, HoldoutLabels: 15, ImportedLabels: 20,
 		DevChosen:     review.Metrics{N: 40, Precision: 0.95, Recall: 0.8, Coverage: 1, ReviewRate: 0.1},
 		HoldoutChosen: review.Metrics{N: 15, Precision: 0.9, Recall: 0.7, Coverage: 1, ReviewRate: 0.2},
@@ -176,7 +176,8 @@ func TestReviewCalibrationRecordReadBySession(t *testing.T) {
 	}
 	entry := record.Purposes["relevance"]
 	if entry.DevLabels != 40 || entry.HoldoutLabels != 15 || entry.ImportedLabels != 20 ||
-		entry.Thresholds["relevance_quarantine"] != 0.75 || entry.Holdout.Precision != 0.9 || entry.Dev.N != 40 {
+		entry.Thresholds["relevance_quarantine"] != 0.75 || entry.Holdout.Precision != 0.9 || entry.Dev.N != 40 ||
+		entry.Contract != "c1" || entry.Model != "test/jev" || entry.Banks["relevance"] != "v1" {
 		t.Fatalf("entry = %+v", entry)
 	}
 }

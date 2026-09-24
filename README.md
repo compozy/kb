@@ -371,7 +371,7 @@ Records and caches, never the graph (the graph is wikilinks and frontmatter). JS
 | `state.jsonl` | one row per document: body hash, contract hash, bank versions, the value hash of every key kb wrote, and the body (and contract) each bank and key was judged on, so a write by one command never makes another command's judgment look current |
 | `review.jsonl` | review queue items and their status changes |
 | `labels.jsonl` | human verdicts and imported labels, with their origin |
-| `calibration.json` | the last `kb review calibrate --write`: date, label counts, dev and holdout metrics |
+| `calibration.json` | the last `kb review calibrate --write`: date, label counts, dev and holdout metrics, and per purpose the decision context (contract hash, model, bank versions) the scores were joined under |
 | `previews.jsonl` | the documents shown in each contract impact preview |
 | `skipped.jsonl` | bulk items skipped before fetch, rescuable with `--rescue <id>` |
 | `quarantine-ledger.jsonl` | every move and index/frontmatter edit made by quarantine, replayed on restore |
@@ -410,7 +410,7 @@ Nothing leaves `raw/` without an accept. Every accept and reject is stored as a 
 
 ### Calibration with a holdout
 
-`kb review calibrate <topic>` measures precision, recall, coverage and review rate for the `relevance`, `link` and `quality` purposes from labels only, at the current thresholds and over a sweep. Labels are split by `sha256(subject) mod 10`: buckets 0–6 are **dev** (thresholds are chosen there, targeting 0.90 precision) and 7–9 are **holdout** (only reported). Labels shown in a contract's impact preview become dev-only once that contract changes. `--write` stores the chosen thresholds in `topic.yaml` `decisions.thresholds` and the record in `.decisions/calibration.json`; a purpose with fewer than 30 dev or 10 holdout labels reports "not enough labels" and nothing is written for it.
+`kb review calibrate <topic>` measures precision, recall, coverage and review rate for the `relevance`, `link` and `quality` purposes from labels only, at the current thresholds and over a sweep. Labels are joined only to scores of the active decision context (contract, decision model, bank version); labels whose receipts belong to another context count as unjoined until the subjects are judged again, and a stored calibration stops enabling relevance `apply` once the contract, model or relevance bank changes. Labels are split by `sha256(subject) mod 10`: buckets 0–6 are **dev** (thresholds are chosen there, targeting 0.90 precision) and 7–9 are **holdout** (only reported). Labels shown in a contract's impact preview become dev-only once that contract changes. `--write` stores the chosen thresholds in `topic.yaml` `decisions.thresholds` and the record in `.decisions/calibration.json`; a purpose with fewer than 30 dev or 10 holdout labels reports "not enough labels" and nothing is written for it.
 
 ### Cleaning an existing topic
 
