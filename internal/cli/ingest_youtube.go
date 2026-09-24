@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	kconfig "github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/youtube"
@@ -29,6 +30,7 @@ func newIngestYouTubeCommand() *cobra.Command {
 	var subLangs string
 	var lang string
 	var batch string
+	var flags ingestFlags
 
 	command := &cobra.Command{
 		Use:   "youtube <url>",
@@ -63,39 +65,55 @@ func newIngestYouTubeCommand() *cobra.Command {
 				return fmt.Errorf("ingest youtube: %w", err)
 			}
 
-			extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
-				commandContext(cmd),
-				args[0],
-				youtube.ExtractOptions{
-					TranscriptionPolicy:     policy,
-					PreferredLanguages:      captionLanguages,
-					AllowTranslatedCaptions: cfg.YouTube.AllowTranslatedCaptions,
-				},
-			)
+			runBatch := resolveIngestBatch("youtube", batch)
+			runner, err := openIngestRunner(cmd, "youtube", target.TopicInfo.Slug, flags, runBatch, "")
+			if err != nil {
+				return err
+			}
+			ctx := commandContext(cmd)
+			result, skipped, err := runner.Precheck(args[0], "", models.SourceKindYouTubeTranscript)
 			if err != nil {
 				return fmt.Errorf("ingest youtube: %w", err)
 			}
+			if !skipped {
+				extractResult, err := newYouTubeTranscriptExtractor(cfg).Extract(
+					ctx,
+					args[0],
+					youtube.ExtractOptions{
+						TranscriptionPolicy:     policy,
+						PreferredLanguages:      captionLanguages,
+						AllowTranslatedCaptions: cfg.YouTube.AllowTranslatedCaptions,
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("ingest youtube: %w", err)
+				}
 
-			sourceURL := strings.TrimSpace(extractResult.Metadata.URL)
-			if sourceURL == "" {
-				sourceURL = args[0]
+				sourceURL := strings.TrimSpace(extractResult.Metadata.URL)
+				if sourceURL == "" {
+					sourceURL = args[0]
+				}
+
+				result, err = runner.Ingest(ctx, kingest.Options{
+					VaultPath:        target.VaultPath,
+					Topic:            target.TopicInfo.Slug,
+					SourceKind:       models.SourceKindYouTubeTranscript,
+					SourceURL:        sourceURL,
+					Title:            extractResult.Metadata.Title,
+					Markdown:         extractResult.Markdown,
+					ExtraFrontmatter: youtubeFrontmatter(extractResult),
+					Batch:            runBatch,
+					Gate:             kingest.GateOptions{PlatformID: youtubePlatformID(extractResult.Metadata.VideoID, args[0])},
+				})
+				if err != nil {
+					return fmt.Errorf("ingest youtube: %w", err)
+				}
 			}
 
-			result, err := runIngest(commandContext(cmd), kingest.Options{
-				VaultPath:        target.VaultPath,
-				Topic:            target.TopicInfo.Slug,
-				SourceKind:       models.SourceKindYouTubeTranscript,
-				SourceURL:        sourceURL,
-				Title:            extractResult.Metadata.Title,
-				Markdown:         extractResult.Markdown,
-				ExtraFrontmatter: youtubeFrontmatter(extractResult),
-				Batch:            resolveIngestBatch("youtube", batch),
-			})
-			if err != nil {
-				return fmt.Errorf("ingest youtube: %w", err)
+			if err := writeJSON(cmd, result); err != nil {
+				return err
 			}
-
-			return writeJSON(cmd, result)
+			return finishIngestRun(cmd, runner)
 		},
 	}
 
@@ -104,8 +122,18 @@ func newIngestYouTubeCommand() *cobra.Command {
 	command.Flags().StringVar(&subLangs, "sub-langs", "", "Caption languages to request, comma-separated; use orig for the video's original language")
 	command.Flags().StringVar(&lang, "lang", "", "Alias for --sub-langs")
 	addBatchFlag(command, &batch)
+	bindIngestFlags(command, &flags, false)
 
 	return command
+}
+
+// youtubePlatformID is the dedupe identity of a video: its id from the
+// metadata, else the one in the requested URL.
+func youtubePlatformID(videoID, requested string) string {
+	if id := strings.TrimSpace(videoID); id != "" {
+		return "youtube:" + id
+	}
+	return gate.PlatformID(requested)
 }
 
 func resolveYouTubeCaptionLanguages(

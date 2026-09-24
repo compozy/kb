@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	kconfig "github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/instagram"
 	"github.com/compozy/kb/internal/mediadl"
@@ -26,6 +27,7 @@ func newIngestInstagramCommand() *cobra.Command {
 	var topic string
 	var transcribe string
 	var batch string
+	var flags ingestFlags
 
 	command := &cobra.Command{
 		Use:   "instagram <url>",
@@ -50,43 +52,64 @@ func newIngestInstagramCommand() *cobra.Command {
 				return fmt.Errorf("ingest instagram: %w", err)
 			}
 
-			extractResult, err := newInstagramTranscriptExtractor(cfg).Extract(
-				commandContext(cmd),
-				args[0],
-				mediadl.ExtractOptions{
-					TranscriptionPolicy: policy,
-				},
-			)
+			runBatch := resolveIngestBatch("instagram", batch)
+			runner, err := openIngestRunner(cmd, "instagram", target.TopicInfo.Slug, flags, runBatch, "")
+			if err != nil {
+				return err
+			}
+			ctx := commandContext(cmd)
+			result, skipped, err := runner.Precheck(args[0], "", models.SourceKindInstagramVideo)
 			if err != nil {
 				return fmt.Errorf("ingest instagram: %w", err)
 			}
+			if !skipped {
+				extractResult, err := newInstagramTranscriptExtractor(cfg).Extract(
+					ctx,
+					args[0],
+					mediadl.ExtractOptions{
+						TranscriptionPolicy: policy,
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("ingest instagram: %w", err)
+				}
 
-			sourceURL := strings.TrimSpace(extractResult.Metadata.URL)
-			if sourceURL == "" {
-				sourceURL = args[0]
+				sourceURL := strings.TrimSpace(extractResult.Metadata.URL)
+				if sourceURL == "" {
+					sourceURL = args[0]
+				}
+				platformID := gate.PlatformID(args[0])
+				if code := strings.TrimSpace(extractResult.Metadata.VideoID); code != "" {
+					platformID = "instagram:" + code
+				}
+
+				result, err = runner.Ingest(ctx, kingest.Options{
+					VaultPath:        target.VaultPath,
+					Topic:            target.TopicInfo.Slug,
+					SourceKind:       models.SourceKindInstagramVideo,
+					SourceURL:        sourceURL,
+					Title:            extractResult.Metadata.Title,
+					Markdown:         extractResult.Markdown,
+					ExtraFrontmatter: instagramFrontmatter(extractResult),
+					Batch:            runBatch,
+					Gate:             kingest.GateOptions{PlatformID: platformID},
+				})
+				if err != nil {
+					return fmt.Errorf("ingest instagram: %w", err)
+				}
 			}
 
-			result, err := runIngest(commandContext(cmd), kingest.Options{
-				VaultPath:        target.VaultPath,
-				Topic:            target.TopicInfo.Slug,
-				SourceKind:       models.SourceKindInstagramVideo,
-				SourceURL:        sourceURL,
-				Title:            extractResult.Metadata.Title,
-				Markdown:         extractResult.Markdown,
-				ExtraFrontmatter: instagramFrontmatter(extractResult),
-				Batch:            resolveIngestBatch("instagram", batch),
-			})
-			if err != nil {
-				return fmt.Errorf("ingest instagram: %w", err)
+			if err := writeJSON(cmd, result); err != nil {
+				return err
 			}
-
-			return writeJSON(cmd, result)
+			return finishIngestRun(cmd, runner)
 		},
 	}
 
 	requireTopicFlag(command, &topic)
 	command.Flags().StringVar(&transcribe, "transcribe", "", "Transcription policy: captions, auto, or stt")
 	addBatchFlag(command, &batch)
+	bindIngestFlags(command, &flags, false)
 
 	return command
 }

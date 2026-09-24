@@ -19,6 +19,7 @@ import (
 // deterministic and never touches the network. The caption policy keeps STT out
 // of the path.
 func TestIngestInstagramCommandEndToEndWithFakeYTDLP(t *testing.T) {
+	useFakeDecisionModel(t) // ingest requires the decision model (spec §2)
 	vault := t.TempDir()
 	scriptPath := writeFakeInstagramYTDLP(t)
 

@@ -20,6 +20,7 @@ import (
 	"github.com/compozy/kb/internal/decisions"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/session"
 	"github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/vault"
 )
@@ -72,13 +73,32 @@ type Options struct {
 	// Query is what produced the item (search query, channel URL, bookmark
 	// label or file name) and is written as ingest_query. Empty omits the key.
 	Query string
+	// Session, when set, runs the decision-backed path for this one source:
+	// gates (spec §7), owned-key writes, quarantine, then classify and link,
+	// with one log.md run entry. Without it Ingest writes the source as
+	// before (codebase ingest never uses a session).
+	Session *session.Session
+	// Gate carries the per-source gate inputs of the decision-backed path.
+	Gate GateOptions
 }
 
 // Ingest validates the target topic, optionally converts the source, writes the
-// raw markdown document, and appends a log entry.
+// raw markdown document, and appends a log entry. With options.Session it
+// runs the source through a one-item Run instead (gates, classify, link).
 func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if options.Session != nil {
+		run := NewRun(options.Session, RunOptions{Batch: options.Batch, Query: options.Query, Force: options.Gate.Force})
+		result, err := run.Ingest(ctx, options)
+		if err != nil {
+			return models.IngestResult{}, err
+		}
+		if _, err := run.Finish(ctx); err != nil {
+			return result.IngestResult, err
+		}
+		return result.IngestResult, nil
 	}
 
 	topicInfo, err := topic.Resolve(options.VaultPath, options.Topic)

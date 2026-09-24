@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	kconfig "github.com/compozy/kb/internal/config"
+	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
 	ktopic "github.com/compozy/kb/internal/topic"
@@ -37,6 +38,12 @@ type channelVideoSummary struct {
 	URL      string `json:"url"`
 	FilePath string `json:"file_path,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// Triage and Reason report the gate outcome (kept, review,
+	// quarantined; skipped / duplicate-skipped for items not fetched).
+	Triage string `json:"triage,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// SkippedID is the skipped.jsonl id of an item skipped before fetch.
+	SkippedID string `json:"skipped_id,omitempty"`
 }
 
 type channelIngestSummary struct {
@@ -66,6 +73,7 @@ type ingestChannelCommandOptions struct {
 	subLangs    string
 	lang        string
 	batch       string
+	flags       ingestFlags
 }
 
 // channelProvenance is the ingest_batch/ingest_query pair shared by every
@@ -88,13 +96,14 @@ func newIngestChannelCommand() *cobra.Command {
 	var subLangs string
 	var lang string
 	var batch string
+	var flags ingestFlags
 
 	command := &cobra.Command{
 		Use:   "channel <url>",
 		Short: "Bulk-extract YouTube channel or playlist transcripts into a topic",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runIngestChannelCommand(cmd, args[0], ingestChannelCommandOptions{
+			options := ingestChannelCommandOptions{
 				topicSlug:   topicSlug,
 				transcribe:  transcribe,
 				limit:       limit,
@@ -106,7 +115,15 @@ func newIngestChannelCommand() *cobra.Command {
 				subLangs:    subLangs,
 				lang:        lang,
 				batch:       batch,
-			})
+				flags:       flags,
+			}
+			if strings.TrimSpace(flags.Rescue) != "" {
+				return runIngestChannelRescue(cmd, options)
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("ingest channel: requires a channel or playlist URL (or --rescue <id>)")
+			}
+			return runIngestChannelCommand(cmd, args[0], options)
 		},
 	}
 
@@ -121,6 +138,7 @@ func newIngestChannelCommand() *cobra.Command {
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and list videos without ingesting")
 	command.Flags().BoolVar(&createTopic, "create-topic", true, "Create the target topic when it does not exist")
 	addBatchFlag(command, &batch)
+	bindIngestFlags(command, &flags, true)
 
 	return command
 }
@@ -201,31 +219,127 @@ func runIngestChannelCommand(cmd *cobra.Command, channelURL string, options inge
 	}
 	summary.Topic = target.TopicInfo.Slug
 
-	existing, err := existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
+	provenance := channelProvenance{
+		batch: resolveIngestBatch("channel", options.batch),
+		query: strings.TrimSpace(channelURL),
+	}
+	runner, err := openIngestRunner(cmd, "channel", target.TopicInfo.Slug, options.flags, provenance.batch, provenance.query)
+	if err != nil {
+		return err
+	}
+
+	existing := map[string]struct{}{}
+	if !options.flags.Force {
+		existing, err = existingYouTubeVideoIDs(target.VaultPath, target.TopicInfo.Slug)
+		if err != nil {
+			return fmt.Errorf("%s: %w", action, err)
+		}
+	}
+	candidates := newChannelVideosToFetch(listing.Videos, existing, &summary)
+	decisions, err := prefetchChannelVideos(ctx, runner, listing, candidates, &summary)
 	if err != nil {
 		return fmt.Errorf("%s: %w", action, err)
 	}
-	toFetch := newChannelVideosToFetch(listing.Videos, existing, &summary)
+	toFetch := make([]youtube.ChannelVideo, 0, len(decisions))
+	for _, video := range candidates {
+		if decision, ok := decisions[video.VideoID]; ok && decision.Action != gate.ActionSkip {
+			toFetch = append(toFetch, video)
+		}
+	}
 
 	bulkOptions, err := resolveChannelBulkOptions(cmd, cfg.YouTube, policy, captionLanguages, options.concurrency, options.throttle)
 	if err != nil {
 		return fmt.Errorf("%s: %w", action, err)
 	}
 
-	provenance := channelProvenance{
-		batch: resolveIngestBatch("channel", options.batch),
-		query: strings.TrimSpace(channelURL),
-	}
+	var fatal error
 	bulkErr := extractor.BulkExtract(ctx, toFetch, bulkOptions, func(outcome youtube.VideoOutcome) {
-		recordChannelOutcome(ctx, target, provenance, outcome, &summary)
+		if fatal != nil {
+			return
+		}
+		decision := decisions[outcome.Video.VideoID]
+		fatal = recordChannelOutcome(ctx, runner, target, provenance, outcome, &decision, &summary)
 	})
 	if writeErr := writeJSON(cmd, summary); writeErr != nil {
 		return writeErr
 	}
-	if bulkErr != nil {
-		return fmt.Errorf("%s: %w", action, bulkErr)
+	finishErr := finishIngestRun(cmd, runner)
+	if fatal != nil {
+		return errors.Join(fmt.Errorf("%s: %w", action, fatal), finishErr)
 	}
-	return nil
+	if bulkErr != nil {
+		return errors.Join(fmt.Errorf("%s: %w", action, bulkErr), finishErr)
+	}
+	return finishErr
+}
+
+// prefetchChannelVideos runs stage 1 (by video id, quarantined videos
+// included) and stage 2 (title + channel against the contract) over the
+// candidate videos. Flat channel listings carry no description or date, so
+// the pre-fetch state holds the title, channel and provenance only.
+func prefetchChannelVideos(
+	ctx context.Context,
+	runner ingestRunner,
+	listing youtube.ChannelListing,
+	candidates []youtube.ChannelVideo,
+	summary *channelIngestSummary,
+) (map[string]gate.PrefetchDecision, error) {
+	channel := firstNonBlank(listing.Channel, listing.Uploader, listing.Title)
+	items := make([]gate.Item, 0, len(candidates))
+	videos := make([]youtube.ChannelVideo, 0, len(candidates))
+	for _, video := range candidates {
+		result, skipped, err := runner.Precheck(video.URL, video.Title, models.SourceKindYouTubeTranscript)
+		if err != nil {
+			return nil, err
+		}
+		if skipped {
+			entry := summarizeVideo(video)
+			entry.Triage, entry.Reason = result.Triage, result.TriageReason
+			summary.Skipped = append(summary.Skipped, entry)
+			continue
+		}
+		videos = append(videos, video)
+		items = append(items, gate.Item{
+			URL: video.URL, Title: video.Title, Channel: channel,
+			Path:       kingest.WouldBePath(models.SourceKindYouTubeTranscript, video.Title),
+			SourceKind: string(models.SourceKindYouTubeTranscript),
+		})
+	}
+	decided, err := runner.Prefetch(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	byVideo := make(map[string]gate.PrefetchDecision, len(decided))
+	for index, decision := range decided {
+		video := videos[index]
+		byVideo[video.VideoID] = decision
+		if decision.Action == gate.ActionSkip {
+			entry := summarizeVideo(video)
+			entry.Triage, entry.Reason, entry.SkippedID = gate.TriageSkipped, gate.ReasonOffTopic, decision.Item.ID
+			summary.Skipped = append(summary.Skipped, entry)
+		}
+	}
+	return byVideo, nil
+}
+
+// runIngestChannelRescue is `kb ingest channel --rescue <id> --topic <t>`:
+// it fetches and ingests one video skipped before fetch.
+func runIngestChannelRescue(cmd *cobra.Command, options ingestChannelCommandOptions) error {
+	const action = "ingest channel"
+	target, err := resolveIngestTarget(cmd, action, options.topicSlug)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadIngestConfig()
+	if err != nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	runner, err := openIngestRunner(cmd, "channel", target.TopicInfo.Slug, options.flags, resolveIngestBatch("channel", options.batch), "")
+	if err != nil {
+		return err
+	}
+	fetchers := rescueFetchers{cfg: cfg, scraper: newFirecrawlScraper(firecrawlConfig(cfg.Firecrawl))}
+	return runIngestRescue(cmd, runner, target, fetchers, options.flags.Rescue)
 }
 
 func resolveChannelIngestTarget(
@@ -283,27 +397,37 @@ func newChannelVideosToFetch(
 	return toFetch
 }
 
+// recordChannelOutcome ingests one extracted video; it returns only fatal
+// errors (auth, cancellation, I/O), extraction failures are summarized.
 func recordChannelOutcome(
 	ctx context.Context,
+	runner ingestRunner,
 	target ingestTarget,
 	provenance channelProvenance,
 	outcome youtube.VideoOutcome,
+	decision *gate.PrefetchDecision,
 	summary *channelIngestSummary,
-) {
+) error {
 	entry := summarizeVideo(outcome.Video)
 	if outcome.Err != nil {
 		entry.Error = outcome.Err.Error()
 		summary.Failures = append(summary.Failures, entry)
-		return
+		return nil
 	}
-	result, err := ingestChannelVideo(ctx, target, provenance, outcome)
+	result, err := ingestChannelVideo(ctx, runner, target, provenance, outcome, decision)
 	if err != nil {
 		entry.Error = err.Error()
 		summary.Failures = append(summary.Failures, entry)
-		return
+		return err
 	}
 	entry.FilePath = result.FilePath
+	entry.Triage, entry.Reason = result.Triage, result.TriageReason
+	if result.Triage == gate.TriageDuplicateSkipped {
+		summary.Skipped = append(summary.Skipped, entry)
+		return nil
+	}
 	summary.Ingested = append(summary.Ingested, entry)
+	return nil
 }
 
 func newChannelIngestSummary(
@@ -376,10 +500,12 @@ func resolveChannelBulkOptions(
 
 func ingestChannelVideo(
 	ctx context.Context,
+	runner ingestRunner,
 	target ingestTarget,
 	provenance channelProvenance,
 	outcome youtube.VideoOutcome,
-) (models.IngestResult, error) {
+	decision *gate.PrefetchDecision,
+) (kingest.Result, error) {
 	result := outcome.Result
 	sourceURL := strings.TrimSpace(result.Metadata.URL)
 	if sourceURL == "" {
@@ -389,7 +515,7 @@ func ingestChannelVideo(
 	if title == "" {
 		title = outcome.Video.Title
 	}
-	return runIngest(ctx, kingest.Options{
+	options := kingest.Options{
 		VaultPath:        target.VaultPath,
 		Topic:            target.TopicInfo.Slug,
 		SourceKind:       models.SourceKindYouTubeTranscript,
@@ -399,7 +525,12 @@ func ingestChannelVideo(
 		ExtraFrontmatter: youtubeFrontmatter(result),
 		Batch:            provenance.batch,
 		Query:            provenance.query,
-	})
+		Gate:             kingest.GateOptions{PlatformID: "youtube:" + outcome.Video.VideoID},
+	}
+	if decision != nil && decision.Action != "" {
+		options.Gate.Prefetch = decision
+	}
+	return runner.Ingest(ctx, options)
 }
 
 func summarizeVideo(video youtube.ChannelVideo) channelVideoSummary {

@@ -17,7 +17,6 @@ import (
 	ktopic "github.com/compozy/kb/internal/topic"
 )
 
-var runIngest = kingest.Ingest
 var runIngestTopicInfo = ktopic.Info
 var runIngestTopicNew = ktopic.New
 var ingestGetwd = os.Getwd

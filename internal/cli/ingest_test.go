@@ -14,11 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	kconfig "github.com/compozy/kb/internal/config"
 	"github.com/compozy/kb/internal/firecrawl"
+	"github.com/compozy/kb/internal/gate"
 	kgenerate "github.com/compozy/kb/internal/generate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/session"
 	ktopic "github.com/compozy/kb/internal/topic"
 	"github.com/compozy/kb/internal/youtube"
 )
@@ -91,12 +95,13 @@ func TestIngestCommandsRequirePositionalArg(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		args []string
+		want string
 	}{
-		{name: "url", args: []string{"ingest", "url", "--topic", "systems-design"}},
-		{name: "file", args: []string{"ingest", "file", "--topic", "systems-design"}},
-		{name: "youtube", args: []string{"ingest", "youtube", "--topic", "systems-design"}},
-		{name: "codebase", args: []string{"ingest", "codebase", "--topic", "systems-design"}},
-		{name: "bookmarks", args: []string{"ingest", "bookmarks", "--topic", "systems-design"}},
+		{name: "url", args: []string{"ingest", "url", "--topic", "systems-design"}, want: "requires at least one URL, --from <file> or --rescue <id>"},
+		{name: "file", args: []string{"ingest", "file", "--topic", "systems-design"}, want: "accepts 1 arg(s)"},
+		{name: "youtube", args: []string{"ingest", "youtube", "--topic", "systems-design"}, want: "accepts 1 arg(s)"},
+		{name: "codebase", args: []string{"ingest", "codebase", "--topic", "systems-design"}, want: "accepts 1 arg(s)"},
+		{name: "bookmarks", args: []string{"ingest", "bookmarks", "--topic", "systems-design"}, want: "accepts 1 arg(s)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			command := newRootCommand()
@@ -108,7 +113,7 @@ func TestIngestCommandsRequirePositionalArg(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected missing positional argument error")
 			}
-			if !strings.Contains(err.Error(), "accepts 1 arg(s)") {
+			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
@@ -967,6 +972,7 @@ func restoreIngestGlobals(t *testing.T) {
 	t.Helper()
 
 	originalRunIngest := runIngest
+	originalOpenIngestRunner := openIngestRunner
 	originalRunIngestTopicInfo := runIngestTopicInfo
 	originalRunIngestTopicNew := runIngestTopicNew
 	originalIngestGetwd := ingestGetwd
@@ -981,9 +987,14 @@ func restoreIngestGlobals(t *testing.T) {
 	originalIngestNow := ingestNow
 
 	ingestNow = func() time.Time { return fixedIngestNow }
+	runIngest = kingest.Ingest
+	openIngestRunner = func(*cobra.Command, string, string, ingestFlags, string, string) (ingestRunner, error) {
+		return fakeIngestRunner{}, nil
+	}
 
 	t.Cleanup(func() {
 		runIngest = originalRunIngest
+		openIngestRunner = originalOpenIngestRunner
 		runIngestTopicInfo = originalRunIngestTopicInfo
 		runIngestTopicNew = originalRunIngestTopicNew
 		ingestGetwd = originalIngestGetwd
@@ -1018,6 +1029,46 @@ func assertIngestProvenance(t *testing.T, options kingest.Options, command, want
 	}
 }
 
+// runIngest is the per-source ingest stub the fake runner forwards to; unit
+// tests set it to capture the options the commands build.
+var runIngest func(ctx context.Context, options kingest.Options) (models.IngestResult, error)
+
+// fakeIngestRunner stands in for the decision-backed run in unit tests: no
+// gate skips anything, every source is forwarded to runIngest.
+type fakeIngestRunner struct{}
+
+func (fakeIngestRunner) Session() *session.Session { return nil }
+
+func (fakeIngestRunner) Precheck(string, string, models.SourceKind) (kingest.Result, bool, error) {
+	return kingest.Result{}, false, nil
+}
+
+func (fakeIngestRunner) Prefetch(_ context.Context, items []gate.Item) ([]gate.PrefetchDecision, error) {
+	decisions := make([]gate.PrefetchDecision, len(items))
+	for index, item := range items {
+		decisions[index] = gate.PrefetchDecision{Item: item, Action: gate.ActionFetch}
+	}
+	return decisions, nil
+}
+
+func (fakeIngestRunner) Ingest(ctx context.Context, options kingest.Options) (kingest.Result, error) {
+	if runIngest == nil {
+		return kingest.Result{}, errors.New("unexpected ingest call")
+	}
+	result, err := runIngest(ctx, options)
+	return kingest.Result{IngestResult: result}, err
+}
+
+func (fakeIngestRunner) Skipped(id string) (gate.SkippedRow, error) {
+	return gate.SkippedRow{}, fmt.Errorf("unexpected skipped lookup %q", id)
+}
+
+func (fakeIngestRunner) MarkRescued(gate.SkippedRow) error { return nil }
+
+func (fakeIngestRunner) Finish(context.Context) (kingest.Summary, error) {
+	return kingest.Summary{}, nil
+}
+
 type fakeFirecrawlScraper struct {
 	scrape func(ctx context.Context, sourceURL string) (*firecrawl.ScrapeResult, error)
 }
@@ -1027,6 +1078,10 @@ func (scraper fakeFirecrawlScraper) Scrape(ctx context.Context, sourceURL string
 		return nil, errors.New("unexpected scrape call")
 	}
 	return scraper.scrape(ctx, sourceURL)
+}
+
+func (scraper fakeFirecrawlScraper) ScrapeWithOptions(ctx context.Context, sourceURL string, _ firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error) {
+	return scraper.Scrape(ctx, sourceURL)
 }
 
 type fakeYouTubeExtractor struct {

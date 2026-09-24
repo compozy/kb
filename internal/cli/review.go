@@ -56,8 +56,7 @@ func newReviewCommand() *cobra.Command {
 	command.AddCommand(newReviewImportLinksCommand())
 	command.AddCommand(newReviewImportLabelsCommand())
 	command.AddCommand(newReviewCalibrateCommand())
-	// Decision-backed actions (accept, reject) register here with one
-	// AddCommand line each.
+	command.AddCommand(newReviewVerdictCommand(actionsAccept), newReviewVerdictCommand(actionsReject))
 
 	return command
 }
