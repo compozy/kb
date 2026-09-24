@@ -2,8 +2,10 @@ package review
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/compozy/kb/internal/decisions"
@@ -105,5 +107,51 @@ func TestStoreAppendRepairsTornTail(t *testing.T) {
 			}
 			tc.check(t, root)
 		})
+	}
+}
+
+// Separate stores (separate file descriptors, like separate kb processes)
+// appending to the same logs at once must never lose an acknowledged row.
+func TestStoreConcurrentIndependentAppendsKeepEveryRow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	const writers, perWriter = 16, 25
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for w := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			store := Open(root, fixedClock)
+			for n := range perWriter {
+				subject := fmt.Sprintf("raw/w%02d-%02d.md", w, n)
+				if _, err := store.Add(Item{Queue: QueueGate, Purpose: "relevance", Subject: subject}); err != nil {
+					errs <- err
+					return
+				}
+				if err := store.AddLabel(Label{Subject: subject, Purpose: "relevance", Verdict: VerdictPositive}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	items, err := Open(root, fixedClock).Items("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels, err := LoadLabels(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != writers*perWriter || len(labels) != writers*perWriter {
+		t.Fatalf("after reopen: %d items and %d labels, want %d each", len(items), len(labels), writers*perWriter)
 	}
 }

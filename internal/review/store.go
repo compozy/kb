@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -322,21 +321,29 @@ func appendJSONL(path string, value any) error {
 	if err != nil {
 		return fmt.Errorf("review: encode row: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	// O_APPEND makes each write land at the end of the file atomically, so
+	// separate stores and separate kb processes appending to the same log
+	// never overwrite each other's rows.
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("review: open %s: %w", path, err)
 	}
-	prefix, err := repairTail(file)
+	row := make([]byte, 0, len(line)+2)
+	torn, err := endsMidRow(file)
 	if err != nil {
 		_ = file.Close()
-		return fmt.Errorf("review: repair %s: %w", path, err)
+		return fmt.Errorf("review: read %s: %w", path, err)
 	}
-	row := make([]byte, 0, len(prefix)+len(line)+1)
-	row = append(append(append(row, prefix...), line...), '\n')
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("review: append %s: %w", path, err)
+	if torn {
+		// A crash left the last row without its newline. Start the new row
+		// on its own line instead of gluing it to those bytes (which would
+		// discard it on reload); a torn fragment then stays an ignored
+		// line, and a complete row that only lacked the newline is kept.
+		// Nothing is truncated, so a concurrent writer never loses a row;
+		// at worst a race adds a blank line, which readers skip.
+		row = append(row, '\n')
 	}
+	row = append(append(row, line...), '\n')
 	if _, err := file.Write(row); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("review: append %s: %w", path, err)
@@ -348,61 +355,18 @@ func appendJSONL(path string, value any) error {
 	return file.Close()
 }
 
-// repairTail makes the file end on a row boundary before an append, the way
-// the corpus state store recovers from a crash mid-append: a final row
-// without its newline is kept (the returned prefix supplies the separator)
-// when it is a complete JSON value, and truncated away when it is torn, so
-// the next row is never glued to — and discarded with — the torn bytes.
-func repairTail(file *os.File) ([]byte, error) {
+// endsMidRow reports whether a non-empty file does not end with a newline.
+func endsMidRow(file *os.File) (bool, error) {
 	info, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	size := info.Size()
-	if size == 0 {
-		return nil, nil
+	if info.Size() == 0 {
+		return false, nil
 	}
 	last := make([]byte, 1)
-	if _, err := file.ReadAt(last, size-1); err != nil {
-		return nil, err
+	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		return false, err
 	}
-	if last[0] == '\n' {
-		return nil, nil
-	}
-	start, err := lastLineStart(file, size)
-	if err != nil {
-		return nil, err
-	}
-	tail := make([]byte, size-start)
-	if _, err := file.ReadAt(tail, start); err != nil {
-		return nil, err
-	}
-	trimmed := bytes.TrimSpace(tail)
-	if len(trimmed) == 0 || json.Valid(trimmed) {
-		return []byte{'\n'}, nil
-	}
-	if err := file.Truncate(start); err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
-// lastLineStart returns the offset just past the last newline before size
-// (0 when the file has none), scanning backwards in chunks.
-func lastLineStart(file *os.File, size int64) (int64, error) {
-	const chunk = 64 * 1024
-	buf := make([]byte, chunk)
-	end := size
-	for end > 0 {
-		begin := max(end-chunk, 0)
-		part := buf[:end-begin]
-		if _, err := file.ReadAt(part, begin); err != nil {
-			return 0, err
-		}
-		if i := bytes.LastIndexByte(part, '\n'); i >= 0 {
-			return begin + int64(i) + 1, nil
-		}
-		end = begin
-	}
-	return 0, nil
+	return last[0] != '\n', nil
 }
