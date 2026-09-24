@@ -587,7 +587,10 @@ func (a *applier) link(result *Result) error {
 // left alone.
 func (a *applier) demote(doc *corpus.Document, relation, target string, entries []string, result *Result) error {
 	s := a.s
-	row, ok := s.State.Get(doc.Path)
+	row, ok := s.State.Lookup(doc.Path, doc.BodyHash, func(rel string) bool {
+		_, err := os.Stat(filepath.Join(s.Root(), filepath.FromSlash(rel)))
+		return err == nil
+	})
 	if !ok || row.Written[relation] == "" || row.Written[relation] != corpus.ValueHash(doc.Frontmatter[relation]) {
 		result.Message = fmt.Sprintf("%s on %s was edited by the user; left unchanged", relation, doc.Path)
 		return nil

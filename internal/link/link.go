@@ -647,7 +647,15 @@ func (r *runner) request(plan Plan) (decisions.Request, error) {
 	if len(mentions) > 0 {
 		state["mentions"] = mentions
 	}
-	return r.s.Request(decisions.PurposeLink, doc.Path, r.bank, state, qs), nil
+	candidateIDs := make([]string, 0, len(plan.Candidates))
+	for _, candidate := range plan.Candidates {
+		candidateIDs = append(candidateIDs, candidate.ID)
+	}
+	bank, qs, err := r.s.WithExtras(decisions.PurposeLink, r.bank, qs, candidateIDs...)
+	if err != nil {
+		return decisions.Request{}, fmt.Errorf("link: %w", err)
+	}
+	return r.s.Request(decisions.PurposeLink, doc.Path, bank, state, qs), nil
 }
 
 // insertedLink is one row of .decisions/inserted-links.jsonl.

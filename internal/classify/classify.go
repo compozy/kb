@@ -629,7 +629,15 @@ func (r *run) askFacets(ctx context.Context, doc *corpus.Document) (askedFacets,
 	}
 	state["document"] = corpus.DocumentState(doc, ExcerptTokens, terms)
 
-	result, err := r.s.Engine.Decide(ctx, r.s.Request(decisions.PurposeClassify, doc.Path, facetBank, state, qs))
+	candidateIDs := make([]string, 0, len(asked.candidates))
+	for _, candidate := range asked.candidates {
+		candidateIDs = append(candidateIDs, candidate.id)
+	}
+	bank, qs, err := r.s.WithExtras(decisions.PurposeClassify, facetBank, qs, candidateIDs...)
+	if err != nil {
+		return asked, fmt.Errorf("classify: facets for %s: %w", doc.Path, err)
+	}
+	result, err := r.s.Engine.Decide(ctx, r.s.Request(decisions.PurposeClassify, doc.Path, bank, state, qs))
 	if err != nil {
 		return asked, fmt.Errorf("classify: facets for %s: %w", doc.Path, err)
 	}

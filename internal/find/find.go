@@ -415,6 +415,14 @@ func judgeBatch(ctx context.Context, s *session.Session, bank *questions.Bank, q
 	qs = append(qs, kindQ)
 	state["candidates"] = entries
 
+	ids := make([]string, 0, len(batch))
+	for index := range batch {
+		ids = append(ids, "d"+strconv.Itoa(index+1))
+	}
+	bank, qs, err = s.WithExtras(decisions.PurposeFind, bank, qs, ids...)
+	if err != nil {
+		return batchResult{}, fmt.Errorf("find: %w", err)
+	}
 	subject := "find:" + question
 	res, err := s.Engine.Decide(ctx, s.Request(decisions.PurposeFind, subject, bank, state, qs))
 	if err != nil {

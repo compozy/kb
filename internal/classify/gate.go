@@ -229,7 +229,19 @@ func JudgeGate(ctx context.Context, s *session.Session, doc *corpus.Document, op
 		qs = append(qs, gateBank.MustQuestion(noul.id, nil))
 	}
 
-	request := decisions.Request{Topic: ref, Purpose: purpose, Subject: doc.Path, Bank: gateBank, State: state, Questions: qs}
+	// Topic extra questions (spec §4.3) ride along; their answers are only
+	// recorded in receipts.
+	bank := gateBank
+	var err error
+	if askRole {
+		if bank, qs, err = s.WithExtras(decisions.PurposeRelevance, bank, qs); err != nil {
+			return judgment, fmt.Errorf("classify: gate judgment for %s: %w", doc.Path, err)
+		}
+	}
+	if bank, qs, err = s.WithExtras(decisions.PurposeQuality, bank, qs); err != nil {
+		return judgment, fmt.Errorf("classify: gate judgment for %s: %w", doc.Path, err)
+	}
+	request := decisions.Request{Topic: ref, Purpose: purpose, Subject: doc.Path, Bank: bank, State: state, Questions: qs}
 	result, err := s.Engine.Decide(ctx, request)
 	if err != nil {
 		return judgment, fmt.Errorf("classify: gate judgment for %s: %w", doc.Path, err)
