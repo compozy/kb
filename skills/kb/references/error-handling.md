@@ -15,6 +15,24 @@ These occur when `inspect`, `search`, or `index` cannot locate a vault or topic.
 | `topic name is required when topic is specified` | The `--topic` flag was provided but with an empty or whitespace-only value | Provide a non-empty topic id |
 | `topic "<topic>" is missing CLAUDE.md` | The topic directory is missing the marker/schema file | Create or restore `CLAUDE.md`, or choose a topic listed by `kb topic list` |
 
+## Decision Model Errors
+
+These occur in commands that use the decision or generation model (`ingest` except `codebase`, `classify`, `link`, `find`, `review accept|reject`, `topic contract --draft|--accept`, `topic vocabulary`, `promote` with `[okf].types`, `okf check --decide`).
+
+| Error Message / Status | Cause | Recovery |
+|------------------------|-------|----------|
+| `<command>: ... OPENROUTER_API_KEY is not set ...` | The decision model is required and not configured | Set `OPENROUTER_API_KEY` or `[openrouter].api_key` |
+| `--decisions must be shadow or apply` | Invalid mode override | Pass `--decisions shadow` or `--decisions apply` |
+| HTTP 401 / 402 / 403 from OpenRouter | Bad key, no credit, or no access to the model | Fix the key or account; these stop the run instead of retrying |
+| `undecided:budget` in the run summary | The run reached `--budget` / `[decisions].budget_usd` | Re-run; cached answers are reused and the run continues |
+| `undecided:timeout`, `undecided:retries`, `undecided:invalid_receipt` | Transport or receipt failure after retries | Re-run later; the document keeps its previous state and is never treated as a "no" |
+| `not_checked:state_too_large` | The document state exceeds `[decisions].max_state_bytes` | Nothing to do per run; the document is listed and skipped |
+| `skipped:user-key` / `key-conflict` | A kb-owned key holds a value kb did not write | Keep it (kb leaves it) or delete it to let kb write it |
+| `skipped:changed` | The file changed while kb was writing | Re-run |
+| `skipped:locked` | The file has `locked: true` | Remove `locked` to let kb write it |
+| `topic contract: pass exactly one of --draft, --import-claude or --accept` | Zero or several actions | Run one action per call |
+| Self-check conflicts on `--accept` | A kept line is excluded by an `out_of_scope` line | Qualify the `out_of_scope` line (`selection-contract.md`); `--force` only for a false alarm |
+
 ## Inspect Lookup Errors
 
 These occur when `inspect symbol`, `inspect file`, `inspect backlinks`, or `inspect deps` cannot resolve the target entity.

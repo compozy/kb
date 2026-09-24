@@ -15,7 +15,7 @@ This topic is an OKF bundle, not an LLM-wiki research lab. Concepts live as type
 
 ## Operations
 
-- Promote a wiki concept into this bundle with `kb promote <wiki-doc> --to TOPIC_SLUG --type <Type>`.
+- Promote a wiki concept into this bundle with `kb promote <wiki-doc> --to TOPIC_SLUG --type <Type>`. With an `[okf].types` vocabulary, omit `--type` to let the decision model suggest one.
 - Check conformance with `kb okf check TOPIC_SLUG`.
 
 ## Catalog gaps

@@ -16,7 +16,10 @@
 #
 # Primary CLI surface is configured through commands and flags:
 # - `kb topic {new,list,info}`
+# - `kb topic contract` / `kb topic vocabulary`
 # - `kb ingest {url,file,youtube,channel,instagram,codebase,bookmarks}`
+# - `kb classify`, `kb link`, `kb find`, `kb review`
+# - `kb promote`, `kb okf check`
 # - `kb lint`
 # - `kb inspect ...`
 # - `kb index`
@@ -85,8 +88,11 @@ stt_model = "google/gemini-2.5-flash"
 
 [decisions]
 # Decision model (Jev) over OpenRouter Decisions: POST <api_url>/alpha/decisions.
-# Required by ingest, classify, link, find, promote and review; needs
-# OPENROUTER_API_KEY. KB_DECISIONS_MODEL overrides the model.
+# Required by ingest (except codebase), classify, link, find, review
+# accept/reject, topic contract --draft/--accept, topic vocabulary, promote (with
+# [okf].types) and okf check --decide; needs OPENROUTER_API_KEY.
+# KB_DECISIONS_MODEL overrides the model. topic.yaml `decisions:` overrides mode
+# and thresholds per topic (plus gates, relevance and exclude).
 model = "typesafe/jev-1.13"
 # Total deadline of one attempt, including the body read.
 deadline = "20s"
@@ -99,7 +105,10 @@ concurrency = 8
 max_state_bytes = 98304
 # Per-run spend ceiling in US$, shared with [generation]; `--budget` overrides.
 budget_usd = 1.0
-# Default decision mode: "shadow" records would-be outcomes, "apply" writes.
+# Default body-link insertion mode: "shadow" records would-be outcomes, "apply"
+# writes. Relevance gates have their own rule: shadow until the topic has an
+# accepted contract and either a calibration (kb review calibrate --write) or
+# topic.yaml `decisions.gates: apply`. `--decisions` overrides both for a run.
 mode = "shadow"
 
 [decisions.thresholds]

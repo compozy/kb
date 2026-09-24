@@ -1,6 +1,6 @@
 ---
 name: kb
-description: "Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube videos and channels, Instagram reels, bookmarks, codebases), wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers the OKF (Open Knowledge Format) dual-mode lifecycle: per-topic `mode: wiki|okf`, scaffolding portable OKF bundles, promoting compiled wiki concepts into a typed catalog with `kb promote`, the four-producer-field + relative-link contract, a local concept-type vocabulary, and OKF v0.1 conformance checking with `kb okf check`. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, the ingest-compile-query-lint cycle, or the wiki→OKF distill loop (promote + conformance). Do not use for general code review, linting, formatting, building Go projects, or writing application code."
+description: "Comprehensive skill for the `kb` CLI and the Karpathy Knowledge Base pattern. Covers the full KB lifecycle — topic scaffolding, multi-source ingestion (URLs, files, YouTube videos and channels, Instagram reels, bookmarks, codebases) with decision-model ingest gates, selection contracts, classification facets (`kb classify`), automatic typed linking (`kb link`), question retrieval (`kb find`), review queues, labels and calibration (`kb review`), cleaning an existing topic, wiki article compilation, cross-article querying with file-back, lint-and-heal passes, QMD indexing, and hybrid search. Also covers the OKF (Open Knowledge Format) dual-mode lifecycle: per-topic `mode: wiki|okf`, scaffolding portable OKF bundles, promoting compiled wiki concepts into a typed catalog with `kb promote`, the four-producer-field + relative-link contract, a local concept-type vocabulary, and OKF v0.1 conformance checking with `kb okf check`. Also covers codebase-specific analysis via inspect commands for complexity, coupling, blast radius, dead code, circular dependencies, symbol/file lookups, backlinks, and code smells. Use when working with kb CLI commands, knowledge base workflows, code vault generation, code graph analysis, code metrics inspection, wiki compilation, the ingest-compile-query-lint cycle, or the wiki→OKF distill loop (promote + conformance). Do not use for general code review, linting, formatting, building Go projects, or writing application code."
 ---
 
 # kb CLI and Knowledge Base Pattern
@@ -16,7 +16,7 @@ Every topic has a lifecycle **`mode`** recorded in `topic.yaml` — **`wiki`** (
 
 Mode is opt-in per topic and invisible to existing users: absent/empty `mode` normalizes to `wiki`, so every existing topic behaves exactly as before.
 
-The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it tells the LLM the scope, conventions, current articles, and research gaps for that topic. `topic.yaml` is the structured source of truth for topic metadata (`slug`, `title`, `domain`). `AGENTS.md` may symlink to `CLAUDE.md` for Codex parity, but the valid-topic marker is `CLAUDE.md`.
+The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it tells the LLM the scope, conventions, current articles, and research gaps for that topic. `topic.yaml` is the structured source of truth for topic metadata (`slug`, `title`, `domain`) and for the topic's **selection contract**, which kb renders into the `## Selection contract` section of `CLAUDE.md` (edit it through `kb topic contract`, never in `CLAUDE.md`). `AGENTS.md` may symlink to `CLAUDE.md` for Codex parity, but the valid-topic marker is `CLAUDE.md`.
 
 ## Prerequisites
 
@@ -30,7 +30,8 @@ The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it t
    # If missing: npm install -g @tobilu/qmd
    ```
 3. Supported source languages for codebase analysis: TypeScript (`.ts`), TSX (`.tsx`), JavaScript (`.js`), JSX (`.jsx`), Go (`.go`).
-4. For repo-root vaults, configure `kb.toml` at the vault root:
+4. For every command that ingests, classifies, links, finds, reviews (accept/reject) or promotes, set `OPENROUTER_API_KEY`. kb uses a required **decision model** (Jev over OpenRouter) and refuses to start those commands without it. `kb lint`, `inspect`, `index`, `search`, `topic new|list|info`, `ingest codebase` and `review list|import-links|import-labels|calibrate` never call a model.
+5. For repo-root vaults, configure `kb.toml` at the vault root:
    ```toml
    [vault]
    root = "."
@@ -41,10 +42,12 @@ The topic's **`CLAUDE.md`** is the **schema document** and topic marker — it t
 
 Based on Andrej Karpathy's LLM Wiki pattern, the KB treats the LLM as a **compiler** that reads raw source documents and produces a structured, cross-linked markdown wiki. The four-phase loop:
 
-1. **Ingest** — Scrape/curate sources via `kb` CLI → `raw/` (immutable staging)
-2. **Compile** — LLM reads `raw/`, writes `wiki/concepts/` articles (3000-4000 words, dense wikilinks)
-3. **Query** — Q&A against wiki → file answers to `outputs/queries/`, promote strong answers to wiki
-4. **Lint** — Automated structural checks + LLM-driven semantic healing
+1. **Ingest** — Scrape/curate sources via `kb` CLI → `raw/` (gated against the selection contract, classified and linked by kb)
+2. **Compile** — LLM reads `raw/`, writes `wiki/concepts/` articles (3000-4000 words, dense wikilinks); `kb link` adds the backlinks
+3. **Query** — `kb find` locates the documents that answer a question → Q&A against wiki → file answers to `outputs/queries/`, promote strong answers to wiki
+4. **Lint** — Automated structural and decision-workflow checks (`kb lint`), `kb review` queues, and LLM-driven semantic healing
+
+**Division of labour.** kb's decision model only judges text (yes/no, choice, score) and its generation model only writes short literals (summaries, criteria, aliases, drafts); code applies thresholds and writes files. **You** (the agent) write and update article prose, choose what to ingest, draft or edit contracts, and give the human verdicts in `kb review`.
 
 Read `references/architecture.md` for the full rationale, context-window vs RAG tradeoffs, and multi-topic vault design.
 
@@ -102,12 +105,16 @@ kb topic info <topic-id>                           # topic metadata (counts, las
 
 ```bash
 kb promote <wiki-doc> --to <okf-topic> --type <Type>                  # distill a wiki concept into an OKF bundle
+kb promote <wiki-doc> --to <okf-topic>                                 # type suggested from [okf].types by the decision model
 kb promote <wiki-doc> --to <okf-topic> --type <Type> --description "…" # override the generated description
 kb okf check <okf-topic>                                               # validate OKF v0.1 conformance (lenient)
 kb okf check <okf-topic> --strict --format json                       # promote local-standard warnings to errors (CI gate)
+kb okf check <okf-topic> --decide                                      # also ask the decision model for advisory type/description findings
 ```
 
-`kb promote` is **mechanical, non-LLM, and non-destructive**: it reads a compiled wiki document, remaps its frontmatter to the OKF producer contract, rewrites `[[wikilinks]]` to relative markdown links, writes a new typed concept at the bundle root, regenerates the bundle's `index.md`, and inserts a newest-first `log.md` entry. **The source wiki document is left untouched.** Both `--to` and `--type` are required, and `--to` must resolve to a `mode: okf` topic or `promote` errors before writing. The concept filename is a slug of the source document's base name (collisions get a `-2`, `-3` suffix), so its filename and every inbound link share one canonical key. `kb promote` emits the JSON `ConceptResult` (`writtenPath`, `type`, `linksRewritten`, `unresolvedLinks`, `warnings`).
+`kb promote` is **mechanical, non-LLM, and non-destructive**: it reads a compiled wiki document, remaps its frontmatter to the OKF producer contract, rewrites `[[wikilinks]]` to relative markdown links, writes a new typed concept at the bundle root, regenerates the bundle's `index.md`, and inserts a newest-first `log.md` entry. **The source wiki document is left untouched.** `--to` is required and must resolve to a `mode: okf` topic or `promote` errors before writing. The concept filename is a slug of the source document's base name (collisions get a `-2`, `-3` suffix), so its filename and every inbound link share one canonical key. `kb promote` emits the JSON `ConceptResult` (`writtenPath`, `type`, `linksRewritten`, `unresolvedLinks`, `warnings`).
+
+`--type` is optional when `[okf].types` is non-empty: the decision model picks a type from the vocabulary (option text from `[okf.type_descriptions]`); a suggestion at P ≥ 0.8 is used, a weaker one prints the top candidates, queues an `okf-type` review item in the source topic, and asks for `--type`. With `--type`, kb warns when a confident suggestion disagrees. With an empty vocabulary, `--type` is required and no model is called. `kb okf check` reports advisory `type_mismatch` and `description_unsupported` findings from stored receipts (never errors); `--decide` computes missing ones.
 
 `kb okf check` is **lenient by default** per OKF §9 (tolerates broken cross-links, unknown `type` values, missing optional fields) so externally produced bundles pass. It emits diagnostics as `severity, kind, filePath, target, message` and exits non-zero when any **error** is present (and on **warnings** too under `--strict`). Hard errors include a concept with a missing/empty `type` and unparseable frontmatter; local-standard **warnings** include a missing producer field (`title`/`description`/`timestamp`) and a `type` outside the configured vocabulary. The type vocabulary is the local standard in `kb.toml`:
 
@@ -133,6 +140,19 @@ kb ingest codebase <path> --topic <topic-id>  # analyze a codebase into raw/code
 ```
 
 Use path-relative topic identifiers for nested topics, e.g. `--topic harness/goclaw`.
+
+Every ingest except `codebase` runs the **ingest gates** (exact dedupe, pre-fetch relevance for bulk sources, code quality checks, a fresh refetch of thin or broken URL captures, post-fetch quality and relevance, near-duplicate), writes `ingest_batch`/`ingest_query` provenance, then classifies and links the new sources. Gated sources are quarantined under `raw/_quarantine/`, never deleted. Shared flags:
+
+```bash
+kb ingest url <url1> <url2> --topic <topic-id>    # several URLs; or --from <file> with one URL per line
+  --batch <name>             # value of ingest_batch (default <command>-<date>-<run id>)
+  --budget <usd>             # spend ceiling for this run
+  --decisions shadow|apply   # gate and body-link mode for this run
+  --force                    # skip dedupe and gates (still classified and linked)
+  --rescue <id>              # bulk (channel, URL lists): fetch an item the pre-fetch gate skipped
+```
+
+The run summary prints kept / review / quarantined / skipped counts, the mode of each gate and the cost; the `log.md` entry records them. Relevance gates run in **shadow** (recorded, nothing skipped or quarantined for relevance) until the topic has an accepted contract and a calibration or `decisions.gates: apply`; quality gates and dedupe apply from the start.
 
 YouTube extraction uses `raw/youtube/` as the canonical transcript directory. `kb` requires `yt-dlp` for metadata, captions, and audio extraction. Install or update `yt-dlp` when public captions fail before treating the issue as only a proxy/cookie problem:
 
@@ -195,11 +215,39 @@ kb inspect backlinks <name-or-path> --format json
 kb inspect deps <name-or-path> --format json
 ```
 
-### Structural linting
+### Decision workflow (contract, classify, link, find, review)
 
 ```bash
-kb lint [<topic-id>] [--save]             # dead links, orphans, missing sources, format violations, stale content
+kb topic contract <topic-id> --import-claude | --draft   # contract_draft in topic.yaml (import needs no model)
+kb topic contract <topic-id> --accept [--force] [--yes]  # self-check + impact preview, then activate
+kb topic vocabulary <topic-id> --draft | --accept        # concept vocabulary for a topic without articles
+kb classify <topic-id> [--only-missing] [--all]          # facets + summary/criterion/aliases/entities/questions
+kb link <topic-id> [--all] [--dry-run] [--no-qmd]        # typed relations; body links in apply mode
+kb find <topic-id> "<question>" [--explain] [--json] [--kind <genre>] [--concept <title>] [--min-depth N] [--relevance <role>]
+kb find --facets <topic-id>                              # facet counts, no model call
+kb review <topic-id> [--queue <queue>]                   # pending items (gate, skip, recapture, remove, link, contradiction, concept-proposal, okf-type)
+kb review accept|reject --topic <topic-id> <id>... [--queue q] [--all-purpose p] [--above p] [--topic-wide]
+kb review import-links <topic-id>                        # existing human links → positive link labels
+kb review import-labels <topic-id> --from <file> --id-field <f> --match url|path|doi|pmcid --decision-field <f>
+kb review calibrate <topic-id> [--write]                 # precision/recall on a dev/holdout split; --write stores thresholds
 ```
+
+Every decision-backed command accepts `--budget <usd>` and prints a run summary (calls, cache hits, cost, decided/undecided counts, bands). Results are cached in `<topic>/.decisions/receipts.jsonl`, so re-running is cheap and resumes where a budget stop left off. An `undecided:<reason>` or `not_checked` item is never a "no": it keeps its previous state.
+
+- `kb classify` writes kb-owned frontmatter (`genre`, `depth`, `relevance`, `quality`, `concepts`, `summary`, `entities`, `questions`; `criterion` and `aliases` on articles). It never quarantines: broken captures go to the `recapture` queue, off-topic sources to `remove`.
+- `kb link` writes `related`/`extends`/`prerequisite`/`example_of` relations and `affects` in frontmatter in every mode, and inserts body links only when the topic's mode is `apply`. `contradicts` always goes to review. It only adds links.
+- `kb find` ranks documents by the probability that they answer the question, names why every other candidate was dropped (`--explain`), costs about US$ 0.001–0.002 and 1 s per query. `kb search` stays the raw qmd interface.
+- kb-owned keys are listed in `references/frontmatter-schemas.md`. A key you edit becomes yours and kb stops writing it; `locked: true` makes kb skip the whole file.
+
+Read `references/selection-contract.md` before drafting or editing a contract, and `references/cleaning-a-topic.md` before running the decision workflow over a topic that predates it.
+
+### Linting
+
+```bash
+kb lint [<topic-id>] [--save]             # structural + decision-workflow checks; never calls a model
+```
+
+Besides dead links, orphans, missing sources, format violations and stale content, lint reports `frontmatter-dead-link`, `link-to-quarantined`, `needs-compile` (a source whose `affects` names an older article), `key-conflict`, `contradiction`, `off-topic-kept`, `unclassified`, `criterion-missing`, `contract-missing`, `contract-draft-pending`, `vocabulary-missing`, and counts of `pending-review`, `recapture-pending` and `remove-pending`. See `references/lint-procedure.md`.
 
 ### Indexing and search (requires QMD)
 
@@ -210,7 +258,7 @@ kb search "<query>" --lex --topic <topic-id>  # keyword-only search
 kb search "<query>" --vec --topic <topic-id>  # vector-only search
 ```
 
-After running `kb ingest` or `kb lint --save`, the CLI auto-appends entries to `<topic>/log.md`. `kb promote` (wiki→OKF) also auto-maintains the **OKF bundle's** `log.md` and `index.md`. Manual log entries are still needed for compile, query, the wiki-internal query→wiki promotion, and split operations (Procedure 5).
+After running `kb ingest` or `kb lint --save`, the CLI auto-appends entries to `<topic>/log.md` (ingest entries include kept/review/quarantined/skipped counts and cost). `kb promote` (wiki→OKF) also auto-maintains the **OKF bundle's** `log.md` and `index.md`. Manual log entries are still needed for compile, query, the wiki-internal query→wiki promotion, and split operations (Procedure 5).
 
 ## Command Dispatch
 
@@ -220,7 +268,7 @@ Map the user's intent to the correct command:
 |--------|---------|
 | Scaffold a new wiki topic | `kb topic new <slug> <title> <domain>` |
 | Scaffold a new OKF bundle | `kb topic new <slug> <title> <domain> --mode okf` |
-| Distill a wiki concept into an OKF bundle | `kb promote <wiki-doc> --to <okf-topic> --type <Type>` |
+| Distill a wiki concept into an OKF bundle | `kb promote <wiki-doc> --to <okf-topic> [--type <Type>]` |
 | Check an OKF bundle for conformance | `kb okf check <okf-topic>` |
 | Gate OKF conformance in CI | `kb okf check <okf-topic> --strict --format json` |
 | List all topics | `kb topic list` |
@@ -242,7 +290,18 @@ Map the user's intent to the correct command:
 | Look up a specific file | `kb inspect file <path> --format json` |
 | Find what depends on X (incoming refs) | `kb inspect backlinks <name-or-path> --format json` |
 | Find what X depends on (outgoing deps) | `kb inspect deps <name-or-path> --format json` |
-| Run structural lint | `kb lint <topic-id> --save` |
+| Run structural and decision-workflow lint | `kb lint <topic-id> --save` |
+| Write or import a topic's selection contract | `kb topic contract <topic-id> --draft` or `--import-claude`, then `--accept` |
+| Bootstrap concepts for a topic without articles | `kb topic vocabulary <topic-id> --draft`, then `--accept` |
+| Classify documents (facets, summaries, criteria) | `kb classify <topic-id>` |
+| Add backlinks and typed relations | `kb link <topic-id>` |
+| Find the documents that answer a question | `kb find <topic-id> "<question>" --explain` |
+| Count documents per genre/relevance/depth/concept | `kb find --facets <topic-id>` |
+| See what kb queued for a human verdict | `kb review <topic-id>` |
+| Accept or reject review items | `kb review accept\|reject --topic <topic-id> <id>...` |
+| Import screening files or human links as labels | `kb review import-labels <topic-id> --from <file> ...` / `kb review import-links <topic-id>` |
+| Calibrate thresholds for a topic | `kb review calibrate <topic-id> [--write]` |
+| Clean a topic that predates the decision model | follow `references/cleaning-a-topic.md` |
 | Index vault for search | `kb index --topic <topic-id>` |
 | Search the knowledge base | `kb search "<query>" --topic <topic-id> --format json` |
 
@@ -415,15 +474,12 @@ Read `references/cli-search-index.md` for full details.
 ### Procedure 1: Compile a wiki article
 
 1. Read `references/compilation-guide.md` to anchor on length, style, wikilink density, and sourcing rules.
-2. Identify candidate sources via `kb search "<topic phrase>" --topic <topic-id>` or read `<topic>/wiki/index/Source Index.md`.
+2. Identify candidate sources via `kb find <topic-id> "<what the article must cover>" --explain`, sources whose `concepts:` or `affects:` name the article, `kb search "<topic phrase>" --topic <topic-id>`, or `<topic>/wiki/index/Source Index.md`. For a stub article (`stage: stub`), its `criterion` says what the article must cover.
 3. Load the candidate raw sources fully into context.
 4. Load `<topic>/wiki/index/Concept Index.md` for orientation on existing articles and wikilink targets (including in other topics).
 5. **Surface takeaways BEFORE drafting.** Present to the user: 3-5 key takeaways from the sources, the entities/concepts this article will introduce or update, and anything that contradicts existing wiki articles. Ask: *"Anything specific to emphasize or de-emphasize?"* Wait for the response. Skip this step only if the user has explicitly asked for autonomous compilation.
 6. Write the article to `<topic>/wiki/concepts/<Article Title>.md` following the [obsidian-markdown skill](https://github.com/pedronauck/skills/tree/main/skills/obsidian-markdown) for wikilink, callout, and frontmatter syntax. Use the frontmatter schema from `references/frontmatter-schemas.md`. Target 3000-4000 words with a Sources section, wikilinks to related articles, and code or diagram blocks where applicable.
-7. **Backlink audit -- do not skip.** Grep every existing article in `<topic>/wiki/concepts/` for mentions of the new article's title, aliases, or core entities. For each match, add a `[[New Article]]` wikilink at the first mention (and one later occurrence). This is the step most commonly skipped -- a compounding wiki depends on bidirectional links.
-   ```bash
-   grep -rln "<new article title or key term>" <topic>/wiki/concepts/
-   ```
+7. **Backlinks -- do not skip.** Run `kb classify <topic-id> --only-missing` (writes the new article's `criterion` and `aliases`), then `kb link <topic-id>`. kb scans every document for mentions of the new article and judges each one; confident links become frontmatter relations, and body links `[[New Article|matched text]]` are inserted when the topic's mode is `apply` (otherwise they wait in `kb review <topic-id> --queue link`). Work that queue. A compounding wiki depends on bidirectional links; see *Backlinks and relations* in `references/compilation-guide.md`.
 8. Update the topic's indexes (Procedure 2).
 9. Update `<topic>/CLAUDE.md` current-articles list.
 10. Re-index the topic's collection: `kb index --topic <topic-id>`.
@@ -449,7 +505,7 @@ A query has two phases: **Phase A** produces the answer by reading the wiki (nev
 #### Phase A -- Answer from the wiki
 
 1. **Read the topic's Concept Index first** (`<topic>/wiki/index/Concept Index.md`). Scan the full index to identify candidate articles. Do NOT answer from general knowledge -- the wiki is the source of truth, even when the answer seems obvious. A contradiction between the wiki and general knowledge is itself valuable signal.
-2. **Locate relevant articles.** At small scale (<30 articles), the index is enough. At larger scale, supplement with `kb search "<phrase>" --topic <topic-id>`. Also grep the topic for keywords: `grep -rl "<keyword>" <topic>/wiki/concepts/`.
+2. **Locate relevant articles.** At small scale (<30 articles), the index is enough. At larger scale, run `kb find <topic-id> "<the question>" --explain`: it ranks the articles and sources that answer the question and says why the others were dropped. `kb search "<phrase>" --topic <topic-id>` and `grep -rl "<keyword>" <topic>/wiki/concepts/` remain useful for exact terms.
 3. **Read the identified articles in full.** Follow one level of `[[wikilinks]]` when targets look relevant to the question. Stop at one hop -- deeper traversal wastes context.
 4. **(Optional) Pull in raw sources** if an article's claim is ambiguous and its `sources:` frontmatter points at a specific raw file worth verifying.
 5. **Synthesize the answer** with these properties:
@@ -487,12 +543,16 @@ Run structural lint via the `kb` CLI:
 kb lint <topic-id> --save
 ```
 
-This checks dead wikilinks, orphan articles, missing source references, format violations, and stale content, saving a dated report to `<topic>/outputs/reports/`. For each issue, **propose the fix with a diff before applying** -- do not batch-apply changes:
+This checks dead wikilinks (body and frontmatter), orphan articles, missing source references, format violations, stale content and articles that `needs-compile`, plus the decision-workflow kinds (key conflicts, contradictions, off-topic sources still kept, unclassified documents, missing contract/vocabulary/criterion, pending review items), saving a dated report to `<topic>/outputs/reports/`. For each issue, **propose the fix with a diff before applying** -- do not batch-apply changes:
 
 - **Dead wikilink** -- either create the missing article (Procedure 1) or rewrite the wikilink to point at an existing article.
 - **Orphan article** -- add incoming wikilinks from at least one related article, or remove the article if it is outside the topic's scope.
 - **Missing source file** -- an article's `sources:` frontmatter references a file absent from `raw/`. Either re-ingest (`kb ingest url/file`) or correct the reference.
-- **Stale content** -- article's `updated:` date is older than its source's `scraped:` date. Recompile with current sources.
+- **Stale content / needs-compile** -- article's `updated:` date is older than its source's `scraped:` date (for `needs-compile`, a source whose `affects:` names the article). Recompile with current sources.
+- **Link to quarantined** -- the target source was quarantined. Restore it with `kb review accept`, or rewrite the prose.
+- **Key conflict** -- a kb-owned key holds a value kb did not write. Leave it (kb will not touch it) or delete it so kb can write it.
+- **Pending review, off-topic kept, contradiction** -- work the queues with `kb review <topic-id> --queue <queue>`.
+- **Contract, vocabulary or criterion missing, unclassified** -- `kb topic contract`, `kb topic vocabulary`, `kb classify <topic-id> --only-missing`.
 - **Format violation** -- fix missing frontmatter fields, H1 title, lead paragraph, or Sources section.
 
 For deeper LLM-driven self-healing checks (inconsistencies across articles, missing coverage, wikilink audits, filed-back query absorption), read `references/lint-procedure.md`.
@@ -538,7 +598,7 @@ The wiki→OKF distill loop turns finished research into a portable, typed catal
 
 1. **Ensure a target OKF bundle exists.** If not, scaffold one: `kb topic new <slug> <title> <domain> --mode okf`. The target of `promote` **must** be a `mode: okf` topic.
 2. **Pick the source.** Choose a compiled, durable `<topic>/wiki/concepts/<Article>.md` worth declaring in the catalog (promote operates on a single document; ingest-stage `raw/` files are not the intended source).
-3. **Choose the type.** Pass `--type <Type>` from your local vocabulary (`[okf].types` in `kb.toml`). Off-vocabulary types are allowed but warn under `kb okf check`; extend the vocabulary by editing `kb.toml` rather than inventing drifted variants.
+3. **Choose the type.** Pass `--type <Type>` from your local vocabulary (`[okf].types` in `kb.toml`), or omit it to let the decision model suggest one (used at P ≥ 0.8; otherwise kb prints the top candidates and asks for `--type`). Off-vocabulary types are allowed but warn under `kb okf check`; extend the vocabulary by editing `kb.toml` rather than inventing drifted variants.
 4. **Promote.**
    ```bash
    kb promote "<topic>/wiki/concepts/<Article>.md" --to <okf-topic> --type "<Type>" --description "<one-line summary>"
@@ -549,6 +609,18 @@ The wiki→OKF distill loop turns finished research into a portable, typed catal
 7. **No manual log entry is needed** — `kb promote` already appended the OKF bundle's `log.md`.
 
 Read `references/okf-mode.md` for the frontmatter remap table, the wikilink→markdown transform rules, the concept-path/collision model, and the full conformance ruleset.
+
+### Procedure 7: Set up the decision workflow on a topic
+
+For a **new topic**, right after `kb topic new` and the first few ingests:
+
+1. Draft the selection contract: `kb topic contract <topic-id> --draft` (or write `contract_draft` in `topic.yaml` by hand following `references/selection-contract.md`).
+2. Edit the draft, then `kb topic contract <topic-id> --accept`. Read the impact preview (bands, per-folder counts, the 20 most off-topic documents) and show it to the user before typing the slug; only the user decides whether the contract describes the collection.
+3. From then on every ingest is gated, classified and linked. Check `kb review <topic-id>` after bulk ingests.
+
+For a **topic that predates the decision model**, follow the five steps of `references/cleaning-a-topic.md`: contract (import or draft, then accept), import labels, `kb classify` (plus `kb topic vocabulary` when the topic has no articles), the `recapture` then `remove` queues, `kb link`.
+
+Relevance gates stay in shadow until calibration: once the labels reach the calibration floor (≥ 30 dev and ≥ 10 holdout labels per purpose; imported labels do not count toward switching relevance gates to `apply`), run `kb review calibrate <topic-id>`, show the dev and holdout precision to the user, and `--write` only with their approval.
 
 ## Output Format Selection
 
@@ -576,7 +648,12 @@ Read `references/output-formats.md` for format examples and empty result handlin
 | `no symbols matched "<query>"` | Use `inspect smells` or `inspect complexity` to discover valid names |
 | `no file matched "<path>"` | Use exact source-relative path from vault frontmatter (e.g. `src/config.ts` not `./src/config.ts`) |
 | `promote: target topic must use mode okf` | `--to` points at a wiki topic. Pass an existing `mode: okf` topic, or scaffold one with `kb topic new <slug> <title> <domain> --mode okf` |
-| `promote: --type is required` / `required flag(s) "to", "type" not set` | Pass both `--to <okf-topic>` and `--type <Type>` |
+| `promote: --type is required` / `required flag(s) "to" not set` | Pass `--to <okf-topic>`; pass `--type <Type>` when there is no `[okf].types` vocabulary or the suggestion was not confident (the error lists the top candidates) |
+| `... OPENROUTER_API_KEY is not set ...` | The command needs the decision model: set `OPENROUTER_API_KEY` (or `[openrouter].api_key`) |
+| `--decisions must be shadow or apply` | Pass `--decisions shadow` or `--decisions apply` |
+| `topic contract: pass exactly one of --draft, --import-claude or --accept` | Run one action per call |
+| Self-check conflicts block `--accept` | Qualify the conflicting `out_of_scope` line so it cannot match the kept line (see `references/selection-contract.md`); use `--force` only when the conflict is a false alarm |
+| Items reported as `undecided:budget` | The run hit `--budget` / `[decisions].budget_usd`; re-run to continue from the cache |
 | `promote: source document not found` | Use a vault-relative path to an existing wiki document, e.g. `<topic>/wiki/concepts/<Article>.md` |
 | `okf check: found N issue(s)` (non-zero exit) | Read the diagnostics rows; fix `severity=error` concepts (missing/empty `type`, bad frontmatter). Under `--strict`, warnings (missing producer fields, off-vocabulary types) also fail |
 
@@ -601,7 +678,9 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Parse stdout only for command output; treat stderr as diagnostics
 - Use the `topicSlug` from ingest output for subsequent `--topic` flags; for nested topics this is the relative path
 - Read `references/compilation-guide.md` before writing wiki articles
-- Run backlink audits after every article compile (Procedure 1, step 7)
+- Run `kb classify --only-missing` and `kb link` after every article compile (Procedure 1, step 7) and work the `link` review queue
+- Edit the selection contract through `kb topic contract` (or `topic.yaml` `contract_draft`) and read the impact preview before accepting (`references/selection-contract.md`)
+- Read the `remove` and `recapture` queues before bulk-accepting them; a wrong item usually means the contract is too narrow
 - File query answers to `outputs/queries/` (Procedure 3)
 - Append manual log entries for compile, query, the wiki-internal query→wiki promotion, and split operations
 - Use an existing `mode: okf` topic (or scaffold one with `--mode okf`) as the `--to` target of `kb promote`
@@ -615,7 +694,11 @@ Read `references/error-handling.md` for the full error catalog with causes and r
 - Assume vault location without running ingest or checking for `kb.toml` / `.kb/vault/`
 - Use relative paths like `./src/config.ts` for `inspect file` -- use `src/config.ts` instead
 - Answer wiki queries from general knowledge -- the wiki is the source of truth
-- Skip the backlink audit when compiling articles
+- Skip `kb link` after compiling articles
+- Edit the `## Selection contract` section of a topic `CLAUDE.md` by hand (it is rendered from `topic.yaml` and overwritten on accept)
+- Hand-maintain kb-owned keys (`summary`, `concepts`, `related`, `criterion`, ...) unless you mean to take them over; kb stops updating a key once you edit it
+- Delete gated or off-topic sources by hand; quarantine through `kb review accept` so index lines and `sources:` entries are restorable
+- Set `decisions.gates: apply` before reading an impact preview and a calibration report
 - Batch-apply lint fixes without proposing diffs first
 - Promote into a wiki topic — `kb promote --to` must be a `mode: okf` topic
 - Hand-edit an OKF bundle's `index.md` (it is regenerated by `kb promote`) or use `[[wikilinks]]`/absolute links in OKF concepts (use relative markdown links)

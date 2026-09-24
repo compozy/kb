@@ -58,7 +58,7 @@ type: Voice Profile
 
 | OKF field | Source | Fallback |
 | --- | --- | --- |
-| `type` | `--type` (validated against `[okf].types`) | none — **required**; error if absent |
+| `type` | `--type` (validated against `[okf].types`) | the decision model's suggestion from `[okf].types` when P ≥ `okf_type` (0.8); otherwise an error listing the top candidates. With an empty vocabulary `--type` is **required** |
 | `title` | source `title` | humanized concept key (slug of the source base name) |
 | `description` | `--description` flag | first non-empty body sentence (markdown-stripped) → else empty **+ warning** |
 | `timestamp` | promote-time clock, RFC3339 / UTC | — (promotion *is* the last meaningful change; source `scraped`/`created` are date-only and not used) |
@@ -178,7 +178,7 @@ OKF has no global type registry by design; this is a **local** standard that pre
 | Command | Args / Flags | Behavior |
 | --- | --- | --- |
 | `kb topic new <slug> <title> <domain>` | `--mode wiki\|okf` (default `wiki`) | Wiki scaffold (unchanged) or flat OKF bundle. |
-| `kb promote <wiki-doc>` | `--to <okf-topic>` (req), `--type <T>` (req), `--description <text>` | Mechanical, non-destructive wiki→OKF concept; `--to` must be a `mode: okf` topic. Emits `ConceptResult` JSON. |
-| `kb okf check <okf-topic>` | `--strict`, `--format table\|json\|tsv` | OKF v0.1 conformance + local-standard warnings; non-zero exit on errors (and warnings under `--strict`). |
+| `kb promote <wiki-doc>` | `--to <okf-topic>` (req), `--type <T>` (optional with `[okf].types`, suggested by the decision model), `--description <text>`, `--budget <usd>` | Mechanical, non-destructive wiki→OKF concept; `--to` must be a `mode: okf` topic. Emits `ConceptResult` JSON. |
+| `kb okf check <okf-topic>` | `--strict`, `--format table\|json\|tsv`, `--decide`, `--budget <usd>` | OKF v0.1 conformance + local-standard warnings; non-zero exit on errors (and warnings under `--strict`). Advisory `type_mismatch` / `description_unsupported` findings come from stored decision receipts (never errors); `--decide` asks the decision model for missing ones. |
 
 > The `kb okf` group grows in later phases (`kb okf export`, `kb okf ingest`), which are out of MVP scope.
