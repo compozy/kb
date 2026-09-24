@@ -119,6 +119,13 @@ type PurposeReport struct {
 	DevLabels      int `json:"dev_labels"`
 	HoldoutLabels  int `json:"holdout_labels"`
 	ImportedLabels int `json:"imported_labels"`
+	// ReviewDevLabels counts the joined dev labels given in `kb review`
+	// (not imported); the dev floor must be met by these alone (spec §12.2:
+	// imported labels are never the only evidence behind an apply).
+	ReviewDevLabels int `json:"review_dev_labels"`
+	// ImportedOnly flags a purpose whose dev floor is met only with imported
+	// labels: metrics are reported, no threshold is recommended.
+	ImportedOnly bool `json:"imported_only,omitempty"`
 	// Demoted counts labels forced to dev by a preview under another
 	// contract.
 	Demoted int `json:"demoted"`
@@ -171,7 +178,10 @@ type scored struct {
 // under another contract are forced to dev. Thresholds 0.50..0.95 (step
 // 0.05) are swept on dev only: the lowest threshold with dev precision ≥
 // 0.90 wins, else the best F0.5. Below 30 dev or 10 holdout joined labels a
-// purpose gets "not enough labels" and no recommendation.
+// purpose gets "not enough labels" and no recommendation; when the dev floor
+// is met only with imported labels (fewer than 30 dev labels given in `kb
+// review`) the purpose is flagged "imported labels only" and gets no
+// recommendation either (spec §12.2, §20).
 func Calibrate(topicRoot string, opts CalibrateOptions) (Report, error) {
 	now := opts.Now
 	if now == nil {
@@ -250,6 +260,9 @@ func calibratePurpose(spec purposeSpec, rows []scored, thresholds decisions.Thre
 		}
 		if row.dev {
 			dev = append(dev, row)
+			if row.joined && !row.imported {
+				result.ReviewDevLabels++
+			}
 		} else {
 			holdout = append(holdout, row)
 		}
@@ -278,6 +291,10 @@ func calibratePurpose(spec purposeSpec, rows []scored, thresholds decisions.Thre
 	switch {
 	case result.DevLabels < MinDevLabels || result.HoldoutLabels < MinHoldoutLabels:
 		result.Note = fmt.Sprintf("not enough labels (dev %d/%d, holdout %d/%d)", result.DevLabels, MinDevLabels, result.HoldoutLabels, MinHoldoutLabels)
+	case result.ReviewDevLabels < MinDevLabels:
+		result.ImportedOnly = true
+		result.Note = fmt.Sprintf("imported labels only: %d/%d dev labels given in kb review; imported labels never set a threshold alone",
+			result.ReviewDevLabels, MinDevLabels)
 	default:
 		if threshold, ok := chooseThreshold(result.Sweep); ok {
 			result.Recommended, result.Chosen, chosen = true, threshold, threshold

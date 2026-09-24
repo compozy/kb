@@ -99,7 +99,51 @@ func TestReviewImportAndHoldoutIntegration(t *testing.T) {
 		t.Fatalf("import-labels output:\n%s", stdout)
 	}
 
+	// Imported labels alone never set a threshold (spec §12.2, §20): the
+	// metrics are reported, the purpose is flagged, nothing is recommended.
+	importedOnly := calibrateJSON(t, vaultPath)
+	if importedOnly.Recommended || !importedOnly.ImportedOnly || importedOnly.ReviewDevLabels != 0 || importedOnly.DevCurrent.N == 0 {
+		t.Fatalf("imported labels only = %+v", importedOnly)
+	}
+	if table, _, err := runReviewCLI(t, "review", "calibrate", "sports", "--vault", vaultPath); err != nil || !strings.Contains(table, "imported labels only") {
+		t.Fatalf("calibrate table with imported labels only: %v\n%s", err, table)
+	}
+	if _, _, err := runReviewCLI(t, "review", "calibrate", "sports", "--write", "--vault", vaultPath); err != nil {
+		t.Fatalf("calibrate --write: %v", err)
+	}
+	if record, err := session.ReadCalibration(root); err != nil || record != nil {
+		t.Fatalf("imported labels only must write no calibration: %+v %v", record, err)
+	}
+
+	// Labels given in kb review on other sources reach the dev floor.
+	store := review.Open(root, nil)
+	reviewDev := 0
+	for i := 150; reviewDev < review.MinDevLabels; i++ {
+		subject := fmt.Sprintf("raw/papers/p%03d.md", i)
+		if !review.DevBucket(subject) {
+			continue
+		}
+		verdict, p := review.VerdictPositive, 0.2
+		if i%2 == 0 {
+			verdict, p = review.VerdictNegative, 0.85
+		}
+		key := fmt.Sprintf("r%03d", i)
+		if err := receipts.Append(root, decisions.Receipt{
+			Key: key, Subject: subject, Purpose: "relevance", Status: decisions.StatusDecided,
+			Answers: map[string]json.RawMessage{"role": roleReceipt(t, p)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AddLabel(review.Label{Subject: subject, Purpose: review.PurposeRelevance, Question: review.QuestionRole, Verdict: verdict, ReceiptKey: key, Origin: review.OriginReview}); err != nil {
+			t.Fatal(err)
+		}
+		reviewDev++
+	}
+
 	rel := calibrateJSON(t, vaultPath)
+	if rel.ImportedOnly || rel.ReviewDevLabels != review.MinDevLabels {
+		t.Fatalf("with review labels = %+v", rel)
+	}
 	if !rel.Recommended || rel.Chosen != 0.75 {
 		t.Fatalf("chosen on dev = %+v", rel)
 	}

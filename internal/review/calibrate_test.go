@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/compozy/kb/internal/contract"
@@ -41,6 +42,13 @@ func appendReceipt(t *testing.T, store *decisions.Receipts, root string, receipt
 // look off-topic (0.72); the rest are relevant (0.2).
 func relevanceFixture(t *testing.T, n int) string {
 	t.Helper()
+	return relevanceFixtureWithOrigin(t, n, func(int) string { return "" })
+}
+
+// relevanceFixtureWithOrigin is relevanceFixture with the label origin of
+// subject i given by origin.
+func relevanceFixtureWithOrigin(t *testing.T, n int, origin func(i int) string) string {
+	t.Helper()
 	root := t.TempDir()
 	receipts := decisions.NewReceipts()
 	store := Open(root, fixedClock)
@@ -55,7 +63,7 @@ func relevanceFixture(t *testing.T, n int) string {
 		}
 		key := fmt.Sprintf("k%03d", i)
 		appendReceipt(t, receipts, root, decisions.Receipt{Key: key, Subject: subject, Purpose: "relevance+quality", Answers: map[string]json.RawMessage{"role": roleAnswer(p)}})
-		if err := store.AddLabel(Label{Subject: subject, Purpose: PurposeRelevance, Question: QuestionRole, Verdict: verdict, ReceiptKey: key}); err != nil {
+		if err := store.AddLabel(Label{Subject: subject, Purpose: PurposeRelevance, Question: QuestionRole, Verdict: verdict, ReceiptKey: key, Origin: origin(i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,6 +164,60 @@ func TestCalibrateFloorsAndF05Fallback(t *testing.T) {
 	}
 	if _, ok := chooseThreshold([]SweepPoint{{Threshold: 0.5, Dev: Metrics{}}}); ok {
 		t.Fatal("threshold chosen without true positives")
+	}
+}
+
+// TestCalibrateImportedLabelsNeverSetThresholdsAlone: the dev floor must be
+// met by labels given in kb review; imported labels alone are measured and
+// flagged, never recommended or written (spec §12.2, §12.3, §20).
+func TestCalibrateImportedLabelsNeverSetThresholdsAlone(t *testing.T) {
+	t.Parallel()
+	imported := OriginImportPrefix + "screening.jsonl@abc"
+	testCases := []struct {
+		name        string
+		origin      func(i int) string
+		wantRec     bool
+		wantFlagged bool
+	}{
+		{name: "imported only", origin: func(int) string { return imported }, wantFlagged: true},
+		{name: "import-links only", origin: func(int) string { return OriginImportLinks }, wantFlagged: true},
+		{name: "mostly imported, review below floor", origin: func(i int) string {
+			if i < 20 {
+				return OriginReview
+			}
+			return imported
+		}, wantFlagged: true},
+		{name: "review labels", origin: func(int) string { return OriginReview }, wantRec: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := relevanceFixtureWithOrigin(t, 200, tc.origin)
+			report, err := Calibrate(root, CalibrateOptions{ContractHash: "c1", Now: fixedClock})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rel := purposeReport(t, report, PurposeRelevance)
+			if rel.Recommended != tc.wantRec || rel.ImportedOnly != tc.wantFlagged {
+				t.Fatalf("recommended %v imported-only %v, want %v %v (%+v)", rel.Recommended, rel.ImportedOnly, tc.wantRec, tc.wantFlagged, rel)
+			}
+			if rel.DevCurrent.N < MinDevLabels || rel.HoldoutCurrent.N < MinHoldoutLabels {
+				t.Fatalf("metrics must still be reported: dev %+v holdout %+v", rel.DevCurrent, rel.HoldoutCurrent)
+			}
+			err = WriteCalibration(root, report)
+			if tc.wantRec {
+				if err != nil {
+					t.Fatalf("WriteCalibration: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrNotEnoughLabels) {
+				t.Fatalf("WriteCalibration = %v, want ErrNotEnoughLabels", err)
+			}
+			if !strings.Contains(rel.Note, "imported labels only") {
+				t.Fatalf("note = %q", rel.Note)
+			}
+		})
 	}
 }
 
