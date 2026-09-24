@@ -101,3 +101,53 @@ func TestComposeEdgeCases(t *testing.T) {
 		t.Fatal("Compose of one bank must return it unchanged")
 	}
 }
+
+func TestInstantiateExtras(t *testing.T) {
+	t.Parallel()
+	plain, err := Parse([]byte(`{"id":"extra_rel","version":"1","purpose":"relevance","guard":"G","questions":[
+		{"id":"press_release","type":"noul","instructions":"Is it a press release?","source":"owner"},
+		{"id":"vendor_item_{id}","type":"noul","instructions":"Evaluate only item {id}. Is it a vendor page?","source":"owner"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		extras   []*Bank
+		elements []string
+		wantIDs  []string
+	}{
+		{name: "no extras"},
+		{name: "plain only without elements", extras: []*Bank{plain}, wantIDs: []string{"press_release"}},
+		{name: "templates per element", extras: []*Bank{plain}, elements: []string{"i1", "i2"}, wantIDs: []string{"press_release", "vendor_item_i1", "vendor_item_i2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			bank, qs, err := Instantiate(tt.extras, tt.elements)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tt.extras) == 0 {
+				if bank != nil || qs != nil {
+					t.Fatalf("no extras = %v %v", bank, qs)
+				}
+				return
+			}
+			if bank == nil || bank.ID != "extra_rel" {
+				t.Fatalf("bank = %+v", bank)
+			}
+			got := make([]string, 0, len(qs))
+			for _, q := range qs {
+				got = append(got, q.ID)
+			}
+			if !reflect.DeepEqual(got, tt.wantIDs) {
+				t.Fatalf("ids = %v, want %v", got, tt.wantIDs)
+			}
+		})
+	}
+	relevance := MustLoad("relevance")
+	if Compose(relevance, nil) != relevance {
+		t.Fatal("composing a built-in bank with no extras must keep its cache key")
+	}
+}

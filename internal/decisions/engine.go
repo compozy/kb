@@ -192,7 +192,8 @@ func (e *Engine) Summary() Summary { return e.stats.snapshot() }
 // ErrAuth (401/402/403, sticky for the engine), ctx cancellation, and
 // ErrInvalidRequest. Every other failure is a per-answer status:
 // undecided (timeout, retries, budget, invalid_receipt, http_status,
-// missing_answer) or not_checked (state_too_large).
+// missing_answer) or not_checked (state_too_large, or excluded: a Subject
+// matching r.Topic.Exclude is answered without any call).
 func (e *Engine) Decide(ctx context.Context, r Request) (Result, error) {
 	if err := e.fatalErr(); err != nil {
 		return Result{}, err
@@ -204,13 +205,22 @@ func (e *Engine) Decide(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	result := Result{Answers: make(map[string]Answer, len(prepared))}
+	if r.Topic.Excluded(r.Subject) {
+		// decisions.exclude keeps the subject out of every call (spec §14):
+		// no state is serialized, nothing is sent, no receipt is written.
+		for _, pq := range prepared {
+			result.Answers[pq.q.ID] = notChecked(pq.q.Type, ReasonExcluded)
+		}
+		e.stats.answers(r.Purpose, result.Answers)
+		return result, nil
+	}
 	// Redaction happens before hashing so a secret never enters a cache key.
 	stateJSON, err := CanonicalJSON(Redact(r.State))
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: state: %v", ErrInvalidRequest, err)
 	}
 
-	result := Result{Answers: make(map[string]Answer, len(prepared))}
 	if len(stateJSON) > e.maxState || (len(stateJSON)+3)/4 > MaxStateTokens {
 		for _, pq := range prepared {
 			result.Answers[pq.q.ID] = notChecked(pq.q.Type, ReasonStateTooLarge)

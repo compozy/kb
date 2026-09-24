@@ -55,6 +55,10 @@ var (
 	// ErrInvalidRequest marks a request that cannot be sent (missing kind,
 	// prompt, schema name, or a schema that is not a JSON object schema).
 	ErrInvalidRequest = errors.New("generation: invalid request")
+
+	// ErrExcluded is returned, without any call, for a request whose
+	// Subject matches the topic's `decisions.exclude` globs (spec §14).
+	ErrExcluded = errors.New("generation: subject excluded by decisions.exclude")
 )
 
 // Options configure a Client. Only Config and APIKey are required. Share
@@ -176,13 +180,17 @@ func (c *Client) Summary() decisions.GenerationSummary {
 // schema) are served from the topic's receipts. Each model gets 1+retries
 // attempts under the per-attempt deadline, then the fallback model gets the
 // same. Errors: ErrBudget (nothing sent), ErrFailed (every attempt failed),
-// decisions.ErrAuth (401/402/403, sticky), ErrInvalidRequest, ctx errors.
+// decisions.ErrAuth (401/402/403, sticky), ErrInvalidRequest, ErrExcluded
+// (Subject matches req.Topic.Exclude; nothing sent), ctx errors.
 func (c *Client) Generate(ctx context.Context, req Request) (json.RawMessage, error) {
 	if err := c.fatalErr(); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if req.Topic.Excluded(req.Subject) {
+		return nil, fmt.Errorf("%w: %s", ErrExcluded, req.Subject)
 	}
 	schema, err := parseRequest(req)
 	if err != nil {

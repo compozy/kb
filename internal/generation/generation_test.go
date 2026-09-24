@@ -401,6 +401,25 @@ func TestGenerateBudgetAuthAndRedaction(t *testing.T) {
 		}
 	})
 
+	t.Run("Should refuse an excluded subject without a call", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) { chatReply(w, req.Model, goodOutput, 0, 0.0001) })
+		client := newTestClient(t, fake, decisions.NewBudget(1), nil)
+		excluded := summaryRequest(t.TempDir())
+		excluded.Topic.Exclude = []string{"raw/articles/**"}
+		if _, err := client.Generate(context.Background(), excluded); !errors.Is(err, ErrExcluded) {
+			t.Fatalf("err = %v, want ErrExcluded", err)
+		}
+		if len(fake.calls()) != 0 {
+			t.Fatal("an excluded subject must not be sent")
+		}
+		other := summaryRequest(t.TempDir())
+		other.Topic.Exclude = []string{"raw/private/**"}
+		if _, err := client.Generate(context.Background(), other); err != nil {
+			t.Fatalf("non-excluded Generate: %v", err)
+		}
+	})
+
 	t.Run("Should reject invalid requests without a call", func(t *testing.T) {
 		t.Parallel()
 		fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) { chatReply(w, req.Model, goodOutput, 0, 0.0001) })

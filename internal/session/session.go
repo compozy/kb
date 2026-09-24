@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +86,8 @@ type Session struct {
 
 	corpusMu sync.Mutex
 	corpus   *corpus.Corpus
+	// extras are the topic's extra question banks (all purposes).
+	extras []*questions.Bank
 }
 
 // Open resolves the topic and builds a session. It fails fast, naming what is
@@ -159,6 +162,11 @@ func Open(opts Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", command, err)
 	}
+	extras, err := questions.LoadTopicExtras(info.RootPath)
+	if err != nil {
+		return nil, fmt.Errorf("%s: invalid topic question bank under %s: %w", command,
+			filepath.Join(info.RootPath, decisions.ReceiptsDir, "banks"), err)
+	}
 
 	var active *contract.Contract
 	if settings.Accepted() {
@@ -178,6 +186,7 @@ func Open(opts Options) (*Session, error) {
 			Root:       info.RootPath,
 			Contract:   active.Hash(),
 			Thresholds: thresholds,
+			Exclude:    settings.Decisions.Exclude,
 		},
 		Engine: engine,
 		Gen:    gen,
@@ -186,7 +195,39 @@ func Open(opts Options) (*Session, error) {
 		Now:    now,
 		Logger: logger,
 		Flags:  opts.Flags,
+		extras: extras,
 	}, nil
+}
+
+// ExtraBanks returns the topic's extra question banks for purpose, loaded
+// from <topic>/.decisions/banks/*.json at Open (spec §4.3). Their questions
+// are added to built-in requests of that purpose; their answers are only
+// recorded in receipts and never replace a built-in answer.
+func (s *Session) ExtraBanks(purpose decisions.Purpose) []*questions.Bank {
+	out := make([]*questions.Bank, 0)
+	for _, bank := range s.extras {
+		if bank.Purpose == string(purpose) {
+			out = append(out, bank)
+		}
+	}
+	return out
+}
+
+// WithExtras adds the topic's extra questions of purpose to a built-in
+// request: it returns the bank to send (the built-in bank composed with the
+// extras, or the built-in bank unchanged without extras, so the cache key
+// only changes when a topic adds questions) and qs followed by the extra
+// questions (templates instantiated once per element id, see
+// questions.Instantiate).
+func (s *Session) WithExtras(purpose decisions.Purpose, bank *questions.Bank, qs []questions.Q, elements ...string) (*questions.Bank, []questions.Q, error) {
+	extraBank, extra, err := questions.Instantiate(s.ExtraBanks(purpose), elements)
+	if err != nil {
+		return bank, qs, fmt.Errorf("topic %s extra %s questions: %w", s.Topic.Slug, purpose, err)
+	}
+	if extraBank == nil {
+		return bank, qs, nil
+	}
+	return questions.Compose(bank, extraBank), append(slices.Clone(qs), extra...), nil
 }
 
 // Root returns the topic root path.
@@ -220,14 +261,11 @@ func (s *Session) ReloadCorpus() {
 	s.corpusMu.Unlock()
 }
 
-// Excluded reports whether a topic-relative path matches decisions.exclude.
+// Excluded reports whether a topic-relative path matches decisions.exclude
+// (the same match the engine and the generation client apply to every
+// request Subject).
 func (s *Session) Excluded(topicRel string) bool {
-	for _, pattern := range s.Settings.Decisions.Exclude {
-		if corpus.MatchGlob(pattern, topicRel) {
-			return true
-		}
-	}
-	return false
+	return s.Ref.Excluded(topicRel)
 }
 
 // BodyMode is the body-link insertion mode: [decisions].mode, then

@@ -114,6 +114,79 @@ func TestModes(t *testing.T) {
 	}
 }
 
+// TestOpenLoadsTopicExtraBanks: extra banks under .decisions/banks/ are
+// loaded at Open and served per purpose; an invalid one fails the run with
+// the bank path in the error (spec §4.3). decisions.exclude reaches the
+// engine through Ref.
+func TestOpenLoadsTopicExtraBanks(t *testing.T) {
+	t.Parallel()
+	const valid = `{"id":"owner_relevance","version":"1","purpose":"relevance","guard":"G","questions":[{"id":"press_release","type":"noul","instructions":"Is it a press release?","source":"topic owner"}]}`
+	const colliding = `{"id":"owner_quality","version":"1","purpose":"quality","guard":"G","questions":[{"id":"thin_or_boilerplate","type":"noul","instructions":"Is it thin?","source":"topic owner"}]}`
+	tests := []struct {
+		name    string
+		bank    string
+		wantErr string
+	}{
+		{name: "valid extra bank", bank: valid},
+		{name: "invalid extra bank fails the run", bank: colliding, wantErr: "invalid topic question bank"},
+		{name: "malformed extra bank fails the run", bank: `{"id":`, wantErr: "invalid topic question bank"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			vault, root := newTopic(t)
+			dir := filepath.Join(root, ".decisions", "banks")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "owner.json"), []byte(tt.bank), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			writeFileAppend(t, filepath.Join(root, "topic.yaml"), "decisions:\n  exclude:\n    - raw/private/**\n")
+			s, err := Open(Options{Config: testConfig("http://127.0.0.1:1"), VaultPath: vault, Topic: "demo", Command: "kb classify"})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "kb classify") {
+					t.Fatalf("Open err = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			if got := s.ExtraBanks(decisions.PurposeRelevance); len(got) != 1 || got[0].ID != "owner_relevance" {
+				t.Fatalf("relevance extras = %v", got)
+			}
+			if got := s.ExtraBanks(decisions.PurposeQuality); len(got) != 0 {
+				t.Fatalf("quality extras = %v", got)
+			}
+			builtin := questions.MustLoad("relevance")
+			role := builtin.MustQuestion("role", nil)
+			bank, qs, err := s.WithExtras(decisions.PurposeRelevance, builtin, []questions.Q{role})
+			if err != nil || bank.ID != "relevance+owner_relevance" || len(qs) != 2 || qs[1].ID != "press_release" {
+				t.Fatalf("WithExtras = %v %v %v", bank, qs, err)
+			}
+			quality := questions.MustLoad("quality")
+			if same, qs, err := s.WithExtras(decisions.PurposeQuality, quality, nil); err != nil || same != quality || len(qs) != 0 {
+				t.Fatalf("WithExtras without extras must keep the bank: %v %v %v", same, qs, err)
+			}
+			if !s.Excluded("raw/private/a.md") || !s.Ref.Excluded("raw/private/x/y.md") || s.Excluded("raw/articles/a.md") {
+				t.Fatal("decisions.exclude must reach the session ref")
+			}
+		})
+	}
+}
+
+func writeFileAppend(t *testing.T, path, text string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, []byte(text)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeDecisionSettings(t *testing.T, root, mode, gates, relevance string) {
 	t.Helper()
 	path := filepath.Join(root, "topic.yaml")

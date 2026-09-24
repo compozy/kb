@@ -55,3 +55,36 @@ func Compose(banks ...*Bank) *Bank {
 	composite.Hash = hex.EncodeToString(hasher.Sum(nil))
 	return composite
 }
+
+// Instantiate returns the questions of extra banks (topic extras of one
+// purpose, see LoadTopicExtras) to add to a built-in request, plus the
+// composite of those banks to pass to Compose after the built-in bank so the
+// cache key and receipts record them. A plain question is asked once; a
+// template (`{id}` or `{n}` placeholder) is asked once per element id of the
+// request (items, candidates), and not at all when elements is empty. With
+// no extra bank it returns nil, nil.
+func Instantiate(extras []*Bank, elements []string) (*Bank, []Q, error) {
+	bank := Compose(extras...)
+	if bank == nil {
+		return nil, nil, nil
+	}
+	out := make([]Q, 0, len(bank.order))
+	for _, id := range bank.order {
+		if !placeholderPattern.MatchString(id) {
+			q, err := bank.Question(id, nil)
+			if err != nil {
+				return nil, nil, err
+			}
+			out = append(out, q)
+			continue
+		}
+		for _, element := range elements {
+			q, err := bank.Question(id, map[string]string{"id": element, "n": element})
+			if err != nil {
+				return nil, nil, err
+			}
+			out = append(out, q)
+		}
+	}
+	return bank, out, nil
+}

@@ -622,6 +622,66 @@ func TestDecideStateTooLargeMakesNoCall(t *testing.T) {
 	}
 }
 
+// TestDecideExcludedSubjectMakesNoCall: decisions.exclude keeps a subject
+// out of every call (spec §14): every answer is not_checked:excluded, no
+// request reaches the server and no receipt is written.
+func TestDecideExcludedSubjectMakesNoCall(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		exclude  []string
+		subject  string
+		excluded bool
+	}{
+		{name: "double star folder", exclude: []string{"raw/private/**"}, subject: "raw/private/notes/a.md", excluded: true},
+		{name: "single segment star", exclude: []string{"raw/*/secret-*.md"}, subject: "raw/articles/secret-plan.md", excluded: true},
+		{name: "leading double star", exclude: []string{"**/drafts/**"}, subject: "wiki/drafts/x.md", excluded: true},
+		{name: "no match", exclude: []string{"raw/private/**"}, subject: "raw/articles/a.md"},
+		{name: "star stays in its segment", exclude: []string{"raw/*.md"}, subject: "raw/articles/a.md"},
+		{name: "non-path subject", exclude: []string{"raw/**"}, subject: "prefetch:url-2026-09-24"},
+		{name: "no globs", subject: "raw/private/a.md"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := newFakeServer(t, nil)
+			engine, _ := newTestEngine(t, fake, engineSetup{})
+			root := t.TempDir()
+			req := qualityRequest(t, root)
+			req.Topic.Exclude = tc.exclude
+			req.Subject = tc.subject
+			result, err := engine.Decide(context.Background(), req)
+			if err != nil {
+				t.Fatalf("Decide: %v", err)
+			}
+			if !tc.excluded {
+				if len(fake.calls()) != 1 {
+					t.Fatalf("calls = %d, want 1", len(fake.calls()))
+				}
+				return
+			}
+			if len(result.Answers) != len(req.Questions) {
+				t.Fatalf("answers = %+v", result.Answers)
+			}
+			for id, answer := range result.Answers {
+				if answer.Status != StatusNotChecked || answer.Reason != ReasonExcluded || answer.Decided() {
+					t.Errorf("%s = %+v, want not_checked:excluded", id, answer)
+				}
+			}
+			if len(fake.calls()) != 0 {
+				t.Fatal("an excluded subject must not be sent")
+			}
+			if rows, err := LoadReceipts(root); err != nil || len(rows) != 0 {
+				t.Fatalf("receipts = %+v, %v", rows, err)
+			}
+			if summary := engine.Summary(); summary.Calls != 0 {
+				t.Fatalf("summary calls = %d", summary.Calls)
+			}
+		})
+	}
+}
+
 func TestDecideStopsAtBudget(t *testing.T) {
 	t.Parallel()
 

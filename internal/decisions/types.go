@@ -6,7 +6,9 @@ package decisions
 import (
 	"maps"
 	"slices"
+	"strings"
 
+	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/questions"
 )
 
@@ -68,6 +70,25 @@ type TopicRef struct {
 	Root       string
 	Contract   string
 	Thresholds Thresholds
+	// Exclude are the topic.yaml `decisions.exclude` globs (topic-relative,
+	// `**`-aware): a request whose Subject matches one is never sent to any
+	// model (spec §14).
+	Exclude []string
+}
+
+// Excluded reports whether subject, a topic-relative path, matches one of
+// the topic's `decisions.exclude` globs. Subjects that are not paths (query
+// ids, batch ids) never match a valid glob.
+func (t TopicRef) Excluded(subject string) bool {
+	if strings.TrimSpace(subject) == "" {
+		return false
+	}
+	for _, pattern := range t.Exclude {
+		if contract.MatchPath(pattern, subject) {
+			return true
+		}
+	}
+	return false
 }
 
 // Request is one decision request: one state, many questions.
