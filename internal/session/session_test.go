@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/compozy/kb/internal/config"
@@ -54,7 +55,9 @@ func TestModes(t *testing.T) {
 		bodyMode    string
 		flag        string
 		calibration string
+		relevance   string
 		wantBody    string
+		wantReason  string
 		wantRelGate string
 		wantQuality string
 	}{
@@ -67,7 +70,9 @@ func TestModes(t *testing.T) {
 		{name: "under-calibrated", contract: accepted, calibration: `{"purposes":{"relevance":{"dev_labels":10,"holdout_labels":3}}}`, wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "topic body apply", bodyMode: "apply", wantBody: ModeApply, wantRelGate: ModeShadow, wantQuality: ModeApply},
 		{name: "flag shadow wins", contract: accepted, gates: "apply", bodyMode: "apply", flag: "shadow", wantBody: ModeShadow, wantRelGate: ModeShadow, wantQuality: ModeShadow},
-		{name: "flag apply wins", flag: "apply", wantBody: ModeApply, wantRelGate: ModeApply, wantQuality: ModeApply},
+		{name: "flag apply wins with a contract", contract: accepted, flag: "apply", wantBody: ModeApply, wantRelGate: ModeApply, wantQuality: ModeApply, wantReason: "set by --decisions"},
+		{name: "flag apply without contract keeps relevance in shadow", flag: "apply", wantBody: ModeApply, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "--decisions=apply ignored for relevance: no accepted contract"},
+		{name: "flag apply with relevance off keeps relevance in shadow", contract: accepted, relevance: "off", flag: "apply", wantBody: ModeApply, wantRelGate: ModeShadow, wantQuality: ModeApply, wantReason: "--decisions=apply ignored: relevance off"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -78,8 +83,8 @@ func TestModes(t *testing.T) {
 					t.Fatalf("SetContract: %v", err)
 				}
 			}
-			if tt.gates != "" || tt.bodyMode != "" {
-				writeDecisionSettings(t, root, tt.bodyMode, tt.gates)
+			if tt.gates != "" || tt.bodyMode != "" || tt.relevance != "" {
+				writeDecisionSettings(t, root, tt.bodyMode, tt.gates, tt.relevance)
 			}
 			if tt.calibration != "" {
 				if err := os.MkdirAll(filepath.Join(root, ".decisions"), 0o755); err != nil {
@@ -102,11 +107,14 @@ func TestModes(t *testing.T) {
 			if got := s.QualityGateMode(); got != tt.wantQuality {
 				t.Errorf("QualityGateMode() = %q, want %q", got, tt.wantQuality)
 			}
+			if got := s.GateModeReason(); tt.wantReason != "" && !strings.HasPrefix(got, tt.wantReason) {
+				t.Errorf("GateModeReason() = %q, want prefix %q", got, tt.wantReason)
+			}
 		})
 	}
 }
 
-func writeDecisionSettings(t *testing.T, root, mode, gates string) {
+func writeDecisionSettings(t *testing.T, root, mode, gates, relevance string) {
 	t.Helper()
 	path := filepath.Join(root, "topic.yaml")
 	data, err := os.ReadFile(path)
@@ -119,6 +127,9 @@ func writeDecisionSettings(t *testing.T, root, mode, gates string) {
 	}
 	if gates != "" {
 		block += "  gates: " + gates + "\n"
+	}
+	if relevance != "" {
+		block += "  relevance: " + relevance + "\n"
 	}
 	if err := os.WriteFile(path, append(data, []byte(block)...), 0o644); err != nil {
 		t.Fatal(err)

@@ -245,13 +245,19 @@ func (s *Session) RelevanceEnabled() bool {
 
 // RelevanceGateMode is shadow until the topic has an accepted contract and
 // either a stored calibration with ≥30 relevance labels or decisions.gates:
-// apply (spec §7). --decisions overrides it for the run.
+// apply (spec §7). --decisions overrides it for the run, except that
+// --decisions=apply never enables relevance quarantine or skips without an
+// accepted contract or with relevance off (spec §5.1: relevance then runs in
+// shadow).
 func (s *Session) RelevanceGateMode() string {
-	if s.Flags.Decisions != "" {
-		return s.Flags.Decisions
-	}
-	if s.Contract == nil {
+	if s.Flags.Decisions == ModeShadow {
 		return ModeShadow
+	}
+	if !s.RelevanceEnabled() || s.Contract == nil {
+		return ModeShadow
+	}
+	if s.Flags.Decisions == ModeApply {
+		return ModeApply
 	}
 	if strings.EqualFold(s.Settings.Decisions.Gates, ModeApply) {
 		return ModeApply
@@ -275,13 +281,20 @@ func (s *Session) QualityGateMode() string {
 
 // GateModeReason explains the relevance gate mode for run summaries.
 func (s *Session) GateModeReason() string {
+	noContract := "no accepted contract: run `kb topic contract " + s.Topic.Slug + " --draft|--import-claude` then `--accept`"
 	switch {
-	case s.Flags.Decisions != "":
+	case s.Flags.Decisions == ModeShadow:
 		return "set by --decisions"
+	case !s.RelevanceEnabled() && s.Flags.Decisions == ModeApply:
+		return "--decisions=apply ignored: relevance off in topic.yaml"
 	case !s.RelevanceEnabled():
 		return "relevance off in topic.yaml"
+	case s.Contract == nil && s.Flags.Decisions == ModeApply:
+		return "--decisions=apply ignored for relevance: " + noContract
 	case s.Contract == nil:
-		return "no accepted contract: run `kb topic contract " + s.Topic.Slug + " --draft|--import-claude` then `--accept`"
+		return noContract
+	case s.Flags.Decisions == ModeApply:
+		return "set by --decisions"
 	case strings.EqualFold(s.Settings.Decisions.Gates, ModeApply):
 		return "decisions.gates: apply in topic.yaml"
 	case strings.EqualFold(s.Settings.Decisions.Gates, ModeShadow):
