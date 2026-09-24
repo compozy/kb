@@ -124,7 +124,7 @@ func TestFindCommandAddsQMDVectorCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(log), "query --json -n 30 --no-rerank -c demo vec: tune HNSW") {
+	if !strings.Contains(string(log), "query --json -n 90 --no-rerank -c demo vec: tune HNSW") {
 		t.Fatalf("qmd invocations:\n%s", log)
 	}
 

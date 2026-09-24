@@ -3,6 +3,7 @@ package qmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +54,7 @@ func TestIndexAddConstructsExpectedArguments(t *testing.T) {
 		t.Fatalf("invocations = %d, want 2", len(invocations))
 	}
 
-	expected := []string{"--index", "task17-index", "collection", "add", "/tmp/vault", "--name", "docs"}
+	expected := []string{"--index", "task17-index", "collection", "add", "/tmp/vault", "--name", "docs", "--mask", CollectionMask}
 	if !reflect.DeepEqual(invocations[0], expected) {
 		t.Fatalf("add args = %#v, want %#v", invocations[0], expected)
 	}
@@ -483,7 +484,7 @@ func TestSearchPassesLimitMinScoreAndFullFlags(t *testing.T) {
 		t.Fatalf("invocations = %d, want 1", len(invocations))
 	}
 
-	expected := []string{"vsearch", "--json", "-n", "7", "--min-score", "0.3", "--full", "-c", "docs", "semantic auth"}
+	expected := []string{"vsearch", "--json", "-n", "57", "--min-score", "0.3", "--full", "-c", "docs", "semantic auth"}
 	if !reflect.DeepEqual(invocations[0], expected) {
 		t.Fatalf("vector args = %#v, want %#v", invocations[0], expected)
 	}
@@ -687,6 +688,91 @@ func TestNormalizeSearchModeRejectsUnsupportedMode(t *testing.T) {
 
 	if _, _, err := normalizeSearchMode(SearchMode("bm25")); err == nil {
 		t.Fatal("normalizeSearchMode error = nil, want unsupported mode")
+	}
+}
+
+// rankedHitsWithQuarantineFirst returns count quarantined or decision-record
+// hits ranked ahead of one valid source, as JSON objects (one per line).
+func rankedHitsWithQuarantineFirst(collection string, count int) []string {
+	hits := make([]string, 0, count+1)
+	for index := range count {
+		file := fmt.Sprintf("qmd://%s/raw/_quarantine/junk-%02d.md", collection, index)
+		if index%3 == 2 {
+			file = fmt.Sprintf("qmd://%s/.decisions/record-%02d.md", collection, index)
+		}
+		hits = append(hits, fmt.Sprintf(`{"docid":"#q%02d","score":%.2f,"file":%q,"title":"Junk %d","snippet":"junk"}`, index, 0.99-float64(index)*0.01, file, index))
+	}
+	return append(hits, fmt.Sprintf(`{"docid":"#ok","score":0.5,"file":"qmd://%s/raw/articles/valid.md","title":"Valid","snippet":"the valid match"}`, collection))
+}
+
+// writeLimitedQMD writes a fake qmd whose search commands, like the real
+// one, return only the first `-n` ranked hits (all of them without -n).
+// status reports a fresh collection over indexPath.
+func writeLimitedQMD(t *testing.T, logPath, status string, hits []string) string {
+	t.Helper()
+	hitsPath := filepath.Join(t.TempDir(), "hits.jsonl")
+	if err := os.WriteFile(hitsPath, []byte(strings.Join(hits, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := "if [ \"$1\" = status ]; then cat <<'EOF'\n" + status + "\nEOF\nexit 0; fi\n" +
+		"n=100000\nprev=\"\"\nfor arg in \"$@\"; do if [ \"$prev\" = \"-n\" ]; then n=$arg; fi; prev=$arg; done\n" +
+		"printf '['\nhead -n \"$n\" " + shellQuote(hitsPath) + " | paste -sd, -\nprintf ']\\n'\n"
+	return writeFakeQMD(t, fakeQMDOptions{LogPath: logPath, ScriptBody: body})
+}
+
+func TestSearchOverFetchesPastExcludedHits(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []SearchMode{SearchModeLexical, SearchModeVector} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			logPath := filepath.Join(t.TempDir(), "args.log")
+			binary := writeLimitedQMD(t, logPath, "", rankedHitsWithQuarantineFirst("docs", 10))
+
+			results, err := newFakeQMDClient(binary).Search(context.Background(), SearchOptions{
+				Query: "valid", Mode: mode, Limit: 10, Collection: "docs",
+			})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if len(results) != 1 || results[0].Path != "qmd://docs/raw/articles/valid.md" {
+				t.Fatalf("results = %#v, want the valid match ranked below ten excluded hits", results)
+			}
+		})
+	}
+
+	t.Run("Should cut to the user-facing limit after filtering", func(t *testing.T) {
+		t.Parallel()
+		hits := rankedHitsWithQuarantineFirst("docs", 2)
+		for index := range 5 {
+			hits = append(hits, fmt.Sprintf(`{"docid":"#v%d","score":0.4,"file":"qmd://docs/raw/articles/v%d.md","title":"V%d"}`, index, index, index))
+		}
+		binary := writeLimitedQMD(t, filepath.Join(t.TempDir(), "args.log"), "", hits)
+		results, err := newFakeQMDClient(binary).Search(context.Background(), SearchOptions{
+			Query: "valid", Mode: SearchModeLexical, Limit: 3,
+		})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		paths := make([]string, len(results))
+		for index, result := range results {
+			paths[index] = result.Path
+		}
+		want := []string{"qmd://docs/raw/articles/valid.md", "qmd://docs/raw/articles/v0.md", "qmd://docs/raw/articles/v1.md"}
+		if !reflect.DeepEqual(paths, want) {
+			t.Fatalf("paths = %#v, want %#v", paths, want)
+		}
+	})
+}
+
+func TestOverFetchLimit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ limit, want int }{
+		{1, 51}, {10, 60}, {30, 90}, {400, 1000}, {2000, 2000},
+	} {
+		if got := overFetchLimit(tc.limit); got != tc.want {
+			t.Errorf("overFetchLimit(%d) = %d, want %d", tc.limit, got, tc.want)
+		}
 	}
 }
 

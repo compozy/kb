@@ -94,6 +94,14 @@ func runIndexCommand(cmd *cobra.Command, options *indexCommandOptions) error {
 		return wrapQMDCommandError("index", err)
 	}
 
+	if existing := findCollectionStatus(status.Collections, collectionName); existing != nil && existing.Pattern != "" && existing.Pattern != qmd.CollectionMask {
+		// Collections created before kb passed its mask still index the
+		// quarantine; search filters those hits, but they cost ranking slots.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: qmd collection %q uses pattern %q, not kb's %q; quarantined files stay indexed (kb filters them from results). Recreate it with `qmd collection remove %s` and `kb index`.\n",
+			collectionName, existing.Pattern, qmd.CollectionMask, collectionName)
+	}
+
 	result, err := client.Index(ctx, qmd.IndexOptions{
 		Operation:      chooseIndexOperation(status, collectionName),
 		VaultPath:      resolvedVault.TopicPath,

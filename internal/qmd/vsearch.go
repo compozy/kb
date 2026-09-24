@@ -149,7 +149,9 @@ func newestMarkdown(root string) (time.Time, error) {
 }
 
 // Query runs one no-rerank vector query and returns up to limit
-// collection-relative paths, best first, without duplicates.
+// collection-relative paths, best first, without duplicates. It over-fetches
+// (overFetchLimit) so quarantined hits of an older collection cannot use up
+// the window before filtering.
 func (c *Candidates) Query(ctx context.Context, text string, limit int) ([]string, error) {
 	text = singleLine(text)
 	if text == "" {
@@ -167,12 +169,19 @@ func (c *Candidates) Query(ctx context.Context, text string, limit int) ([]strin
 
 	stdout, _, err := c.client.run(ctx, commandSpec{
 		label: "query (vector candidates)",
-		args:  c.client.baseArgs("query", "--json", "-n", strconv.Itoa(limit), "--no-rerank", "-c", c.collection, "vec: "+text),
+		args:  c.client.baseArgs("query", "--json", "-n", strconv.Itoa(overFetchLimit(limit)), "--no-rerank", "-c", c.collection, "vec: "+text),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return parseCandidatePaths(stdout, c.collection)
+	paths, err := parseCandidatePaths(stdout, c.collection)
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) > limit {
+		paths = paths[:limit]
+	}
+	return paths, nil
 }
 
 // Neighbours implements link.Neighbours: the top k wiki articles closest to

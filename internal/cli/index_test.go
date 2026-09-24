@@ -116,31 +116,43 @@ func TestIndexCommandUpdatesExistingCollection(t *testing.T) {
 			TopicSlug: "repo-topic",
 		}, nil
 	}
-	newIndexClient = func() indexCommandClient {
-		return fakeIndexClient{
-			status: func(ctx context.Context) (qmd.IndexStatus, error) {
-				return qmd.IndexStatus{
-					Collections: []qmd.CollectionInfo{{Name: "repo-topic"}},
-				}, nil
-			},
-			index: func(ctx context.Context, options qmd.IndexOptions) (qmd.IndexResult, error) {
-				gotOptions = options
-				return qmd.IndexResult{CollectionName: options.CollectionName}, nil
-			},
+	for _, tc := range []struct {
+		pattern     string
+		wantWarning bool
+	}{
+		{pattern: qmd.CollectionMask},
+		{pattern: "**/*.md", wantWarning: true},
+	} {
+		newIndexClient = func() indexCommandClient {
+			return fakeIndexClient{
+				status: func(ctx context.Context) (qmd.IndexStatus, error) {
+					return qmd.IndexStatus{
+						Collections: []qmd.CollectionInfo{{Name: "repo-topic", Pattern: tc.pattern}},
+					}, nil
+				},
+				index: func(ctx context.Context, options qmd.IndexOptions) (qmd.IndexResult, error) {
+					gotOptions = options
+					return qmd.IndexResult{CollectionName: options.CollectionName}, nil
+				},
+			}
 		}
-	}
 
-	command := newRootCommand()
-	command.SetOut(new(bytes.Buffer))
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"index"})
+		command := newRootCommand()
+		var stderr bytes.Buffer
+		command.SetOut(new(bytes.Buffer))
+		command.SetErr(&stderr)
+		command.SetArgs([]string{"index"})
 
-	if err := command.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("ExecuteContext returned error: %v", err)
-	}
+		if err := command.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("ExecuteContext returned error: %v", err)
+		}
 
-	if gotOptions.Operation != qmd.IndexOperationUpdate {
-		t.Fatalf("operation = %q, want update", gotOptions.Operation)
+		if gotOptions.Operation != qmd.IndexOperationUpdate {
+			t.Fatalf("operation = %q, want update", gotOptions.Operation)
+		}
+		if warned := strings.Contains(stderr.String(), "quarantined files stay indexed"); warned != tc.wantWarning {
+			t.Fatalf("pattern %q: warning = %v, want %v (stderr %q)", tc.pattern, warned, tc.wantWarning, stderr.String())
+		}
 	}
 }
 

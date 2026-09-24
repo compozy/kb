@@ -141,7 +141,7 @@ func TestCandidatesNeighboursDropsSelfAndHubs(t *testing.T) {
 
 	invocations := readInvocationLog(t, logPath)
 	query := invocations[len(invocations)-1]
-	wantArgs := []string{"query", "--json", "-n", "12", "--no-rerank", "-c", "demo", "vec: Self A summary over lines. # Heading Body text."}
+	wantArgs := []string{"query", "--json", "-n", "62", "--no-rerank", "-c", "demo", "vec: Self A summary over lines. # Heading Body text."}
 	if !reflect.DeepEqual(query, wantArgs) {
 		t.Fatalf("query args = %#v, want %#v", query, wantArgs)
 	}
@@ -188,6 +188,30 @@ func TestSingleLineCapsLength(t *testing.T) {
 	}
 	if got := singleLine(" a\n\tb  c "); got != "a b c" {
 		t.Fatalf("singleLine = %q", got)
+	}
+}
+
+func TestCandidatesOverFetchPastExcludedHits(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	root, indexPath := candidatesTopic(t, now.Add(-time.Hour), now)
+	logPath := filepath.Join(t.TempDir(), "args.log")
+	binary := writeLimitedQMD(t, logPath, candidatesStatus(indexPath), rankedHitsWithQuarantineFirst("demo", 30))
+	candidates, note := newFakeQMDClient(binary).OpenCandidates(context.Background(), "demo", root)
+	if candidates == nil {
+		t.Fatalf("candidates off: %s", note)
+	}
+
+	got, err := candidates.Search(context.Background(), "valid", 30)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if want := []string{"raw/articles/valid.md"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Search = %#v, want %#v (the valid match below thirty excluded hits)", got, want)
+	}
+	got, err = candidates.Search(context.Background(), "valid", 1)
+	if err != nil || !reflect.DeepEqual(got, []string{"raw/articles/valid.md"}) {
+		t.Fatalf("Search limit 1 = %#v, %v", got, err)
 	}
 }
 

@@ -20,6 +20,16 @@ const (
 	DefaultBinaryPath = "qmd"
 	// InstallCommand is the recommended install command for the QMD CLI.
 	InstallCommand = "npm install -g @tobilu/qmd"
+	// CollectionMask is the `--mask` of every collection kb creates: all
+	// markdown except quarantined sources (`raw/_quarantine/`, spec §7) and
+	// decision records (`.decisions/`, which qmd skips as a dot directory
+	// anyway). qmd stores it as the collection pattern, so `qmd update`
+	// keeps honouring it; its negated globs are passed to fast-glob.
+	CollectionMask = "**/*.md,!**/raw/_quarantine/**,!**/.decisions/**"
+
+	// maxOverFetch caps the number of hits asked from qmd for one limited
+	// search, see overFetchLimit.
+	maxOverFetch = 1000
 )
 
 var (
@@ -237,6 +247,30 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 }
 
 func (client *QMDClient) executeSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
+	limit := options.Limit
+	if !options.All && limit > 0 {
+		options.Limit = overFetchLimit(limit)
+	}
+	results, err := client.runSearch(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	if !options.All && limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+// overFetchLimit is the number of hits asked from qmd for a user-facing
+// limit. Collections indexed before CollectionMask existed still contain
+// quarantined sources and decision records; they are dropped after qmd has
+// ranked and cut its result list, so kb asks for more (3×, at least 50
+// extra, capped) and cuts to limit only after filtering.
+func overFetchLimit(limit int) int {
+	return max(min(max(limit*3, limit+50), maxOverFetch), limit)
+}
+
+func (client *QMDClient) runSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
 	command, err := client.searchCommand(options)
 	if err != nil {
 		return nil, err
@@ -475,6 +509,8 @@ func (client *QMDClient) indexCommand(operation IndexOperation, options IndexOpt
 				vaultPath,
 				"--name",
 				strings.TrimSpace(options.CollectionName),
+				"--mask",
+				CollectionMask,
 			),
 		}, nil
 	case IndexOperationUpdate:
@@ -601,13 +637,13 @@ func (payload searchResultPayload) excluded() bool {
 // ExcludedPath reports whether a qmd hit path (a `qmd://<collection>/...`
 // URI, a collection-relative or an on-disk path) points into a topic's
 // quarantine (`raw/_quarantine/`, spec §7) or its `.decisions/` records.
-// Quarantined files are out of every pipeline, qmd search included, but the
-// qmd CLI has no per-collection ignore flag (ignore rules live only in its
-// YAML config), so the files may be indexed and are dropped from every hit
-// list instead. qmd normalizes path segments before showing them
-// (`_quarantine` becomes `quarantine`), so both spellings under `raw/`
-// match; `.decisions/` is a dot directory qmd never indexes, matched for
-// indexes built otherwise.
+// Quarantined files are out of every pipeline, qmd search included. New
+// collections exclude them through CollectionMask; collections created
+// before it may still hold them, so every hit list is also filtered (after
+// over-fetching, see overFetchLimit). Some qmd versions normalize path
+// segments before showing them (`_quarantine` becomes `quarantine`), so both
+// spellings under `raw/` match; `.decisions/` is a dot directory qmd never
+// indexes, matched for indexes built otherwise.
 func ExcludedPath(p string) bool {
 	p = strings.TrimSpace(p)
 	if p == "" {
