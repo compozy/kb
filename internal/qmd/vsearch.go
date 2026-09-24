@@ -221,7 +221,8 @@ func singleLine(text string) string {
 
 // parseCandidatePaths maps qmd JSON hits to collection-relative paths:
 // `qmd://<collection>/` and any `?index=` suffix are stripped and the path is
-// URL-decoded.
+// URL-decoded. Quarantined sources and decision records (ExcludedPath) are
+// dropped.
 func parseCandidatePaths(stdout, collection string) ([]string, error) {
 	var hits []searchResultPayload
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &hits); err != nil {
@@ -231,7 +232,7 @@ func parseCandidatePaths(stdout, collection string) ([]string, error) {
 	paths := make([]string, 0, len(hits))
 	for _, hit := range hits {
 		p := candidatePath(firstNonEmpty(hit.File, hit.FilePath, hit.DisplayPath), collection)
-		if p == "" || seen[p] {
+		if p == "" || seen[p] || hit.excluded() || ExcludedPath(p) {
 			continue
 		}
 		seen[p] = true

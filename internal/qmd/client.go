@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -300,6 +301,9 @@ func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, e
 
 	results := make([]SearchResult, 0, len(rawResults))
 	for _, rawResult := range rawResults {
+		if rawResult.excluded() {
+			continue
+		}
 		normalized := rawResult.normalize(options.Full)
 		if options.MinScore != nil && normalized.Score < *options.MinScore {
 			continue
@@ -587,6 +591,45 @@ func (payload searchResultPayload) normalize(full bool) SearchResult {
 		Snippet: payload.resolveSnippet(full),
 		Score:   payload.Score,
 	}
+}
+
+// excluded reports a hit on a quarantined source or a decision record.
+func (payload searchResultPayload) excluded() bool {
+	return slices.ContainsFunc([]string{payload.File, payload.FilePath, payload.DisplayPath}, ExcludedPath)
+}
+
+// ExcludedPath reports whether a qmd hit path (a `qmd://<collection>/...`
+// URI, a collection-relative or an on-disk path) points into a topic's
+// quarantine (`raw/_quarantine/`, spec §7) or its `.decisions/` records.
+// Quarantined files are out of every pipeline, qmd search included, but the
+// qmd CLI has no per-collection ignore flag (ignore rules live only in its
+// YAML config), so the files may be indexed and are dropped from every hit
+// list instead. qmd normalizes path segments before showing them
+// (`_quarantine` becomes `quarantine`), so both spellings under `raw/`
+// match; `.decisions/` is a dot directory qmd never indexes, matched for
+// indexes built otherwise.
+func ExcludedPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	if index := strings.Index(p, "?"); index >= 0 {
+		p = p[:index]
+	}
+	p = strings.TrimPrefix(strings.ReplaceAll(p, "\\", "/"), "qmd://")
+	segments := strings.Split(strings.ToLower(p), "/")
+	for index, segment := range segments {
+		if segment == ".decisions" {
+			return true
+		}
+		if segment == "raw" && index+1 < len(segments) {
+			switch segments[index+1] {
+			case "_quarantine", "quarantine":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (payload searchResultPayload) resolveSnippet(full bool) string {

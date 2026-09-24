@@ -869,3 +869,57 @@ const hybridSearchJSONFixture = `[
     "snippet": "Low score snippet"
   }
 ]`
+
+// quarantineHits mixes kept sources with a quarantined one (both the on-disk
+// `_quarantine` spelling and qmd's normalized `quarantine`) and a decision
+// record.
+const quarantineHits = `[
+  {"docid":"#1","score":0.9,"file":"qmd://demo/raw/_quarantine/articles/junk.md","displayPath":"demo/raw/_quarantine/articles/junk.md","title":"Junk"},
+  {"docid":"#2","score":0.8,"file":"qmd://demo/raw/articles/kept.md","displayPath":"demo/raw/articles/kept.md","title":"Kept"},
+  {"docid":"#3","score":0.7,"file":"qmd://demo/raw/quarantine/articles/other-junk.md","displayPath":"demo/raw/quarantine/articles/other-junk.md","title":"Other junk"},
+  {"docid":"#4","score":0.6,"file":"qmd://demo/.decisions/receipts.md","displayPath":"demo/.decisions/receipts.md","title":"Receipts"},
+  {"docid":"#5","score":0.5,"file":"qmd://demo/wiki/concepts/Quarantine.md","displayPath":"demo/wiki/concepts/Quarantine.md","title":"Quarantine"}
+]`
+
+func TestExcludedPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "qmd://demo/raw/_quarantine/articles/junk.md", want: true},
+		{path: "qmd://demo/raw/quarantine/articles/junk.md?index=st", want: true},
+		{path: "raw/_quarantine/x.md", want: true},
+		{path: "vault/demo/raw/_Quarantine/x.md", want: true},
+		{path: `C:\vault\demo\raw\_quarantine\x.md`, want: true},
+		{path: "qmd://demo/.decisions/state.md", want: true},
+		{path: "qmd://demo/raw/articles/kept.md"},
+		{path: "qmd://demo/wiki/concepts/Quarantine.md"},
+		{path: "qmd://demo/raw/articles/quarantine-notes.md"},
+		{path: "qmd://demo/wiki/decisions/log.md"},
+		{path: ""},
+	}
+	for _, tc := range tests {
+		if got := ExcludedPath(tc.path); got != tc.want {
+			t.Errorf("ExcludedPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestSearchDropsQuarantinedHits(t *testing.T) {
+	t.Parallel()
+
+	binaryPath := writeFakeQMD(t, fakeQMDOptions{StdoutByCommand: map[string]string{"search": quarantineHits}})
+	results, err := newFakeQMDClient(binaryPath).Search(context.Background(), SearchOptions{Query: "junk", Mode: SearchModeLexical, Collection: "demo"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	paths := make([]string, 0, len(results))
+	for _, result := range results {
+		paths = append(paths, result.Path)
+	}
+	if want := []string{"demo/raw/articles/kept.md", "demo/wiki/concepts/Quarantine.md"}; !reflect.DeepEqual(paths, want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+}

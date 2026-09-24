@@ -190,3 +190,16 @@ func TestSingleLineCapsLength(t *testing.T) {
 		t.Fatalf("singleLine = %q", got)
 	}
 }
+
+func TestCandidatesDropQuarantinedHits(t *testing.T) {
+	t.Parallel()
+	candidates, _ := openFakeCandidates(t, quarantineHits)
+
+	got, err := candidates.Search(context.Background(), "junk", 30)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if want := []string{"raw/articles/kept.md", "wiki/concepts/Quarantine.md"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Search = %#v, want %#v", got, want)
+	}
+}
