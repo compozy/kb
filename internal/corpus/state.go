@@ -21,19 +21,64 @@ const StateFile = resolve.DecisionsDir + "/state.jsonl"
 
 // StateRow is one row of `<topic>/.decisions/state.jsonl` (spec §6): the
 // bookkeeping kb keeps per document instead of writing it to frontmatter.
+//
+// BodyHash and Contract describe the document at kb's last write (rename
+// detection follows BodyHash). Freshness is tracked per judgment instead: a
+// write by one command (link, review, ingest) must not make another
+// command's answers look current. BankBody and BankContract record, per
+// question bank, the body and contract its answers were computed on;
+// WrittenBody records, per owned key, the body its value was derived from;
+// Facts holds small per-document outcomes other runs aggregate (for example
+// the primary concept). Rows written before these maps existed read as if
+// every bank and key was judged on BodyHash under Contract.
 type StateRow struct {
-	Path     string            `json:"path"`
-	BodyHash string            `json:"body_hash"`
-	Contract string            `json:"contract"`
-	Banks    map[string]string `json:"banks"`
-	Written  map[string]string `json:"written"`
-	Updated  string            `json:"updated"`
+	Path         string            `json:"path"`
+	BodyHash     string            `json:"body_hash"`
+	Contract     string            `json:"contract"`
+	Banks        map[string]string `json:"banks"`
+	Written      map[string]string `json:"written"`
+	BankBody     map[string]string `json:"bank_body,omitempty"`
+	BankContract map[string]string `json:"bank_contract,omitempty"`
+	WrittenBody  map[string]string `json:"written_body,omitempty"`
+	Facts        map[string]string `json:"facts,omitempty"`
+	Updated      string            `json:"updated"`
 }
 
 func (row StateRow) clone() StateRow {
 	row.Banks = maps.Clone(row.Banks)
 	row.Written = maps.Clone(row.Written)
+	row.BankBody = maps.Clone(row.BankBody)
+	row.BankContract = maps.Clone(row.BankContract)
+	row.WrittenBody = maps.Clone(row.WrittenBody)
+	row.Facts = maps.Clone(row.Facts)
 	return row
+}
+
+// JudgedBody returns the body hash the answers of bank were computed on
+// (BodyHash for rows that predate per-bank tracking).
+func (row *StateRow) JudgedBody(bank string) string {
+	if hash, ok := row.BankBody[bank]; ok {
+		return hash
+	}
+	return row.BodyHash
+}
+
+// JudgedContract returns the contract hash bank was judged under (Contract
+// for rows that predate per-bank tracking).
+func (row *StateRow) JudgedContract(bank string) string {
+	if hash, ok := row.BankContract[bank]; ok {
+		return hash
+	}
+	return row.Contract
+}
+
+// KeyBody returns the body hash the value of the owned key was derived from
+// (BodyHash for rows that predate per-key tracking).
+func (row *StateRow) KeyBody(key string) string {
+	if hash, ok := row.WrittenBody[key]; ok {
+		return hash
+	}
+	return row.BodyHash
 }
 
 // StateStore is the append-only document state store. The last row per path
@@ -237,21 +282,22 @@ func (s *StateStore) Compact() error {
 }
 
 // Unclassified reports whether doc needs a (re)classification: it has no
-// state row, its body changed since the row was written, or the row was
-// written under another contract hash (when contract is non-empty) or
-// another version of any bank in banks.
+// state row, or any bank in banks was recorded with another version, judged
+// on another body, or judged under another contract hash (when contract is
+// non-empty). Writes by other commands never refresh these per-bank records,
+// so a body edit followed by `kb link` still leaves doc unclassified.
 func Unclassified(doc *Document, row *StateRow, contract string, banks map[string]string) bool {
 	if doc == nil || row == nil {
 		return true
 	}
-	if row.BodyHash != doc.BodyHash {
-		return true
-	}
-	if contract != "" && row.Contract != contract {
-		return true
+	if len(banks) == 0 {
+		return row.BodyHash != doc.BodyHash || (contract != "" && row.Contract != contract)
 	}
 	for bank, version := range banks {
-		if row.Banks[bank] != version {
+		if row.Banks[bank] != version || row.JudgedBody(bank) != doc.BodyHash {
+			return true
+		}
+		if contract != "" && row.JudgedContract(bank) != contract {
 			return true
 		}
 	}

@@ -14,7 +14,11 @@ import (
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/fakes"
 	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/link"
+	"github.com/compozy/kb/internal/lint"
+	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/review"
+	"github.com/compozy/kb/internal/session"
 )
 
 // stateHas reports whether the call's state is about the document at path.
@@ -492,8 +496,8 @@ func TestClassifyUndecidedRetriesNextRun(t *testing.T) {
 	path := webSource(t, root, "raw/articles/a.md", "Typed decision engines", "decision models")
 
 	first := runClassify(t, vault, fake.URL, Options{})
-	if first.Undecided["kind:invalid_receipt"] != 1 {
-		t.Fatalf("Undecided = %v", first.Undecided)
+	if first.Undecided["kind:invalid_receipt"] != 1 || !slices.Equal(first.UndecidedDocuments, []string{"raw/articles/a.md"}) || first.Decided != 0 {
+		t.Fatalf("Undecided = %v, documents %v, decided %d", first.Undecided, first.UndecidedDocuments, first.Decided)
 	}
 	if _, ok := frontmatterOf(t, path)["genre"]; ok {
 		t.Fatal("an undecided answer never writes")
@@ -513,4 +517,160 @@ func TestClassifyUndecidedRetriesNextRun(t *testing.T) {
 	if third := runClassify(t, vault, fake.URL, Options{}); third.Judged != 0 {
 		t.Fatalf("a complete document is not judged again: judged %d", third.Judged)
 	}
+}
+
+func TestClassifyReJudgesAfterBodyEditAndLink(t *testing.T) {
+	t.Parallel()
+	fake := fakeServer(t, judgeAll, defaultGenerate)
+	vault, root := newTestTopic(t)
+	setTestContract(t, root, nil)
+	article(t, root, "Decision Models", "Decision Models", map[string]any{"criterion": "Documents about typed decision models."}, longBody("typed decision models", 120))
+	path := webSource(t, root, "raw/articles/a.md", "Typed decision engines", "decision models")
+	rel := "raw/articles/a.md"
+
+	if first := runClassify(t, vault, fake.URL, Options{}); first.Judged != 2 || first.Decided != 2 {
+		t.Fatalf("first run: %s", strings.Join(first.Lines(), "\n"))
+	}
+	content := readFile(t, path)
+	if err := os.WriteFile(path, []byte(strings.Replace(content, "Jev is mentioned here.", "Jev is mentioned here, and the user rewrote this line.", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unrelated write (the link pass) must not make the edited source look
+	// classified.
+	s := openTestSession(t, vault, fake.URL)
+	if _, err := link.Run(context.Background(), s, link.Options{}); err != nil {
+		t.Fatalf("link.Run: %v", err)
+	}
+	row, ok := s.State.Get(rel)
+	if !ok || row.Banks[link.BankID] == "" {
+		t.Fatalf("the link pass must have recorded its own judgment: %#v", row)
+	}
+
+	issues, err := lint.Lint(root)
+	if err != nil {
+		t.Fatalf("lint: %v", err)
+	}
+	found := false
+	for _, issue := range issues {
+		if issue.Kind == models.LintIssueKindUnclassified && strings.Contains(issue.Message, "body changed: 1") && strings.Contains(issue.Message, rel) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("lint must report the edited source as unclassified: %#v", issues)
+	}
+
+	gens := literalCalls(fake)
+	second := runClassify(t, vault, fake.URL, Options{})
+	if second.Judged != 1 || second.Skipped["unchanged"] != 1 {
+		t.Fatalf("the edited source must be judged again: %s", strings.Join(second.Lines(), "\n"))
+	}
+	if literalCalls(fake) != gens+1 {
+		t.Fatalf("the kb-written summary of the edited source must be regenerated (%d → %d literal calls)", gens, literalCalls(fake))
+	}
+}
+
+func TestClassifyRegeneratesLiteralsAfterBudgetStop(t *testing.T) {
+	t.Parallel()
+	fake := fakeServer(t, judgeAll, defaultGenerate)
+	vault, root := newTestTopic(t)
+	setTestContract(t, root, nil)
+	path := webSource(t, root, "raw/articles/a.md", "Typed decision engines", "decision models")
+	rel := "raw/articles/a.md"
+
+	runClassify(t, vault, fake.URL, Options{})
+	content := readFile(t, path)
+	if err := os.WriteFile(path, []byte(strings.Replace(content, "Jev is mentioned here.", "Jev is mentioned here, edited.", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Budget for the gate and facet requests only: generation stops on the
+	// budget after the facets were written.
+	s := openTestSessionWith(t, vault, fake.URL, session.Flags{BudgetUSD: 0.00015})
+	stopped, err := Run(context.Background(), s, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stopped.Undecided["literals:budget"] != 1 || !slices.Equal(stopped.UndecidedDocuments, []string{rel}) {
+		t.Fatalf("budget stop: %s", strings.Join(stopped.Lines(), "\n"))
+	}
+	if joined := strings.Join(stopped.Lines(), "\n"); !strings.Contains(joined, "coverage: 0/1 judged documents fully decided") || !strings.Contains(joined, "undecided documents (1, left unclassified): "+rel) {
+		t.Fatalf("lines must name the undecided document:\n%s", joined)
+	}
+
+	gens := literalCalls(fake)
+	resumed := runClassify(t, vault, fake.URL, Options{})
+	if resumed.Judged != 1 || resumed.UndecidedTotal() != 0 {
+		t.Fatalf("resumed run: %s", strings.Join(resumed.Lines(), "\n"))
+	}
+	if literalCalls(fake) != gens+1 {
+		t.Fatalf("the stale summary must be regenerated after the budget stop (%d → %d literal calls)", gens, literalCalls(fake))
+	}
+	doc, err := corpus.ReadDocument(root, rel, corpus.KindSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, _ := openTestSession(t, vault, fake.URL).State.Get(rel)
+	if row.KeyBody("summary") != doc.BodyHash {
+		t.Fatalf("summary must be recorded as derived from the current body: %#v", row)
+	}
+}
+
+func TestClassifyConceptProposalsCountAcrossRuns(t *testing.T) {
+	t.Parallel()
+	fake := fakeServer(t, func(call fakes.Call, q fakes.Question) any {
+		if q.ID == "primary_concept" {
+			return nil // default: none
+		}
+		return judgeAll(call, q)
+	}, func(schemaName, system, prompt string) any {
+		if schemaName == "concept_list" {
+			return map[string]any{"concepts": []any{
+				map[string]any{"title": "Match Analytics", "criterion": "Documents about analysing sports matches with data."},
+			}}
+		}
+		return defaultGenerate(schemaName, system, prompt)
+	})
+	vault, root := newTestTopic(t)
+	setTestContract(t, root, nil)
+	article(t, root, "Decision Models", "Decision Models", map[string]any{"criterion": "Documents about typed decision models."}, longBody("typed decision models", 120))
+	for i := range MinNoneForProposals - 2 {
+		webSource(t, root, fmt.Sprintf("raw/articles/s%d.md", i), fmt.Sprintf("Match report %d", i), "football matches")
+	}
+
+	first := runClassify(t, vault, fake.URL, Options{})
+	if first.PrimaryNoneTotal != MinNoneForProposals-2 || first.Queued[review.QueueConceptProposal] != 0 {
+		t.Fatalf("first run: none total %d, queued %v", first.PrimaryNoneTotal, first.Queued)
+	}
+	for i := MinNoneForProposals - 2; i < MinNoneForProposals; i++ {
+		webSource(t, root, fmt.Sprintf("raw/articles/s%d.md", i), fmt.Sprintf("Match report %d", i), "football matches")
+	}
+
+	second := runClassify(t, vault, fake.URL, Options{})
+	if second.PrimaryNone != 2 || second.PrimaryNoneTotal != MinNoneForProposals || second.Queued[review.QueueConceptProposal] != 1 {
+		t.Fatalf("second run: none %d, none total %d, queued %v", second.PrimaryNone, second.PrimaryNoneTotal, second.Queued)
+	}
+	prompt := ""
+	for _, gen := range fake.GenCalls() {
+		if gen.SchemaName == "concept_list" {
+			prompt = gen.Prompt
+		}
+	}
+	for i := range MinNoneForProposals {
+		if !strings.Contains(prompt, fmt.Sprintf("Match report %d: ", i)) {
+			t.Fatalf("the proposal must cover the none sources of earlier runs too (missing %d):\n%s", i, prompt)
+		}
+	}
+}
+
+// literalCalls counts the summary/entities/questions generation requests.
+func literalCalls(fake *fakes.OpenRouter) int {
+	count := 0
+	for _, gen := range fake.GenCalls() {
+		if gen.SchemaName == "document_literals" {
+			count++
+		}
+	}
+	return count
 }

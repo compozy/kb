@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/compozy/kb/internal/corpus"
 )
 
 // Report summarizes one classify run. Counts are per document unless named
@@ -14,6 +16,12 @@ type Report struct {
 	Documents int `json:"documents"`
 	// Judged is the number of documents that went through the facet pass.
 	Judged int `json:"judged"`
+	// Decided is the number of judged documents whose every answer and
+	// literal was decided (the rest stay unclassified for the next run).
+	Decided int `json:"decided"`
+	// UndecidedDocuments lists, sorted, the documents left with an
+	// undecided answer or literal (spec §2.3: named in the run summary).
+	UndecidedDocuments []string `json:"undecided_documents"`
 	// Skipped counts documents not judged, by reason: unchanged (state row
 	// current), complete (--only-missing and nothing missing), locked, stub.
 	Skipped map[string]int `json:"skipped"`
@@ -43,8 +51,12 @@ type Report struct {
 	// ArticlesChanged lists articles that gained aliases (they trigger the
 	// link reverse pass).
 	ArticlesChanged []string `json:"articles_changed"`
-	// PrimaryNone counts sources whose primary concept was `none`.
+	// PrimaryNone counts sources whose primary concept was `none` in this
+	// run.
 	PrimaryNone int `json:"primary_none"`
+	// PrimaryNoneTotal counts the topic's sources whose primary concept is
+	// `none` (this run plus earlier runs), the concept proposal trigger.
+	PrimaryNoneTotal int `json:"primary_none_total"`
 	// NoVocabulary reports a topic without articles: no concept questions
 	// were asked.
 	NoVocabulary bool `json:"no_vocabulary"`
@@ -54,17 +66,21 @@ type Report struct {
 
 func newReport() Report {
 	return Report{
-		Skipped:          map[string]int{},
-		Facets:           map[string]int{},
-		Writes:           map[string]int{},
-		SkippedUserKeys:  map[string]int{},
-		Undecided:        map[string]int{},
-		Queued:           map[string]int{},
-		InvalidLiterals:  map[string]int{},
-		CriterionMissing: []string{},
-		ArticlesChanged:  []string{},
+		Skipped:            map[string]int{},
+		Facets:             map[string]int{},
+		Writes:             map[string]int{},
+		SkippedUserKeys:    map[string]int{},
+		Undecided:          map[string]int{},
+		Queued:             map[string]int{},
+		InvalidLiterals:    map[string]int{},
+		CriterionMissing:   []string{},
+		ArticlesChanged:    []string{},
+		UndecidedDocuments: []string{},
 	}
 }
+
+// maxListedDocuments caps the undecided documents named in Lines.
+const maxListedDocuments = 10
 
 // UndecidedTotal is the number of undecided answers and literals.
 func (r Report) UndecidedTotal() int {
@@ -77,7 +93,13 @@ func (r Report) UndecidedTotal() int {
 
 // Lines renders the report for humans.
 func (r Report) Lines() []string {
-	lines := []string{fmt.Sprintf("classify: %d documents, %d judged%s", r.Documents, r.Judged, countsSuffix(r.Skipped, "skipped"))}
+	lines := []string{
+		fmt.Sprintf("classify: %d documents, %d judged%s", r.Documents, r.Judged, countsSuffix(r.Skipped, "skipped")),
+		fmt.Sprintf("coverage: %d/%d judged documents fully decided", r.Decided, r.Judged),
+	}
+	if len(r.UndecidedDocuments) > 0 {
+		lines = append(lines, fmt.Sprintf("undecided documents (%d, left unclassified): %s", len(r.UndecidedDocuments), corpus.ListPaths(r.UndecidedDocuments, maxListedDocuments)))
+	}
 	if len(r.Facets) > 0 {
 		lines = append(lines, "written: "+joinCounts(r.Facets))
 	}
@@ -119,6 +141,8 @@ func (r Report) Rows() []map[string]any {
 	rows := []map[string]any{
 		{"metric": "documents", "value": r.Documents},
 		{"metric": "judged", "value": r.Judged},
+		{"metric": "decided", "value": r.Decided},
+		{"metric": "undecided_documents", "value": len(r.UndecidedDocuments)},
 	}
 	add := func(prefix string, counts map[string]int) {
 		for _, key := range slices.Sorted(maps.Keys(counts)) {

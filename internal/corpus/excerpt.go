@@ -115,7 +115,13 @@ const markerReserve = 8
 // Head flattens wikilinks (`[[a|b]]` → `b`, `[[a]]` → `a`) and returns at most
 // maxChars runes of the trimmed result.
 func Head(body string, maxChars int) string {
-	flattened := flattenWikilinkPattern.ReplaceAllStringFunc(body, func(match string) string {
+	return strings.TrimSpace(truncateRunes(strings.TrimSpace(flattenWikilinks(body)), maxChars))
+}
+
+// flattenWikilinks replaces every wikilink with its display text
+// (`[[a|b]]` → `b`, `[[a]]` → `a`, `[[a#h]]` → `a`).
+func flattenWikilinks(body string) string {
+	return flattenWikilinkPattern.ReplaceAllStringFunc(body, func(match string) string {
 		groups := flattenWikilinkPattern.FindStringSubmatch(match)
 		if strings.TrimSpace(groups[2]) != "" {
 			return groups[2]
@@ -126,8 +132,6 @@ func Head(body string, maxChars int) string {
 		}
 		return strings.TrimSpace(target)
 	})
-
-	return strings.TrimSpace(truncateRunes(strings.TrimSpace(flattened), maxChars))
 }
 
 func splitSections(body string) []string {

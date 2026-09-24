@@ -321,6 +321,7 @@ User-owned control key:
 Rules:
 
 - **Ownership, not a prefix.** kb writes an owned key only when it is absent, or when its current value still hashes to what kb last wrote (value hashes live in `<topic>/.decisions/state.jsonl`, not in frontmatter). A key you edit, or one your vault already used for something else, becomes yours: kb leaves it, reports `skipped:user-key` in the run summary, and `kb lint` reports `key-conflict`. This is how an edited `criterion` or `summary` is kept. Delete the key to hand it back to kb.
+- **Relation lists merge.** In a `related`, `extends`, `prerequisite`, `example_of`, `contradicts`, `affects` or `supersedes` list you wrote, kb only appends new targets (deduplicated by link target); it never removes or reorders your items, and lint does not call the list a `key-conflict`. `concepts` keeps the ownership rule above.
 - **`aliases` merge.** kb adds validated aliases (1–6 words, ≤ 8, no collision with another article's title or alias) and never removes one you wrote. Aliases are display text for `[[target|alias]]`; like titles, they never resolve a link on their own.
 - **No renamed user keys.** kb uses `triage` and `genre` because `status` and `kind` are common user keys; `status` (bookmarks) and `source_kind` keep their meaning.
 - **Byte-preserving writes.** kb replaces or appends only its own keys, never re-serializes the rest of the YAML, and refuses to write when the body or a key it does not own changed since it read the file (`skipped:changed`).

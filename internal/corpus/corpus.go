@@ -382,6 +382,15 @@ func skipDir(relative string) bool {
 	return false
 }
 
+// ListPaths renders document paths for a run summary: at most limit of
+// them, comma-separated, then "(+N more)" when some were left out.
+func ListPaths(paths []string, limit int) string {
+	if limit <= 0 || len(paths) <= limit {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s (+%d more)", strings.Join(paths[:limit], ", "), len(paths)-limit)
+}
+
 func excluded(patterns []string, relative string) bool {
 	for _, pattern := range patterns {
 		if MatchGlob(pattern, relative) {

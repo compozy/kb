@@ -77,6 +77,17 @@ func TestNeedsLiteral(t *testing.T) {
 		return &corpus.Document{Path: "raw/a.md", BodyHash: bodyHash, Frontmatter: values}
 	}
 	row := &corpus.StateRow{Path: "raw/a.md", BodyHash: "old", Written: map[string]string{"summary": corpus.ValueHash(kbValue)}}
+	// Another write (link, or a classify pass stopped by the budget before
+	// the literals) moved the row to the new body; the summary is still the
+	// one generated from the old body.
+	advanced := &corpus.StateRow{
+		Path: "raw/a.md", BodyHash: "new", Written: map[string]string{"summary": corpus.ValueHash(kbValue)},
+		WrittenBody: map[string]string{"summary": "old"},
+	}
+	regenerated := &corpus.StateRow{
+		Path: "raw/a.md", BodyHash: "new", Written: map[string]string{"summary": corpus.ValueHash(kbValue)},
+		WrittenBody: map[string]string{"summary": "new"},
+	}
 	tests := []struct {
 		name string
 		doc  *corpus.Document
@@ -89,6 +100,8 @@ func TestNeedsLiteral(t *testing.T) {
 		{name: "kb-written, body unchanged", doc: doc(kbValue, "old"), row: row, want: false},
 		{name: "kb-written, body changed", doc: doc(kbValue, "new"), row: row, want: true},
 		{name: "user-edited, body changed", doc: doc("Edited.", "new"), row: row, want: false},
+		{name: "kb-written on an older body, row advanced by another write", doc: doc(kbValue, "new"), row: advanced, want: true},
+		{name: "kb-written on the current body", doc: doc(kbValue, "new"), row: regenerated, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -65,11 +65,17 @@ func appendTopicYAML(t *testing.T, root, text string) {
 // openTestSession opens a session against the fake OpenRouter at apiURL.
 func openTestSession(t *testing.T, vault, apiURL string) *session.Session {
 	t.Helper()
+	return openTestSessionWith(t, vault, apiURL, session.Flags{})
+}
+
+// openTestSessionWith opens a session with per-run flags (budget, mode).
+func openTestSessionWith(t *testing.T, vault, apiURL string, flags session.Flags) *session.Session {
+	t.Helper()
 	cfg := config.Default()
 	cfg.OpenRouter.APIKey = "test-key"
 	cfg.OpenRouter.APIURL = apiURL
 	cfg.Decisions.Concurrency = 4
-	s, err := session.Open(session.Options{Config: cfg, VaultPath: vault, Topic: "demo", Command: "kb classify", Now: func() time.Time { return testNow }})
+	s, err := session.Open(session.Options{Config: cfg, VaultPath: vault, Topic: "demo", Command: "kb classify", Flags: flags, Now: func() time.Time { return testNow }})
 	if err != nil {
 		t.Fatalf("session.Open: %v", err)
 	}

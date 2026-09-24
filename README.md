@@ -359,7 +359,7 @@ kb writes plain keys, flat at the top level, so Obsidian, Dataview and Bases rea
 | `recaptured` | source | date of an in-place recapture | review (recapture queue) |
 | `locked` | any | `true` stops kb from writing anything to the file | you |
 
-`status` and `kind` stay yours: kb uses `triage` and `genre` instead. **Ownership rule:** kb writes a key only when it is absent or its value is still exactly what kb last wrote (tracked by value hash in `.decisions/state.jsonl`). A key you edited, or one your vault already used, belongs to you: kb leaves it, the run summary reports `skipped:user-key`, and `kb lint` reports `key-conflict`. Writes are byte-preserving: kb replaces or appends only its own keys and refuses to write when the file changed since it was read (`skipped:changed`).
+`status` and `kind` stay yours: kb uses `triage` and `genre` instead. **Ownership rule:** kb writes a key only when it is absent or its value is still exactly what kb last wrote (tracked by value hash in `.decisions/state.jsonl`). A key you edited, or one your vault already used, belongs to you: kb leaves it, the run summary reports `skipped:user-key`, and `kb lint` reports `key-conflict`. Relation lists (`related`, `extends`, `prerequisite`, `example_of`, `contradicts`, `affects`, `supersedes`) and `aliases` are the exception: kb only appends new targets to your list, never removes or reorders your items, and lint does not report them as conflicts. Writes are byte-preserving: kb replaces or appends only its own keys and refuses to write when the file changed since it was read (`skipped:changed`).
 
 ### Files under `<topic>/.decisions/`
 
@@ -368,7 +368,7 @@ Records and caches, never the graph (the graph is wikilinks and frontmatter). JS
 | File | Holds |
 | --- | --- |
 | `receipts.jsonl` | every decision and generation call: key, purpose, subject, bank version, contract hash, model, cost, latency, status, raw answers |
-| `state.jsonl` | one row per document: body hash, contract hash, bank versions and the value hash of every key kb wrote |
+| `state.jsonl` | one row per document: body hash, contract hash, bank versions, the value hash of every key kb wrote, and the body (and contract) each bank and key was judged on, so a write by one command never makes another command's judgment look current |
 | `review.jsonl` | review queue items and their status changes |
 | `labels.jsonl` | human verdicts and imported labels, with their origin |
 | `calibration.json` | the last `kb review calibrate --write`: date, label counts, dev and holdout metrics |

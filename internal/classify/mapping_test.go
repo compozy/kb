@@ -77,6 +77,18 @@ func TestMapFacets(t *testing.T) {
 			wantComplete: true,
 		},
 		{
+			name:         "not enough text removes a stale kb-written depth",
+			in:           facetInput{source: true, relevanceOn: true, ownsDepth: true, gate: decidedGate(RoleAdjacent, 0, nil), answers: withAnswers(map[string]decisions.Answer{"enough_text_to_judge": noul(0.3)})},
+			wantUpdates:  map[string]any{"relevance": RoleAdjacent, "genre": "paper", "depth": nil},
+			wantComplete: true,
+		},
+		{
+			name:          "undecided enough_text keeps a kb-written depth",
+			in:            facetInput{source: true, relevanceOn: true, ownsDepth: true, gate: decidedGate(RoleAdjacent, 0, nil), answers: withAnswers(map[string]decisions.Answer{"enough_text_to_judge": failed("budget")})},
+			wantUpdates:   map[string]any{"relevance": RoleAdjacent, "genre": "paper"},
+			wantUndecided: []string{"enough_text_to_judge:budget"},
+		},
+		{
 			name:          "undecided depth never writes",
 			in:            facetInput{source: true, relevanceOn: true, gate: decidedGate(RoleCore, 0, nil), answers: withAnswers(map[string]decisions.Answer{"depth": failed("timeout")})},
 			wantUpdates:   map[string]any{"relevance": RoleCore, "genre": "paper"},

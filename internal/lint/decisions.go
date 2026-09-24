@@ -174,21 +174,28 @@ func recordIssue(filePath string, err error) models.LintIssue {
 }
 
 // keyConflicts returns, per document path, the kb-owned keys that belong to
-// the user (spec §6 conflicts): the document has a state row and the key's
-// current value hash differs from written[key] or was never written by kb.
+// the user (spec §6 conflicts): the document has a state row (followed
+// across renames by body hash, like the writer does) and the key's current
+// value hash differs from written[key] or was never written by kb. A
+// relation list of strings is never a conflict: kb merges new targets into
+// it append-only (spec §9.3), so the user's list and kb's additions coexist.
 func keyConflicts(loaded *corpus.Corpus, store *corpus.StateStore) map[string]map[string]struct{} {
 	conflicts := make(map[string]map[string]struct{})
 	if store == nil {
 		return conflicts
 	}
+	exists := func(path string) bool { return loaded.ByPath(path) != nil }
 	for _, doc := range loaded.Documents() {
-		row, ok := store.Get(doc.Path)
+		row, ok := store.Lookup(doc.Path, doc.BodyHash, exists)
 		if !ok {
 			continue
 		}
 		for _, key := range decisions.OwnedKeys {
 			value, present := doc.Frontmatter[key]
 			if !present || slices.Contains(creationOnlyKeys, key) {
+				continue
+			}
+			if corpus.IsMergedListKey(key) && isStringList(value) {
 				continue
 			}
 			if written, ok := row.Written[key]; ok && written == corpus.ValueHash(value) {
@@ -340,13 +347,16 @@ func unclassifiedIssue(loaded *corpus.Corpus, store *corpus.StateStore, activeCo
 	)}
 }
 
+// unclassifiedReason compares the classification judgment recorded in the
+// row (the body and contract the classify bank was judged on, which writes by
+// other commands never advance) with the document and the active contract.
 func unclassifiedReason(doc *corpus.Document, row *corpus.StateRow, ok bool, activeContract string, bankIDs []string, current map[string]string) string {
 	switch {
 	case !ok || row == nil:
 		return "no state record"
-	case row.BodyHash != doc.BodyHash:
+	case row.JudgedBody(classifyBankID) != doc.BodyHash:
 		return "body changed"
-	case activeContract != "" && row.Contract != activeContract:
+	case activeContract != "" && row.JudgedContract(classifyBankID) != activeContract:
 		return "contract changed"
 	case row.Banks[classifyBankID] == "":
 		return "not classified"

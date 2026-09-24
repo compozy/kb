@@ -37,7 +37,7 @@ var quotedWikilinkPattern = regexp.MustCompile(`^\[\[[^\[\]\n]+\]\]$`)
 
 var (
 	triageValues       = []string{"kept", "review", "quarantined"}
-	triageReasonValues = []string{"off_topic", "paywall", "error_page", "thin", "not_an_article", "no_speech", "duplicate"}
+	triageReasonValues = []string{"off_topic", "paywall", "error_page", "thin", "not_an_article", "no_speech", "duplicate", "undecided"}
 	qualityValues      = []string{"thin", "error_page", "paywall", "not_an_article", "no_speech"}
 )
 

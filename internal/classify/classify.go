@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"path"
 	"path/filepath"
@@ -34,6 +35,17 @@ const (
 	// enoughTextThreshold is the P(enough_text_to_judge) under which depth
 	// is not written (spec §8).
 	enoughTextThreshold = 0.5
+)
+
+// State-row fact recording the primary concept outcome of a source, so the
+// concept proposal trigger counts across the topic, not only this run.
+const (
+	// FactPrimaryConcept is the fact name.
+	FactPrimaryConcept = "primary_concept"
+	// PrimaryNone records a decided primary concept `none`.
+	PrimaryNone = "none"
+	// PrimaryMatched records a decided primary concept other than `none`.
+	PrimaryMatched = "concept"
 )
 
 // Options configures Run.
@@ -128,6 +140,12 @@ type run struct {
 	mu     sync.Mutex
 	report Report
 	none   []noneSource
+	// primaryAsked lists the sources whose primary concept was asked in
+	// this run: their fact in r.rows is superseded.
+	primaryAsked map[string]bool
+	// undecidedDocs collects the documents left with an undecided answer
+	// or literal.
+	undecidedDocs map[string]bool
 	// taken maps every lower-cased article title and alias to its article
 	// path, for alias collision checks.
 	taken map[string]string
@@ -150,6 +168,9 @@ func newRun(s *session.Session, c *corpus.Corpus, opts Options) *run {
 		stems:      map[string]int{},
 		report:     newReport(),
 		taken:      map[string]string{},
+
+		primaryAsked:  map[string]bool{},
+		undecidedDocs: map[string]bool{},
 	}
 	r.report.RelevanceOff = !s.RelevanceEnabled()
 	exists := func(p string) bool { return c.ByPath(p) != nil }
@@ -180,6 +201,7 @@ func (r *run) finish() Report {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	sort.Strings(r.report.ArticlesChanged)
+	r.report.UndecidedDocuments = append([]string{}, slices.Sorted(maps.Keys(r.undecidedDocs))...)
 	return r.report
 }
 
@@ -300,15 +322,24 @@ func hasValue(doc *corpus.Document, key string) bool {
 
 // needsLiteral reports whether kb should (re)generate the literal key of
 // doc: it is missing, or kb wrote it (value hash matches the state record)
-// and the body changed since. A value the user owns is never regenerated.
+// from another body than the current one (the per-key body hash of the
+// state row, which other writes never advance). A value the user owns is
+// never regenerated.
 func needsLiteral(doc *corpus.Document, row *corpus.StateRow, key string) bool {
 	if !hasValue(doc, key) {
 		return true
 	}
-	if row == nil || row.BodyHash == doc.BodyHash {
+	if row == nil || row.Written[key] != corpus.ValueHash(doc.Frontmatter[key]) {
 		return false
 	}
-	return row.Written[key] == corpus.ValueHash(doc.Frontmatter[key])
+	return row.KeyBody(key) != doc.BodyHash
+}
+
+// ownsKey reports a present key whose value kb wrote and nobody edited
+// since (its value hash equals the state record's written hash).
+func ownsKey(doc *corpus.Document, row *corpus.StateRow, key string) bool {
+	value, ok := doc.Frontmatter[key]
+	return ok && value != nil && row != nil && row.Written[key] != "" && row.Written[key] == corpus.ValueHash(value)
 }
 
 func hasWords(doc *corpus.Document) bool {
@@ -345,6 +376,7 @@ func (r *run) articleLiterals(ctx context.Context, article *corpus.Document) err
 					report.InvalidLiterals["criterion"]++
 				}
 			})
+			r.markUndecided(article.Path)
 		case err != nil:
 			return err
 		default:
@@ -356,6 +388,7 @@ func (r *run) articleLiterals(ctx context.Context, article *corpus.Document) err
 		switch reason, soft := softGenerationError(err); {
 		case soft:
 			r.tally(func(report *Report) { report.Undecided["aliases:"+reason]++ })
+			r.markUndecided(article.Path)
 		case err != nil:
 			return err
 		default:
@@ -421,6 +454,7 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 		source:       source,
 		relevanceOn:  r.s.RelevanceEnabled(),
 		hasRelevance: hasValue(doc, "relevance"),
+		ownsDepth:    ownsKey(doc, row, "depth"),
 		gate:         gate,
 		answers:      asked.answers,
 		options:      asked.options,
@@ -459,6 +493,20 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 		for id := range meta.Banks {
 			meta.Banks[id] = ""
 		}
+		r.markUndecided(doc.Path)
+	}
+	if source && out.primaryAsked {
+		fact := ""
+		switch {
+		case out.primaryNone:
+			fact = PrimaryNone
+		case out.primaryDecided:
+			fact = PrimaryMatched
+		}
+		meta.Facts = map[string]string{FactPrimaryConcept: fact}
+		r.mu.Lock()
+		r.primaryAsked[doc.Path] = true
+		r.mu.Unlock()
 	}
 	result, err := r.s.Writer.Apply(doc, out.updates, meta)
 	if err != nil {
@@ -467,6 +515,9 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 
 	r.tally(func(report *Report) {
 		report.Judged++
+		if out.complete {
+			report.Decided++
+		}
 		recordWrite(report, result)
 		for _, reason := range out.undecided {
 			report.Undecided[reason]++
@@ -591,11 +642,13 @@ type facetInput struct {
 	source       bool
 	relevanceOn  bool
 	hasRelevance bool
-	gate         *GateJudgment
-	answers      map[string]decisions.Answer
-	options      []*concept
-	candidates   []*concept
-	thresholds   decisions.Thresholds
+	// ownsDepth reports a `depth` kb wrote and nobody edited since.
+	ownsDepth  bool
+	gate       *GateJudgment
+	answers    map[string]decisions.Answer
+	options    []*concept
+	candidates []*concept
+	thresholds decisions.Thresholds
 }
 
 // queueDecision is a review item code decided to add.
@@ -610,8 +663,11 @@ type facetOutcome struct {
 	undecided   []string
 	complete    bool
 	primaryNone bool
-	recapture   *queueDecision
-	remove      *queueDecision
+	// primaryAsked and primaryDecided report the primary_concept question.
+	primaryAsked   bool
+	primaryDecided bool
+	recapture      *queueDecision
+	remove         *queueDecision
 }
 
 // mapFacets maps answers to frontmatter updates and queue decisions (spec
@@ -664,6 +720,11 @@ func mapFacets(in facetInput) facetOutcome {
 		case !decided:
 			undecided("enough_text_to_judge", enough)
 		case p < enoughTextThreshold:
+			// Too little text to judge depth: a depth kb wrote from an
+			// earlier body is stale and goes (a user's depth stays).
+			if in.ownsDepth {
+				out.updates["depth"] = nil
+			}
 		case !depth.Decided() || depth.Score == nil:
 			undecided("depth", depth)
 		default:
@@ -703,6 +764,8 @@ func (out *facetOutcome) mapConcepts(in facetInput, undecided func(string, decis
 	}
 	complete := true
 	primary := in.answers["primary_concept"]
+	out.primaryAsked = true
+	out.primaryDecided = primary.Decided()
 	switch {
 	case !primary.Decided():
 		undecided("primary_concept", primary)
@@ -771,17 +834,51 @@ func (r *run) addItems(items []review.Item) error {
 	return nil
 }
 
-// proposeConcepts asks, when ≥ MinNoneForProposals sources ended with
-// primary concept `none`, one generation call for up to MaxProposals new
-// concepts from those sources' summaries, and queues them as
-// concept-proposal items. It never creates articles.
+// markUndecided records a document left with an undecided answer or
+// literal, for the run summary.
+func (r *run) markUndecided(path string) {
+	r.mu.Lock()
+	r.undecidedDocs[path] = true
+	r.mu.Unlock()
+}
+
+// noneSources returns every source of the topic whose primary concept is
+// `none`: the ones judged in this run plus, for the sources this run did not
+// ask, the primary-concept fact recorded in their state row by earlier runs.
+// Sorted by path.
+func (r *run) noneSources() []noneSource {
+	r.mu.Lock()
+	none := slices.Clone(r.none)
+	asked := maps.Clone(r.primaryAsked)
+	r.mu.Unlock()
+	for _, doc := range r.corpus.Sources() {
+		if asked[doc.Path] || doc.Locked() || strings.EqualFold(doc.Triage(), "quarantined") {
+			continue
+		}
+		if row := r.rows[doc.Path]; row != nil && row.Facts[FactPrimaryConcept] == PrimaryNone {
+			none = append(none, noneSource{path: doc.Path, title: doc.Title, summary: doc.Summary()})
+		}
+	}
+	sort.Slice(none, func(i, j int) bool { return none[i].path < none[j].path })
+	return none
+}
+
+// proposeConcepts asks, when ≥ MinNoneForProposals sources of the topic
+// have primary concept `none` (this run's judgments plus the facts earlier
+// runs recorded), one generation call for up to MaxProposals new concepts
+// from those sources' summaries, and queues them as concept-proposal items.
+// It never creates articles.
 func (r *run) proposeConcepts(ctx context.Context) error {
-	if r.vocab.empty() || len(r.none) < MinNoneForProposals {
+	if r.vocab.empty() {
 		return nil
 	}
-	sort.Slice(r.none, func(i, j int) bool { return r.none[i].path < r.none[j].path })
+	none := r.noneSources()
+	r.tally(func(report *Report) { report.PrimaryNoneTotal = len(none) })
+	if len(none) < MinNoneForProposals {
+		return nil
+	}
 	lines := make([]string, 0, maxProposalSources)
-	for _, source := range r.none[:min(len(r.none), maxProposalSources)] {
+	for _, source := range none[:min(len(none), maxProposalSources)] {
 		line := "- " + source.title
 		if source.summary != "" {
 			line += ": " + source.summary
@@ -827,7 +924,7 @@ func (r *run) proposeConcepts(ctx context.Context) error {
 			Subject:  path.Join(ConceptsDir, sanitizeFileName(concept.Title)+".md"),
 			Target:   concept.Title,
 			Question: "primary_concept",
-			Evidence: fmt.Sprintf("proposed from %d sources whose primary concept is none", len(r.none)),
+			Evidence: fmt.Sprintf("proposed from %d sources whose primary concept is none", len(none)),
 			Action:   map[string]any{"title": concept.Title, "criterion": concept.Criterion},
 		})
 	}

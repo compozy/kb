@@ -1,6 +1,7 @@
 package lint_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,7 @@ func TestLintOwnedKeyShapes(t *testing.T) {
 		{name: "triage enum", key: "triage", value: "kept"},
 		{name: "triage bad", key: "triage", value: "maybe", severity: models.SeverityError},
 		{name: "triage_reason bad", key: "triage_reason", value: "boring", severity: models.SeverityError},
+		{name: "triage_reason undecided", key: "triage_reason", value: "undecided"},
 		{name: "genre option", key: "genre", value: "paper"},
 		{name: "genre other", key: "genre", value: "other"},
 		{name: "genre bad", key: "genre", value: "novel", severity: models.SeverityError},
@@ -375,6 +377,33 @@ func TestLintUnclassifiedReasons(t *testing.T) {
 			wantReason: "question bank changed",
 		},
 		{
+			// The body was edited, then another command (link) wrote the
+			// document: the row follows the body, the classify judgment does
+			// not.
+			name: "body edited then written by link",
+			row: func(doc *corpus.Document) *corpus.StateRow {
+				return &corpus.StateRow{
+					BodyHash: doc.BodyHash, Contract: accepted.Hash(),
+					Banks:        map[string]string{"classify": classify.Version, "link": "x"},
+					BankBody:     map[string]string{"classify": "old", "link": doc.BodyHash},
+					BankContract: map[string]string{"classify": accepted.Hash(), "link": accepted.Hash()},
+				}
+			},
+			wantReason: "body changed",
+		},
+		{
+			name: "contract changed then written by link",
+			row: func(doc *corpus.Document) *corpus.StateRow {
+				return &corpus.StateRow{
+					BodyHash: doc.BodyHash, Contract: accepted.Hash(),
+					Banks:        map[string]string{"classify": classify.Version, "link": "x"},
+					BankBody:     map[string]string{"classify": doc.BodyHash, "link": doc.BodyHash},
+					BankContract: map[string]string{"classify": "older", "link": accepted.Hash()},
+				}
+			},
+			wantReason: "contract changed",
+		},
+		{
 			name: "row without classification",
 			row: func(doc *corpus.Document) *corpus.StateRow {
 				return &corpus.StateRow{BodyHash: doc.BodyHash, Contract: accepted.Hash(), Banks: map[string]string{"link": "x"}}
@@ -458,11 +487,26 @@ func TestLintKeyConflicts(t *testing.T) {
 	tests := []struct {
 		name     string
 		written  map[string]string
+		extra    map[string]any
+		rowPath  string
 		conflict []string
 	}{
 		{name: "kb-written values", written: map[string]string{"summary": corpus.ValueHash("Short summary."), "genre": corpus.ValueHash("paper")}},
 		{name: "edited value", written: map[string]string{"summary": corpus.ValueHash("Another summary."), "genre": corpus.ValueHash("paper")}, conflict: []string{"summary"}},
 		{name: "never written", written: map[string]string{"genre": corpus.ValueHash("paper")}, conflict: []string{"summary"}},
+		{
+			name:    "user relation list is merged, not a conflict",
+			written: map[string]string{"summary": corpus.ValueHash("Short summary."), "genre": corpus.ValueHash("paper")},
+			extra:   map[string]any{"related": []string{"[[notes]]"}, "concepts": []string{"[[notes]]"}},
+			// concepts keeps the conflict rule: it is a facet, not a relation.
+			conflict: []string{"concepts"},
+		},
+		{
+			name:     "renamed file follows its row by body hash",
+			written:  map[string]string{"summary": corpus.ValueHash("Another summary."), "genre": corpus.ValueHash("paper")},
+			rowPath:  "raw/articles/old-name.md",
+			conflict: []string{"summary"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -472,8 +516,9 @@ func TestLintKeyConflicts(t *testing.T) {
 			values["summary"] = strings.Repeat("x", 450)
 			values["genre"] = "paper"
 			values["ingest_batch"] = "file-2026-04-10-abc"
+			maps.Copy(values, tt.extra)
 			writeMarkdownFile(t, topicPath, "raw/articles/notes.md", values, "# Notes\n")
-			if len(tt.conflict) == 0 {
+			if len(tt.conflict) == 0 || tt.extra != nil {
 				// A kb-written summary within limits.
 				values["summary"] = "Short summary."
 				writeMarkdownFile(t, topicPath, "raw/articles/notes.md", values, "# Notes\n")
@@ -482,7 +527,11 @@ func TestLintKeyConflicts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadDocument: %v", err)
 			}
-			putStateRow(t, topicPath, corpus.StateRow{Path: doc.Path, BodyHash: doc.BodyHash, Banks: map[string]string{"classify": "x"}, Written: tt.written})
+			rowPath := doc.Path
+			if tt.rowPath != "" {
+				rowPath = tt.rowPath
+			}
+			putStateRow(t, topicPath, corpus.StateRow{Path: rowPath, BodyHash: doc.BodyHash, Banks: map[string]string{"classify": "x"}, Written: tt.written})
 
 			issues := mustLint(t, topicPath)
 			got := make([]string, 0)

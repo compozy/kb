@@ -148,9 +148,10 @@ func TestWriterWritesAbsentOwnedKeys(t *testing.T) {
 	if !ok {
 		t.Fatal("state row missing")
 	}
+	body := corpus.BodyHash("# Body\n\nText with [[Link]].\n")
 	wantRow := corpus.StateRow{
 		Path:     env.rel,
-		BodyHash: corpus.BodyHash("# Body\n\nText with [[Link]].\n"),
+		BodyHash: body,
 		Contract: "contract-1",
 		Banks:    map[string]string{"classify": "1"},
 		Written: map[string]string{
@@ -158,7 +159,11 @@ func TestWriterWritesAbsentOwnedKeys(t *testing.T) {
 			"concepts": corpus.ValueHash([]string{"[[Agents]]", "[[Tools]]"}),
 			"depth":    corpus.ValueHash(2.5),
 		},
-		Updated: "2026-09-24T12:00:00Z",
+		BankBody:     map[string]string{"classify": body},
+		BankContract: map[string]string{"classify": "contract-1"},
+		WrittenBody:  map[string]string{"summary": body, "concepts": body, "depth": body},
+		Facts:        map[string]string{},
+		Updated:      "2026-09-24T12:00:00Z",
 	}
 	if !reflect.DeepEqual(*row, wantRow) {
 		t.Fatalf("row = %#v\nwant %#v", *row, wantRow)
@@ -535,5 +540,247 @@ func TestWriterConcurrentDocuments(t *testing.T) {
 	}
 	if got := len(reopened.Rows()); got != 8 {
 		t.Fatalf("rows = %d, want 8", got)
+	}
+}
+
+func TestWriterRecordsJudgmentsPerBank(t *testing.T) {
+	t.Parallel()
+
+	classifyMeta := corpus.StateMeta{Contract: "contract-1", Banks: map[string]string{"classify": "1"}}
+	classifyBanks := map[string]string{"classify": "1"}
+
+	tests := []struct {
+		name string
+		// edit runs after the classify write, before the second write.
+		edit func(t *testing.T, env writerEnv)
+		// body, when set, replaces the body in the second write.
+		body     func(old string) string
+		updates  map[string]any
+		meta     corpus.StateMeta
+		contract string
+		// wantUnclassified is corpus.Unclassified for the classify bank
+		// after the second write.
+		wantUnclassified bool
+		// wantSummaryFresh reports whether the summary is recorded as
+		// derived from the current body.
+		wantSummaryFresh bool
+	}{
+		{
+			name: "link after a user body edit leaves the document unclassified",
+			edit: func(t *testing.T, env writerEnv) {
+				env.overwrite(t, strings.Replace(env.read(t), "Text with [[Link]].", "Text with [[Link]], edited by the user.", 1))
+			},
+			updates:          map[string]any{"related": []string{"[[Agents]]"}},
+			meta:             corpus.StateMeta{Contract: "contract-1", Banks: map[string]string{"link": "1"}},
+			contract:         "contract-1",
+			wantUnclassified: true,
+		},
+		{
+			name:             "link body insertion keeps the classification current",
+			body:             func(old string) string { return strings.Replace(old, "Text with", "[[Text|Text]] with", 1) },
+			updates:          map[string]any{"related": []string{"[[Text]]"}},
+			meta:             corpus.StateMeta{Contract: "contract-1", Banks: map[string]string{"link": "1"}},
+			contract:         "contract-1",
+			wantSummaryFresh: true,
+		},
+		{
+			name:             "a content-changing body replacement leaves the document unclassified",
+			body:             func(string) string { return "# Recaptured\n\nNew text.\n" },
+			updates:          map[string]any{"recaptured": "2026-09-24"},
+			meta:             corpus.StateMeta{Contract: "contract-1"},
+			contract:         "contract-1",
+			wantUnclassified: true,
+		},
+		{
+			name:             "a contract recorded by link does not refresh classify",
+			updates:          map[string]any{"related": []string{"[[Agents]]"}},
+			meta:             corpus.StateMeta{Contract: "contract-9", Banks: map[string]string{"link": "1"}},
+			contract:         "contract-9",
+			wantUnclassified: true,
+			wantSummaryFresh: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := newWriterEnv(t, "raw/articles/one.md", writerFixture)
+			if _, err := env.writer.Apply(env.load(t), map[string]any{"summary": "A summary."}, classifyMeta); err != nil {
+				t.Fatal(err)
+			}
+			if tc.edit != nil {
+				tc.edit(t, env)
+			}
+			doc := env.load(t)
+			var (
+				result corpus.WriteResult
+				err    error
+			)
+			if tc.body != nil {
+				result, err = env.writer.ApplyBody(doc, tc.body(doc.Body), tc.updates, tc.meta)
+			} else {
+				result, err = env.writer.Apply(doc, tc.updates, tc.meta)
+			}
+			if err != nil || result.Status != corpus.StatusWritten {
+				t.Fatalf("second write = %#v, %v", result, err)
+			}
+			doc = env.load(t)
+			row, ok := env.store.Get(env.rel)
+			if !ok {
+				t.Fatal("state row missing")
+			}
+			if row.BodyHash != doc.BodyHash {
+				t.Fatal("the row body hash must follow the file (rename detection)")
+			}
+			if got := corpus.Unclassified(doc, row, tc.contract, classifyBanks); got != tc.wantUnclassified {
+				t.Fatalf("Unclassified = %v, want %v (row %#v)", got, tc.wantUnclassified, row)
+			}
+			if got := row.KeyBody("summary") == doc.BodyHash; got != tc.wantSummaryFresh {
+				t.Fatalf("summary fresh = %v, want %v", got, tc.wantSummaryFresh)
+			}
+			for bank := range tc.meta.Banks {
+				if row.JudgedBody(bank) != doc.BodyHash || row.JudgedContract(bank) != tc.meta.Contract {
+					t.Fatalf("bank %s of the second write must be current: %#v", bank, row)
+				}
+			}
+		})
+	}
+}
+
+func TestWriterPinsLegacyRowJudgments(t *testing.T) {
+	t.Parallel()
+
+	env := newWriterEnv(t, "raw/articles/one.md", writerFixture)
+	oldBody := corpus.BodyHash("# Body\n\nText with [[Link]].\n")
+	legacy := corpus.StateRow{
+		Path: env.rel, BodyHash: oldBody, Contract: "contract-1",
+		Banks: map[string]string{"classify": "1"}, Written: map[string]string{}, Updated: "t0",
+	}
+	if err := env.store.Put(legacy); err != nil {
+		t.Fatal(err)
+	}
+	env.overwrite(t, strings.Replace(writerFixture, "Text with", "Edited text with", 1))
+	doc := env.load(t)
+	if _, err := env.writer.Apply(doc, map[string]any{"related": []string{"[[Agents]]"}}, corpus.StateMeta{Contract: "contract-2", Banks: map[string]string{"link": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := env.store.Get(env.rel)
+	if row.JudgedBody("classify") != oldBody || row.JudgedContract("classify") != "contract-1" {
+		t.Fatalf("a legacy classify judgment must stay pinned to its body and contract: %#v", row)
+	}
+	if !corpus.Unclassified(env.load(t), row, "", map[string]string{"classify": "1"}) {
+		t.Fatal("a legacy row must not look classified after an unrelated write")
+	}
+}
+
+func TestWriterMergesFacts(t *testing.T) {
+	t.Parallel()
+
+	env := newWriterEnv(t, "raw/articles/one.md", writerFixture)
+	apply := func(facts map[string]string) *corpus.StateRow {
+		t.Helper()
+		if _, err := env.writer.Apply(env.load(t), nil, corpus.StateMeta{Facts: facts}); err != nil {
+			t.Fatal(err)
+		}
+		row, _ := env.store.Get(env.rel)
+		return row
+	}
+	if row := apply(map[string]string{"primary_concept": "none", "other": "x"}); row.Facts["primary_concept"] != "none" || row.Facts["other"] != "x" {
+		t.Fatalf("facts = %#v", row.Facts)
+	}
+	if row := apply(map[string]string{"primary_concept": ""}); row.Facts["primary_concept"] != "" || row.Facts["other"] != "x" {
+		t.Fatalf("an empty fact must delete only that fact: %#v", row.Facts)
+	}
+}
+
+func TestWriterMergesUserRelationLists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		frontmatter string
+		key         string
+		desired     any
+		want        any
+		wantWritten bool
+		wantSkipped bool
+	}{
+		{
+			name:        "new targets are appended after the user's items",
+			frontmatter: "related:\n  - \"[[Zeta]]\"\n  - my own note\n  - \"[[Alpha|the alpha]]\"\n",
+			key:         "related",
+			desired:     []string{"[[Alpha]]", "[[Beta]]", "[[beta]]"},
+			want:        []string{"[[Zeta]]", "my own note", "[[Alpha|the alpha]]", "[[Beta]]"},
+			wantWritten: true,
+		},
+		{
+			name:        "a desired value without the user's items never removes them",
+			frontmatter: "affects:\n  - \"[[wiki/concepts/Gamma.md]]\"\n",
+			key:         "affects",
+			desired:     []string{"[[Delta]]"},
+			want:        []string{"[[wiki/concepts/Gamma.md]]", "[[Delta]]"},
+			wantWritten: true,
+		},
+		{
+			name:        "nothing new leaves the list alone",
+			frontmatter: "supersedes:\n  - \"[[Old]]\"\n",
+			key:         "supersedes",
+			desired:     []string{"[[old]]"},
+			want:        []string{"[[Old]]"},
+		},
+		{
+			name:        "a deletion of a user list is refused",
+			frontmatter: "extends:\n  - \"[[Old]]\"\n",
+			key:         "extends",
+			desired:     nil,
+			want:        []string{"[[Old]]"},
+			wantSkipped: true,
+		},
+		{
+			name:        "a scalar user value is not rewritten",
+			frontmatter: "related: see the index\n",
+			key:         "related",
+			desired:     []string{"[[Beta]]"},
+			want:        "see the index",
+			wantSkipped: true,
+		},
+		{
+			name:        "concepts keep the conflict rule",
+			frontmatter: "concepts:\n  - \"[[Mine]]\"\n",
+			key:         "concepts",
+			desired:     []string{"[[Mine]]", "[[Theirs]]"},
+			want:        []string{"[[Mine]]"},
+			wantSkipped: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := newWriterEnv(t, "raw/articles/one.md", "---\ntitle: One\n"+tc.frontmatter+"---\nbody\n")
+			result := env.apply(t, env.load(t), map[string]any{tc.key: tc.desired})
+			if got := len(result.Written) == 1; got != tc.wantWritten {
+				t.Fatalf("written = %v, want %v", result.Written, tc.wantWritten)
+			}
+			if got := len(result.SkippedUserKeys) == 1; got != tc.wantSkipped {
+				t.Fatalf("skipped = %v, want %v", result.SkippedUserKeys, tc.wantSkipped)
+			}
+			values, _, err := frontmatter.Parse(env.read(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(values[tc.key]) != fmt.Sprint(tc.want) {
+				t.Fatalf("%s = %#v, want %#v", tc.key, values[tc.key], tc.want)
+			}
+			if !tc.wantWritten {
+				return
+			}
+			row, _ := env.store.Get(env.rel)
+			if row.Written[tc.key] != corpus.ValueHash(values[tc.key]) {
+				t.Fatal("the merged value hash must be recorded so later kb appends keep working")
+			}
+			next := append(frontmatter.GetStringSlice(values, tc.key), "[[Epsilon]]")
+			if again := env.apply(t, env.load(t), map[string]any{tc.key: next}); len(again.Written) != 1 {
+				t.Fatalf("a later kb append = %#v", again)
+			}
+		})
 	}
 }

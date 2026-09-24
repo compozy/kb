@@ -185,6 +185,16 @@ func TestUnclassified(t *testing.T) {
 
 	doc := &corpus.Document{Path: "raw/a.md", BodyHash: "h"}
 	row := &corpus.StateRow{Path: "raw/a.md", BodyHash: "h", Contract: "c", Banks: map[string]string{"classify": "1", "extra": "9"}}
+	// Another command wrote the document after its body changed: the row's
+	// body hash and contract are current, the classify judgment is not.
+	staleJudgment := &corpus.StateRow{
+		Path: "raw/a.md", BodyHash: "h", Contract: "c", Banks: map[string]string{"classify": "1", "link": "1"},
+		BankBody: map[string]string{"classify": "old", "link": "h"}, BankContract: map[string]string{"classify": "c", "link": "c"},
+	}
+	oldContractJudgment := &corpus.StateRow{
+		Path: "raw/a.md", BodyHash: "h", Contract: "c", Banks: map[string]string{"classify": "1"},
+		BankBody: map[string]string{"classify": "h"}, BankContract: map[string]string{"classify": "b"},
+	}
 	tests := []struct {
 		name     string
 		doc      *corpus.Document
@@ -200,6 +210,9 @@ func TestUnclassified(t *testing.T) {
 		{name: "contract changed", doc: doc, row: row, contract: "d", want: true},
 		{name: "bank version changed", doc: doc, row: row, contract: "c", banks: map[string]string{"classify": "2"}, want: true},
 		{name: "bank missing", doc: doc, row: row, contract: "c", banks: map[string]string{"link": "1"}, want: true},
+		{name: "bank judged on an older body", doc: doc, row: staleJudgment, contract: "c", banks: map[string]string{"classify": "1"}, want: true},
+		{name: "other bank judged on the current body", doc: doc, row: staleJudgment, contract: "c", banks: map[string]string{"link": "1"}},
+		{name: "bank judged under an older contract", doc: doc, row: oldContractJudgment, contract: "c", banks: map[string]string{"classify": "1"}, want: true},
 	}
 	for _, tc := range tests {
 		if got := corpus.Unclassified(tc.doc, tc.row, tc.contract, tc.banks); got != tc.want {
