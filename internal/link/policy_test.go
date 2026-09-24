@@ -50,40 +50,42 @@ func TestDecide(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		kind     corpus.Kind
-		mode     string
-		mutate   func(*Plan)
-		answers  map[string]decisions.Answer
-		updates  map[string]any
-		inserts  []int // insertion starts
-		queues   []string
-		actions  []map[string]any
-		counters [5]int // proposals, reviews, contradictions, demotions, undecided
+		name    string
+		kind    corpus.Kind
+		mode    string
+		mutate  func(*Plan)
+		answers map[string]decisions.Answer
+		updates map[string]any
+		inserts []int // insertion starts
+		queues  []string
+		actions []map[string]any
+		// questions, when set, are the producing question ids of the items.
+		questions []string
+		counters  [5]int // proposals, reviews, contradictions, demotions, undecided
 	}{
 		{
 			name:    "apply band writes argmax relation",
 			kind:    corpus.KindArticle,
-			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("extends", 0.9, 0.88)},
+			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("extends", 0.9, 0.88), "mention_sense_1": noul(0.1), "mention_sense_2": noul(0.1)},
 			updates: map[string]any{"extends": []string{"[[RAG]]"}},
 		},
 		{
 			name:    "none falls back to related",
 			kind:    corpus.KindArticle,
-			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("none", 0.7, 0.6)},
+			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("none", 0.7, 0.6), "mention_sense_1": noul(0.1), "mention_sense_2": noul(0.1)},
 			updates: map[string]any{"related": []string{"[[RAG]]"}},
 		},
 		{
 			name:    "low relation confidence falls back to related",
 			kind:    corpus.KindArticle,
-			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("prerequisite", 0.4, 0.3)},
+			answers: map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("prerequisite", 0.4, 0.3), "mention_sense_1": noul(0.1), "mention_sense_2": noul(0.1)},
 			updates: map[string]any{"related": []string{"[[RAG]]"}},
 		},
 		{
 			name:    "existing entries are kept and appended to",
 			kind:    corpus.KindArticle,
 			mutate:  func(p *Plan) { p.Relations["related"] = []string{"[[Other]]"} },
-			answers: map[string]decisions.Answer{"should_link_c1": noul(0.95), "relation_c1": choice("related", 0.9, 0.9)},
+			answers: map[string]decisions.Answer{"should_link_c1": noul(0.95), "relation_c1": choice("related", 0.9, 0.9), "mention_sense_1": noul(0.1), "mention_sense_2": noul(0.1)},
 			updates: map[string]any{"related": []string{"[[Other]]", "[[RAG]]"}},
 		},
 		{
@@ -93,7 +95,7 @@ func TestDecide(t *testing.T) {
 				p.Relations["related"] = []string{"[[RAG]]"}
 				p.Present["related"] = map[string]bool{"wiki/concepts/RAG.md": true}
 			},
-			answers: map[string]decisions.Answer{"should_link_c1": noul(0.95), "relation_c1": choice("extends", 0.9, 0.9)},
+			answers: map[string]decisions.Answer{"should_link_c1": noul(0.95), "relation_c1": choice("extends", 0.9, 0.9), "mention_sense_1": noul(0.1), "mention_sense_2": noul(0.1)},
 			updates: map[string]any{},
 		},
 		{
@@ -106,13 +108,37 @@ func TestDecide(t *testing.T) {
 			counters: [5]int{0, 0, 1, 0, 0},
 		},
 		{
-			name:     "review band queues a link item",
+			name:      "review band queues a link item",
+			kind:      corpus.KindArticle,
+			answers:   map[string]decisions.Answer{"should_link_c1": noul(0.7), "relation_c1": choice("example_of", 0.9, 0.9)},
+			updates:   map[string]any{},
+			queues:    []string{review.QueueLink},
+			actions:   []map[string]any{{"relation": "example_of", "target": "RAG", "candidate": "c1"}},
+			questions: []string{"should_link_c1"},
+			counters:  [5]int{0, 1, 0, 0, 0},
+		},
+		{
+			name:     "undecided relation in the apply band is never guessed",
 			kind:     corpus.KindArticle,
-			answers:  map[string]decisions.Answer{"should_link_c1": noul(0.7), "relation_c1": choice("example_of", 0.9, 0.9)},
+			mode:     session.ModeApply,
+			answers:  map[string]decisions.Answer{"should_link_c1": noul(0.95), "relation_c1": undecided(), "mention_sense_1": noul(0.99)},
 			updates:  map[string]any{},
-			queues:   []string{review.QueueLink},
-			actions:  []map[string]any{{"relation": "example_of", "target": "RAG"}},
-			counters: [5]int{0, 1, 0, 0, 0},
+			counters: [5]int{0, 0, 0, 0, 1},
+		},
+		{
+			name:     "undecided relation in the review band queues nothing",
+			kind:     corpus.KindArticle,
+			answers:  map[string]decisions.Answer{"should_link_c1": noul(0.7), "relation_c1": undecided()},
+			updates:  map[string]any{},
+			counters: [5]int{0, 0, 0, 0, 1},
+		},
+		{
+			name:     "undecided mention_sense is counted and blocks a later insertion",
+			kind:     corpus.KindArticle,
+			mode:     session.ModeApply,
+			answers:  map[string]decisions.Answer{"should_link_c1": noul(0.9), "relation_c1": choice("related", 0.9, 0.9), "mention_sense_1": undecided(), "mention_sense_2": noul(0.95)},
+			updates:  map[string]any{"related": []string{"[[RAG]]"}},
+			counters: [5]int{0, 0, 0, 0, 1},
 		},
 		{
 			name:    "ignore band does nothing",
@@ -229,6 +255,16 @@ func TestDecide(t *testing.T) {
 				}
 				if !reflect.DeepEqual(item.Action, tt.actions[index]) {
 					t.Fatalf("item %d action = %#v, want %#v", index, item.Action, tt.actions[index])
+				}
+				if tt.questions != nil {
+					if item.Question != tt.questions[index] || item.ReceiptKey != "rk" {
+						t.Fatalf("item %d question/receipt = %q/%q, want %q/rk", index, item.Question, item.ReceiptKey, tt.questions[index])
+					}
+					// The queue identity stays on the generic question so a
+					// positional candidate id never re-asks a resolved item.
+					if want := review.ItemID(item.Queue, item.Subject, item.Target, review.QuestionShouldLink); item.ID != want {
+						t.Fatalf("item %d id = %q, want %q", index, item.ID, want)
+					}
 				}
 			}
 			got := [5]int{out.Proposals, out.Reviews, out.Contradictions, out.Demotions, out.Undecided}

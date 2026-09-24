@@ -116,6 +116,11 @@ type Outcome struct {
 //   - below Apply, a target kb itself wrote to a relation list becomes a
 //     `link` demotion item; nothing is ever removed.
 //   - affects_{id} ≥ Affects on a source: the target is added to `affects`.
+//
+// Every answer the policy consumes counts in Undecided when it is missing or
+// undecided (should_link, relation at or above Review, the mention_sense
+// answers read for a body link, affects); the target is then left alone
+// rather than judged "no", and the caller keeps the document retryable.
 func Decide(plan Plan, answers map[string]decisions.Answer, th Thresholds, bodyMode string) Outcome {
 	out := Outcome{Updates: map[string]any{}, Added: map[string][]string{}}
 	subject := plan.Doc.Path
@@ -129,7 +134,15 @@ func Decide(plan Plan, answers map[string]decisions.Answer, th Thresholds, bodyM
 			out.Undecided++
 			continue
 		}
-		relation, relationP := relationOf(answers["relation_"+candidate.ID])
+		relationAnswer, asked := answers["relation_"+candidate.ID]
+		if p >= th.Review && (!asked || !relationAnswer.Decided()) {
+			// Every branch at or above Review consumes the relation: an
+			// unavailable relation is never guessed as `related`; the target
+			// waits for the next run.
+			out.Undecided++
+			continue
+		}
+		relation, relationP := relationOf(relationAnswer)
 
 		switch {
 		case p >= th.Review && relation == RelationContradicts:
@@ -144,7 +157,11 @@ func Decide(plan Plan, answers map[string]decisions.Answer, th Thresholds, bodyM
 			if presentUnder(plan, candidate.Path) == "" {
 				additions[relation] = append(additions[relation], candidate.Path)
 			}
-			if insertion, ok := firstQualifyingMention(plan, candidate, answers, th.Mention); ok {
+			insertion, ok, undecided := firstQualifyingMention(plan, candidate, answers, th.Mention)
+			if undecided {
+				out.Undecided++
+			}
+			if ok {
 				insertion.Form, insertion.Relation = form, relation
 				if bodyMode == session.ModeApply {
 					out.Insertions = append(out.Insertions, insertion)
@@ -174,11 +191,17 @@ func Decide(plan Plan, answers map[string]decisions.Answer, th Thresholds, bodyM
 			}
 			if p >= th.Review {
 				out.Reviews++
+				// Question is the producing question (`should_link_<cid>`),
+				// Target the candidate it was asked about and ReceiptKey the
+				// receipt holding the answer: calibration joins through them.
+				// Candidate ids are positional, so the queue identity stays on
+				// the generic question name to keep deduplication stable.
 				out.Items = append(out.Items, review.Item{
+					ID:    review.ItemID(review.QueueLink, subject, candidate.Path, review.QuestionShouldLink),
 					Queue: review.QueueLink, Purpose: string(decisions.PurposeLink), Subject: subject,
-					Target: candidate.Path, Question: "should_link", Probability: p, ReceiptKey: should.Receipt,
+					Target: candidate.Path, Question: review.QuestionShouldLink + "_" + candidate.ID, Probability: p, ReceiptKey: should.Receipt,
 					Evidence: fmt.Sprintf("should_link %.2f: %s → %s (%s)", p, subject, candidate.Title, relation),
-					Action:   map[string]any{"relation": relation, "target": form},
+					Action:   map[string]any{"relation": relation, "target": form, "candidate": candidate.ID},
 				})
 			}
 		}
@@ -240,25 +263,33 @@ func presentUnder(plan Plan, candidatePath string) string {
 	return ""
 }
 
-func firstQualifyingMention(plan Plan, candidate Candidate, answers map[string]decisions.Answer, threshold float64) (Insertion, bool) {
+// firstQualifyingMention returns the first mention of candidate whose
+// mention_sense reaches threshold. An undecided mention_sense before it is
+// never read as "below threshold": the search stops with undecided set and
+// no insertion, so the document is judged again rather than linked at a
+// later mention.
+func firstQualifyingMention(plan Plan, candidate Candidate, answers map[string]decisions.Answer, threshold float64) (insertion Insertion, ok, undecided bool) {
 	if plan.BodyLinked[candidate.Path] {
-		return Insertion{}, false
+		return Insertion{}, false, false
 	}
 	for _, mention := range plan.Mentions {
 		if mention.Candidate != candidate.ID {
 			continue
 		}
-		answer := answers["mention_sense_"+strconv.Itoa(mention.N)]
-		p, ok := answer.P("")
-		if !ok || p < threshold {
+		answer, asked := answers["mention_sense_"+strconv.Itoa(mention.N)]
+		p, decided := answer.P("")
+		if !asked || !decided {
+			return Insertion{}, false, true
+		}
+		if p < threshold {
 			continue
 		}
 		return Insertion{
 			Target: candidate.Path, Text: mention.Text, Start: mention.Start, End: mention.End,
 			P: p, Receipt: answer.Receipt,
-		}, true
+		}, true, false
 	}
-	return Insertion{}, false
+	return Insertion{}, false, false
 }
 
 // InsertLinks returns body with `[[<form>|<text>]]` at every insertion.

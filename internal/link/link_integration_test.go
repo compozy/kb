@@ -332,45 +332,77 @@ func readJSONL(t *testing.T, path string) []map[string]any {
 }
 
 func TestLinkUndecidedDocumentIsJudgedAgain(t *testing.T) {
-	v := newLinkVault(t, session.ModeApply)
-	// A malformed answer is an invalid receipt: undecided, never a "no".
-	fake := newFake(t, func(call fakes.Call, q fakes.Question) any {
-		if strings.HasPrefix(q.ID, "should_link_") {
-			return map[string]any{"type": "choice", "choice": "yes"}
-		}
-		return linkAll(call, q)
-	})
+	const linked = "We run [[Retrieval Augmented Generation|RAG]] in production."
+	testCases := []struct {
+		name string
+		// invalid is the question-id prefix answered with a malformed answer.
+		invalid string
+		// firstExtends is the extends list length after the failed run.
+		firstExtends int
+	}{
+		// Only the should_link answer fails: nothing is linked.
+		{name: "should_link", invalid: "should_link_"},
+		// Only the relation fails: the relation is never guessed as
+		// `related`, so the target is not written at all.
+		{name: "relation", invalid: "relation_"},
+		// Only the first mention_sense fails: the relation is written but the
+		// body link waits instead of being skipped for good.
+		{name: "mention_sense", invalid: "mention_sense_1", firstExtends: 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := newLinkVault(t, session.ModeApply)
+			// A malformed answer is an invalid receipt: undecided, never a "no".
+			fake := newFake(t, func(call fakes.Call, q fakes.Question) any {
+				if strings.HasPrefix(q.ID, tc.invalid) {
+					return map[string]any{"type": "noul", "noul": 2}
+				}
+				return linkAll(call, q)
+			})
 
-	first, err := Run(context.Background(), v.open(t, fake), Options{})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if first.Undecided == 0 || !slices.Equal(first.UndecidedDocuments, []string{sourceA}) || first.Decided != 0 {
-		t.Fatalf("first report = %+v", first)
-	}
-	joined := strings.Join(first.Lines(), "\n")
-	if !strings.Contains(joined, "coverage: 0/1 judged documents fully decided") || !strings.Contains(joined, "undecided documents (1, judged again next run): "+sourceA) {
-		t.Fatalf("lines must name the undecided document:\n%s", joined)
-	}
-	if got := frontmatterList(t, v.read(t, sourceA), "extends"); len(got) != 0 {
-		t.Fatalf("an undecided should_link wrote %v", got)
-	}
-	s := v.open(t, fake)
-	row, ok := s.State.Get(sourceA)
-	if !ok || row.Banks[BankID] != "" || row.Banks[CandidatesBank] != "" {
-		t.Fatalf("an undecided document must not be recorded as linked: %#v", row)
-	}
+			first, err := Run(context.Background(), v.open(t, fake), Options{})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if first.Undecided == 0 || !slices.Equal(first.UndecidedDocuments, []string{sourceA}) || first.Decided != 0 {
+				t.Fatalf("first report = %+v", first)
+			}
+			joined := strings.Join(first.Lines(), "\n")
+			if !strings.Contains(joined, "coverage: 0/1 judged documents fully decided") || !strings.Contains(joined, "undecided documents (1, judged again next run): "+sourceA) {
+				t.Fatalf("lines must name the undecided document:\n%s", joined)
+			}
+			content := v.read(t, sourceA)
+			if got := frontmatterList(t, content, "extends"); len(got) != tc.firstExtends {
+				t.Fatalf("extends after an undecided %s = %v, want %d entries", tc.name, got, tc.firstExtends)
+			}
+			if got := frontmatterList(t, content, "related"); len(got) != 0 {
+				t.Fatalf("an undecided %s fell back to related: %v", tc.name, got)
+			}
+			if strings.Contains(content, "[[Retrieval Augmented Generation|") {
+				t.Fatalf("a body link was inserted despite an undecided %s:\n%s", tc.name, content)
+			}
+			s := v.open(t, fake)
+			row, ok := s.State.Get(sourceA)
+			if !ok || row.Banks[BankID] != "" || row.Banks[CandidatesBank] != "" {
+				t.Fatalf("an undecided document must not be recorded as linked: %#v", row)
+			}
 
-	fake.SetDecide(linkAll)
-	second, err := Run(context.Background(), s, Options{})
-	if err != nil {
-		t.Fatalf("second Run: %v", err)
-	}
-	if second.Judged != 1 || second.Skipped[SkipUnchanged] != 0 || second.Undecided != 0 || second.Decided != 1 {
-		t.Fatalf("the undecided document must be judged again: %+v", second)
-	}
-	if got := frontmatterList(t, v.read(t, sourceA), "extends"); len(got) != 1 {
-		t.Fatalf("extends after retry = %v", got)
+			fake.SetDecide(linkAll)
+			second, err := Run(context.Background(), s, Options{})
+			if err != nil {
+				t.Fatalf("second Run: %v", err)
+			}
+			if second.Judged != 1 || second.Skipped[SkipUnchanged] != 0 || second.Undecided != 0 || second.Decided != 1 {
+				t.Fatalf("the undecided document must be judged again: %+v", second)
+			}
+			content = v.read(t, sourceA)
+			if got := frontmatterList(t, content, "extends"); len(got) != 1 {
+				t.Fatalf("extends after retry = %v", got)
+			}
+			if !strings.Contains(content, linked) {
+				t.Fatalf("body link missing after retry:\n%s", content)
+			}
+		})
 	}
 }
 
