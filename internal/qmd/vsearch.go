@@ -150,7 +150,7 @@ func newestMarkdown(root string) (time.Time, error) {
 
 // Query runs one no-rerank vector query and returns up to limit
 // collection-relative paths, best first, without duplicates. It over-fetches
-// (overFetchLimit) so quarantined hits of an older collection cannot use up
+// (fetchEligible) so quarantined hits of an older collection cannot use up
 // the window before filtering.
 func (c *Candidates) Query(ctx context.Context, text string, limit int) ([]string, error) {
 	text = singleLine(text)
@@ -167,21 +167,16 @@ func (c *Candidates) Query(ctx context.Context, text string, limit int) ([]strin
 	}
 	defer func() { <-c.sem }()
 
-	stdout, _, err := c.client.run(ctx, commandSpec{
-		label: "query (vector candidates)",
-		args:  c.client.baseArgs("query", "--json", "-n", strconv.Itoa(overFetchLimit(limit)), "--no-rerank", "-c", c.collection, "vec: "+text),
+	return fetchEligible(limit, func(n int) ([]string, int, error) {
+		stdout, _, err := c.client.run(ctx, commandSpec{
+			label: "query (vector candidates)",
+			args:  c.client.baseArgs("query", "--json", "-n", strconv.Itoa(n), "--no-rerank", "-c", c.collection, "vec: "+text),
+		})
+		if err != nil {
+			return nil, 0, err
+		}
+		return parseCandidatePaths(stdout, c.collection)
 	})
-	if err != nil {
-		return nil, err
-	}
-	paths, err := parseCandidatePaths(stdout, c.collection)
-	if err != nil {
-		return nil, err
-	}
-	if len(paths) > limit {
-		paths = paths[:limit]
-	}
-	return paths, nil
 }
 
 // Neighbours implements link.Neighbours: the top k wiki articles closest to
@@ -232,10 +227,10 @@ func singleLine(text string) string {
 // `qmd://<collection>/` and any `?index=` suffix are stripped and the path is
 // URL-decoded. Quarantined sources and decision records (ExcludedPath) are
 // dropped.
-func parseCandidatePaths(stdout, collection string) ([]string, error) {
+func parseCandidatePaths(stdout, collection string) ([]string, int, error) {
 	var hits []searchResultPayload
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &hits); err != nil {
-		return nil, fmt.Errorf("qmd vector query: parse JSON output: %w", err)
+		return nil, 0, fmt.Errorf("qmd vector query: parse JSON output: %w", err)
 	}
 	seen := map[string]bool{}
 	paths := make([]string, 0, len(hits))
@@ -247,7 +242,7 @@ func parseCandidatePaths(stdout, collection string) ([]string, error) {
 		seen[p] = true
 		paths = append(paths, p)
 	}
-	return paths, nil
+	return paths, len(hits), nil
 }
 
 func candidatePath(raw, collection string) string {

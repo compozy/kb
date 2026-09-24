@@ -213,6 +213,18 @@ func TestCandidatesOverFetchPastExcludedHits(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, []string{"raw/articles/valid.md"}) {
 		t.Fatalf("Search limit 1 = %#v, %v", got, err)
 	}
+
+	// More excluded hits than the first window (51 for limit 1): the query
+	// keeps widening until the valid match appears.
+	crowded := writeLimitedQMD(t, filepath.Join(t.TempDir(), "args.log"), candidatesStatus(indexPath), rankedHitsWithQuarantineFirst("demo", 120))
+	widened, note := newFakeQMDClient(crowded).OpenCandidates(context.Background(), "demo", root)
+	if widened == nil {
+		t.Fatalf("candidates off: %s", note)
+	}
+	got, err = widened.Search(context.Background(), "valid", 1)
+	if err != nil || !reflect.DeepEqual(got, []string{"raw/articles/valid.md"}) {
+		t.Fatalf("Search past 120 excluded hits = %#v, %v", got, err)
+	}
 }
 
 func TestCandidatesDropQuarantinedHits(t *testing.T) {

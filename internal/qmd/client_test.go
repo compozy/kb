@@ -741,6 +741,22 @@ func TestSearchOverFetchesPastExcludedHits(t *testing.T) {
 		})
 	}
 
+	t.Run("Should keep widening past more excluded hits than the first window", func(t *testing.T) {
+		t.Parallel()
+		// 200 quarantined hits outrank the valid one: the first request
+		// (60 hits for limit 10) holds only excluded paths.
+		binary := writeLimitedQMD(t, filepath.Join(t.TempDir(), "args.log"), "", rankedHitsWithQuarantineFirst("docs", 200))
+		results, err := newFakeQMDClient(binary).Search(context.Background(), SearchOptions{
+			Query: "valid", Mode: SearchModeLexical, Limit: 10, Collection: "docs",
+		})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		if len(results) != 1 || results[0].Path != "qmd://docs/raw/articles/valid.md" {
+			t.Fatalf("results = %#v, want the valid match ranked below 200 excluded hits", results)
+		}
+	})
+
 	t.Run("Should cut to the user-facing limit after filtering", func(t *testing.T) {
 		t.Parallel()
 		hits := rankedHitsWithQuarantineFirst("docs", 2)
@@ -768,7 +784,7 @@ func TestSearchOverFetchesPastExcludedHits(t *testing.T) {
 func TestOverFetchLimit(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ limit, want int }{
-		{1, 51}, {10, 60}, {30, 90}, {400, 1000}, {2000, 2000},
+		{1, 51}, {10, 60}, {30, 90}, {400, 1200}, {2000, 5000}, {6000, 6000},
 	} {
 		if got := overFetchLimit(tc.limit); got != tc.want {
 			t.Errorf("overFetchLimit(%d) = %d, want %d", tc.limit, got, tc.want)

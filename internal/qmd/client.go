@@ -28,8 +28,8 @@ const (
 	CollectionMask = "**/*.md,!**/raw/_quarantine/**,!**/.decisions/**"
 
 	// maxOverFetch caps the number of hits asked from qmd for one limited
-	// search, see overFetchLimit.
-	maxOverFetch = 1000
+	// search, see fetchEligible.
+	maxOverFetch = 5000
 )
 
 var (
@@ -248,32 +248,53 @@ func (client *QMDClient) Search(ctx context.Context, options SearchOptions) ([]S
 
 func (client *QMDClient) executeSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
 	limit := options.Limit
-	if !options.All && limit > 0 {
-		options.Limit = overFetchLimit(limit)
+	if options.All || limit <= 0 {
+		results, _, err := client.runSearch(ctx, options)
+		return results, err
 	}
-	results, err := client.runSearch(ctx, options)
-	if err != nil {
-		return nil, err
-	}
-	if !options.All && limit > 0 && len(results) > limit {
-		results = results[:limit]
-	}
-	return results, nil
+	return fetchEligible(limit, func(n int) ([]SearchResult, int, error) {
+		asked := options
+		asked.Limit = n
+		return client.runSearch(ctx, asked)
+	})
 }
 
-// overFetchLimit is the number of hits asked from qmd for a user-facing
-// limit. Collections indexed before CollectionMask existed still contain
-// quarantined sources and decision records; they are dropped after qmd has
-// ranked and cut its result list, so kb asks for more (3×, at least 50
-// extra, capped) and cuts to limit only after filtering.
+// overFetchLimit is the first number of hits asked from qmd for a
+// user-facing limit (3×, at least 50 extra, capped).
 func overFetchLimit(limit int) int {
 	return max(min(max(limit*3, limit+50), maxOverFetch), limit)
 }
 
-func (client *QMDClient) runSearch(ctx context.Context, options SearchOptions) ([]SearchResult, error) {
+// fetchEligible fills a user-facing limit with eligible hits. Collections
+// indexed before CollectionMask existed still contain quarantined sources and
+// decision records, which are dropped only after qmd has ranked and cut its
+// list; so kb asks for overFetchLimit hits and keeps widening the request
+// (×4) until enough eligible hits remain, qmd returns fewer hits than asked
+// (the collection is exhausted), or maxOverFetch is reached. fetch returns
+// the eligible hits and the raw number qmd returned for n.
+func fetchEligible[T any](limit int, fetch func(n int) ([]T, int, error)) ([]T, error) {
+	n := overFetchLimit(limit)
+	for {
+		eligible, raw, err := fetch(n)
+		if err != nil {
+			return nil, err
+		}
+		if len(eligible) >= limit || raw < n || n >= maxOverFetch {
+			if len(eligible) > limit {
+				eligible = eligible[:limit]
+			}
+			return eligible, nil
+		}
+		n = min(n*4, maxOverFetch)
+	}
+}
+
+// runSearch runs one qmd search and returns the eligible results plus the
+// raw number of hits qmd returned (before exclusion and score filters).
+func (client *QMDClient) runSearch(ctx context.Context, options SearchOptions) ([]SearchResult, int, error) {
 	command, err := client.searchCommand(options)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	stdout, stderr, err := client.run(ctx, command)
@@ -284,17 +305,17 @@ func (client *QMDClient) runSearch(ctx context.Context, options SearchOptions) (
 
 			fallbackCommand, fallbackErr := client.searchCommand(fallbackOptions)
 			if fallbackErr != nil {
-				return nil, fallbackErr
+				return nil, 0, fallbackErr
 			}
 
 			stdout, _, fallbackErr = client.run(ctx, fallbackCommand)
 			if fallbackErr != nil {
-				return nil, fallbackErr
+				return nil, 0, fallbackErr
 			}
 		} else if isVectorUnavailableSearchFailure(stdout, stderr, err) {
-			return nil, vectorUnavailableSearchError()
+			return nil, 0, vectorUnavailableSearchError()
 		} else {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -327,10 +348,10 @@ func (client *QMDClient) isVectorSearchUnavailable(ctx context.Context, collecti
 	}
 }
 
-func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, error) {
+func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, int, error) {
 	var rawResults []searchResultPayload
 	if err := json.Unmarshal([]byte(stdout), &rawResults); err != nil {
-		return nil, fmt.Errorf("qmd search: parse JSON output: %w", err)
+		return nil, 0, fmt.Errorf("qmd search: parse JSON output: %w", err)
 	}
 
 	results := make([]SearchResult, 0, len(rawResults))
@@ -345,7 +366,7 @@ func parseSearchResults(stdout string, options SearchOptions) ([]SearchResult, e
 		results = append(results, normalized)
 	}
 
-	return results, nil
+	return results, len(rawResults), nil
 }
 
 func shouldFallbackToLexical(mode SearchMode, stdout, stderr string, err error) bool {
