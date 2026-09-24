@@ -507,17 +507,23 @@ func (r *run) needsDocLiterals(doc *corpus.Document, row *corpus.StateRow) bool 
 	return slices.ContainsFunc(keys, func(key string) bool { return needsLiteral(doc, row, key) })
 }
 
-// codeFlags runs the code quality checks over a source. The thin rule only
-// applies to web captures (an http(s) source_url, not a transcript or a
-// bookmark cluster): the length of a local note or a transcript is not a
-// capture failure.
 func (r *run) codeFlags(doc *corpus.Document) []quality.Flag {
+	return CodeFlags(doc, r.hostLines)
+}
+
+// CodeFlags runs the code quality checks (spec §7 stage 3) over a stored
+// source; hostLines comes from quality.HostLineCounts over the topic's
+// sources. The thin rule only applies to web captures (an http(s) source_url,
+// not a transcript or a bookmark cluster): the length of a local note or a
+// transcript is not a capture failure. `kb classify` and the impact preview
+// share it so their bands agree.
+func CodeFlags(doc *corpus.Document, hostLines map[string]map[string]int) []quality.Flag {
 	host, _ := doc.Provenance()["source_host"].(string)
 	return quality.Check(quality.Input{
 		Title:     doc.Title,
 		Body:      doc.Body,
 		SourceURL: doc.SourceURL(),
-		HostLines: r.hostLines[host],
+		HostLines: hostLines[host],
 		SkipThin:  !webCapture(doc),
 	})
 }

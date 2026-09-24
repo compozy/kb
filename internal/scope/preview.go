@@ -5,14 +5,12 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/compozy/kb/internal/classify"
 	"github.com/compozy/kb/internal/contract"
 	"github.com/compozy/kb/internal/corpus"
-	"github.com/compozy/kb/internal/models"
 	"github.com/compozy/kb/internal/quality"
 	"github.com/compozy/kb/internal/review"
 	"github.com/compozy/kb/internal/session"
@@ -185,7 +183,7 @@ func Preview(ctx context.Context, s *session.Session, draft *contract.Contract, 
 	err = forEach(ctx, s.Engine.Concurrency(), docs, func(ctx context.Context, doc *corpus.Document) error {
 		gate, err := classify.JudgeGate(ctx, s, doc, classify.GateOptions{
 			IsTranscript: classify.IsTranscriptKind(doc.SourceKind()),
-			Flags:        codeFlags(doc, hostLines),
+			Flags:        classify.CodeFlags(doc, hostLines),
 			Contract:     &normalized,
 		})
 		if err != nil {
@@ -345,28 +343,4 @@ func scoreLabels(judgments map[string]judgment, labels []review.Label, threshold
 	}
 	slices.Sort(used)
 	return score, used
-}
-
-// codeFlags runs the code quality checks over a source exactly as
-// `kb classify` does, so the preview bands match what classify would queue:
-// the thin rule only applies to web captures (an http(s) source_url that is
-// neither a transcript nor a bookmark cluster).
-func codeFlags(doc *corpus.Document, hostLines map[string]map[string]int) []quality.Flag {
-	host, _ := doc.Provenance()["source_host"].(string)
-	return quality.Check(quality.Input{
-		Title:     doc.Title,
-		Body:      doc.Body,
-		SourceURL: doc.SourceURL(),
-		HostLines: hostLines[host],
-		SkipThin:  !webCapture(doc),
-	})
-}
-
-func webCapture(doc *corpus.Document) bool {
-	url := strings.ToLower(doc.SourceURL())
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return false
-	}
-	kind := doc.SourceKind()
-	return !classify.IsTranscriptKind(kind) && kind != string(models.SourceKindBookmarkCluster)
 }
