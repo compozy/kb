@@ -617,6 +617,62 @@ func TestClassifyRegeneratesLiteralsAfterBudgetStop(t *testing.T) {
 	}
 }
 
+// Required literals that fail validation (spec §6) leave the document
+// incomplete, and the rejected output is never served again from the
+// generation cache: the next run makes a new generation call.
+func TestClassifyRejectedLiteralsRetryNextRun(t *testing.T) {
+	t.Parallel()
+	emptyLiterals := func(schemaName, system, prompt string) any {
+		if schemaName == "document_literals" {
+			return map[string]any{"summary": "", "entities": []string{}, "questions": []string{}}
+		}
+		return defaultGenerate(schemaName, system, prompt)
+	}
+	fake := fakeServer(t, judgeAll, emptyLiterals)
+	vault, root := newTestTopic(t)
+	setTestContract(t, root, nil)
+	path := webSource(t, root, "raw/articles/a.md", "Typed decision engines", "decision models")
+	rel := "raw/articles/a.md"
+
+	first := runClassify(t, vault, fake.URL, Options{})
+	if first.Decided != 0 || first.Undecided["literals:invalid_output"] != 1 || !slices.Equal(first.UndecidedDocuments, []string{rel}) {
+		t.Fatalf("rejected literals must leave the document undecided: %s", strings.Join(first.Lines(), "\n"))
+	}
+	if first.InvalidLiterals["summary"] != 1 || first.InvalidLiterals["questions"] != 1 {
+		t.Fatalf("InvalidLiterals = %v", first.InvalidLiterals)
+	}
+	values := frontmatterOf(t, path)
+	if _, ok := values["summary"]; ok {
+		t.Fatal("an invalid summary is never written")
+	}
+	if _, ok := values["questions"]; ok {
+		t.Fatal("invalid questions are never written")
+	}
+	row, _ := openTestSession(t, vault, fake.URL).State.Get(rel)
+	for bank, version := range row.Banks {
+		if version != "" {
+			t.Fatalf("the state row must not stamp bank %s current: %#v", bank, row.Banks)
+		}
+	}
+
+	gens := literalCalls(fake)
+	fake.SetGenerate(defaultGenerate)
+	second := runClassify(t, vault, fake.URL, Options{})
+	if second.Judged != 1 || second.UndecidedTotal() != 0 || second.Decided != 1 {
+		t.Fatalf("the incomplete document must be judged again and complete: %s", strings.Join(second.Lines(), "\n"))
+	}
+	if literalCalls(fake) != gens+1 {
+		t.Fatalf("the second run must make a new generation call, not reuse the rejected output (%d → %d literal calls)", gens, literalCalls(fake))
+	}
+	values = frontmatterOf(t, path)
+	if frontmatter.GetString(values, "summary") == "" {
+		t.Fatalf("summary after retry missing: %v", values)
+	}
+	if third := runClassify(t, vault, fake.URL, Options{}); third.Judged != 0 {
+		t.Fatalf("a complete document is not judged again: judged %d", third.Judged)
+	}
+}
+
 func TestClassifyConceptProposalsCountAcrossRuns(t *testing.T) {
 	t.Parallel()
 	fake := fakeServer(t, func(call fakes.Call, q fakes.Question) any {

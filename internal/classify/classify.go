@@ -2,7 +2,6 @@ package classify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -372,7 +371,7 @@ func (r *run) articleLiterals(ctx context.Context, article *corpus.Document) err
 		case soft:
 			r.tally(func(report *Report) {
 				report.Undecided["criterion:"+reason]++
-				if errors.Is(err, errInvalidLiteral) {
+				if isInvalidLiteral(err) {
 					report.InvalidLiterals["criterion"]++
 				}
 			})
@@ -469,6 +468,9 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 		case soft:
 			out.undecided = append(out.undecided, "literals:"+reason)
 			out.complete = false
+			if isInvalidLiteral(err) {
+				invalid = requiredLiterals(source)
+			}
 		case err != nil:
 			return err
 		default:
@@ -482,6 +484,12 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 				out.updates["questions"] = lit.questions
 			}
 			dropped, invalid = lit.droppedEntities, lit.invalid
+			// A required literal that failed validation leaves the document
+			// incomplete so the next run generates it again.
+			if slices.ContainsFunc(requiredLiterals(source), func(key string) bool { return slices.Contains(lit.invalid, key) }) {
+				out.undecided = append(out.undecided, "literals:invalid_output")
+				out.complete = false
+			}
 		}
 	}
 
@@ -543,6 +551,15 @@ func (r *run) classifyDoc(ctx context.Context, doc *corpus.Document) error {
 		return r.enqueue(doc, gate, out)
 	}
 	return nil
+}
+
+// requiredLiterals names the generated literals a document must receive:
+// the summary, plus the questions of a source.
+func requiredLiterals(source bool) []string {
+	if source {
+		return []string{"summary", "questions"}
+	}
+	return []string{"summary"}
 }
 
 // needsDocLiterals reports a document whose summary/entities/questions must

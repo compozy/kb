@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -337,6 +338,92 @@ func TestGenerateRejectsAndFallsBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateValidateHookKeepsRejectedOutputOutOfTheCache(t *testing.T) {
+	t.Parallel()
+
+	const emptySummary = `{"summary": "", "entities": []}`
+	requireSummary := func(raw json.RawMessage) error {
+		var out struct {
+			Summary string `json:"summary"`
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return err
+		}
+		return ValidateLiteral(out.Summary, 400)
+	}
+
+	t.Run("Should retry, fall back, record invalid_output and call again on the next run", func(t *testing.T) {
+		t.Parallel()
+		var valid atomic.Bool
+		fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) {
+			if valid.Load() {
+				chatReply(w, req.Model, goodOutput, 0, 0.0001)
+				return
+			}
+			chatReply(w, req.Model, emptySummary, 0, 0.0001)
+		})
+		client := newTestClient(t, fake, decisions.NewBudget(1), nil)
+		root := t.TempDir()
+		req := summaryRequest(root)
+		req.Validate = requireSummary
+
+		_, err := client.Generate(context.Background(), req)
+		if !errors.Is(err, ErrFailed) || !errors.Is(err, ErrInvalidOutput) {
+			t.Fatalf("err = %v, want ErrFailed wrapping ErrInvalidOutput", err)
+		}
+		calls := fake.calls()
+		models := make([]string, len(calls))
+		for index, call := range calls {
+			models[index] = call.Model
+		}
+		wantModels := []string{"xiaomi/mimo-v2.6-flash", "xiaomi/mimo-v2.6-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash"}
+		if !slices.Equal(models, wantModels) {
+			t.Fatalf("models = %v, want one retry then the fallback %v", models, wantModels)
+		}
+		rows, err := decisions.LoadReceipts(root)
+		if err != nil || len(rows) != 1 || rows[0].Status != decisions.StatusUndecided || rows[0].Reason != ReasonInvalidOutput {
+			t.Fatalf("rows = %+v, %v, want one undecided:invalid_output row", rows, err)
+		}
+
+		valid.Store(true)
+		output, err := newTestClient(t, fake, decisions.NewBudget(1), nil).Generate(context.Background(), req)
+		if err != nil || !strings.Contains(string(output), "A short summary.") {
+			t.Fatalf("second run = %s, %v", output, err)
+		}
+		if got := len(fake.calls()); got != len(wantModels)+1 {
+			t.Fatalf("calls = %d, want a new call on the second run", got)
+		}
+	})
+
+	t.Run("Should not serve a cached output that fails the hook", func(t *testing.T) {
+		t.Parallel()
+		var valid atomic.Bool
+		fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) {
+			if valid.Load() {
+				chatReply(w, req.Model, goodOutput, 0, 0.0001)
+				return
+			}
+			chatReply(w, req.Model, emptySummary, 0, 0.0001)
+		})
+		root := t.TempDir()
+		// A row decided before the caller validated its literals.
+		if _, err := newTestClient(t, fake, decisions.NewBudget(1), nil).Generate(context.Background(), summaryRequest(root)); err != nil {
+			t.Fatalf("unvalidated Generate: %v", err)
+		}
+		valid.Store(true)
+		client := newTestClient(t, fake, decisions.NewBudget(1), nil)
+		req := summaryRequest(root)
+		req.Validate = requireSummary
+		output, err := client.Generate(context.Background(), req)
+		if err != nil || !strings.Contains(string(output), "A short summary.") {
+			t.Fatalf("Generate = %s, %v", output, err)
+		}
+		if got := client.Summary(); got.CacheHits != 0 || got.Calls != 1 || len(fake.calls()) != 2 {
+			t.Fatalf("summary = %+v, calls = %d, want a fresh call instead of the cached rejected output", got, len(fake.calls()))
+		}
+	})
 }
 
 func near(a, b float64) bool {

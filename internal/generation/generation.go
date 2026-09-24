@@ -52,6 +52,11 @@ var (
 	// wrapped message names the last reason.
 	ErrFailed = errors.New("generation: no valid output")
 
+	// ErrInvalidOutput is wrapped together with ErrFailed when the last
+	// failure was output that failed the schema or the request's Validate
+	// hook, so callers can report it as undecided:invalid_output.
+	ErrInvalidOutput = errors.New("generation: invalid output")
+
 	// ErrInvalidRequest marks a request that cannot be sent (missing kind,
 	// prompt, schema name, or a schema that is not a JSON object schema).
 	ErrInvalidRequest = errors.New("generation: invalid request")
@@ -91,6 +96,13 @@ type Request struct {
 	// schema must describe a JSON object.
 	SchemaName string
 	Schema     json.RawMessage
+	// Validate, when set, runs the caller's domain checks on schema-valid
+	// output before it is accepted. Rejected output counts as
+	// invalid_output: the attempt is retried, then the fallback model is
+	// tried, and it is never recorded as decided, so the receipts cache
+	// never serves it. Cached output is re-checked too. It must be a pure
+	// function of the output.
+	Validate func(json.RawMessage) error
 }
 
 // Client generates schema-checked JSON. It is safe for concurrent use.
@@ -214,7 +226,7 @@ func (c *Client) Generate(ctx context.Context, req Request) (json.RawMessage, er
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
-	if output, ok := c.fromCache(req.Topic.Root, key, schema); ok {
+	if output, ok := c.fromCache(req.Topic.Root, key, schema, req.Validate); ok {
 		c.record(func(s *decisions.GenerationSummary) { s.CacheHits++ })
 		return output, nil
 	}
@@ -241,6 +253,9 @@ func (c *Client) Generate(ctx context.Context, req Request) (json.RawMessage, er
 		}
 	}
 	c.finish(req, key, &run, nil)
+	if run.lastReason == ReasonInvalidOutput {
+		return nil, fmt.Errorf("%w: %s (%w)", ErrFailed, run.lastReason, ErrInvalidOutput)
+	}
 	return nil, fmt.Errorf("%w: %s", ErrFailed, run.lastReason)
 }
 
@@ -309,6 +324,12 @@ func (c *Client) tryModel(ctx context.Context, model, system, prompt string, req
 		switch {
 		case status == http.StatusOK:
 			output, reason := c.readResponse(body, schema, run)
+			if reason == "" && req.Validate != nil {
+				if err := req.Validate(output); err != nil {
+					reason = ReasonInvalidOutput
+					c.logger.Debug("generation: output failed validation", "model", model, "kind", req.Kind, "error", err)
+				}
+			}
 			if reason == "" {
 				return output, nil
 			}
@@ -440,7 +461,7 @@ func (c *Client) finish(req Request, key string, run *attemptLog, output json.Ra
 	}
 }
 
-func (c *Client) fromCache(topicRoot, key string, schema *objectSchema) (json.RawMessage, bool) {
+func (c *Client) fromCache(topicRoot, key string, schema *objectSchema, validate func(json.RawMessage) error) (json.RawMessage, bool) {
 	row, ok, err := c.receipts.Lookup(topicRoot, key)
 	if err != nil {
 		c.logger.Warn("generation: receipts unreadable, cache disabled for this lookup", "root", topicRoot, "error", err)
@@ -455,6 +476,11 @@ func (c *Client) fromCache(topicRoot, key string, schema *objectSchema) (json.Ra
 	}
 	output, err := validateOutput(string(raw), schema)
 	if err != nil {
+		return nil, false
+	}
+	if validate != nil && validate(output) != nil {
+		// Output decided before the caller's checks existed (or under looser
+		// ones) is not reusable; a fresh call replaces it.
 		return nil, false
 	}
 	return output, true

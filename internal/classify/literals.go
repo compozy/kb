@@ -123,12 +123,32 @@ func generateLiterals(ctx context.Context, s *session.Session, doc *corpus.Docum
 		"Document:",
 		corpus.Excerpt(doc.Body, literalExcerptTokens, nil),
 	}, "\n")
-	var out struct {
+	type literalsOutput struct {
 		Summary   string   `json:"summary"`
 		Entities  []string `json:"entities"`
 		Questions []string `json:"questions"`
 	}
-	if err := generate(ctx, s, KindLiterals, doc.Path, prompt, "document_literals", literalsSchema, &out); err != nil {
+	// The summary (and, for sources, the questions) are required: output
+	// that fails them is rejected before it is accepted or cached, so the
+	// document stays incomplete and a later run asks again.
+	source := doc.Kind == corpus.KindSource
+	validate := func(raw json.RawMessage) error {
+		var candidate literalsOutput
+		if err := json.Unmarshal(raw, &candidate); err != nil {
+			return err
+		}
+		if _, err := validateSummary(candidate.Summary, doc.Title); err != nil {
+			return fmt.Errorf("summary: %w", err)
+		}
+		if source {
+			if _, err := validateQuestions(candidate.Questions); err != nil {
+				return fmt.Errorf("questions: %w", err)
+			}
+		}
+		return nil
+	}
+	var out literalsOutput
+	if err := generate(ctx, s, KindLiterals, doc.Path, prompt, "document_literals", literalsSchema, validate, &out); err != nil {
 		return literals{}, err
 	}
 
@@ -158,10 +178,18 @@ func generateCriterion(ctx context.Context, s *session.Session, article *corpus.
 		"Article opening:",
 		corpus.Head(article.Body, criterionHeadChars),
 	}, "\n")
-	var out struct {
+	type criterionOutput struct {
 		Criterion string `json:"criterion"`
 	}
-	if err := generate(ctx, s, KindCriterion, article.Path, prompt, "concept_criterion", criterionSchema, &out); err != nil {
+	validate := func(raw json.RawMessage) error {
+		var candidate criterionOutput
+		if err := json.Unmarshal(raw, &candidate); err != nil {
+			return err
+		}
+		return validateCriterion(strings.TrimSpace(candidate.Criterion), article.Title)
+	}
+	var out criterionOutput
+	if err := generate(ctx, s, KindCriterion, article.Path, prompt, "concept_criterion", criterionSchema, validate, &out); err != nil {
 		return "", err
 	}
 	criterion := strings.TrimSpace(out.Criterion)
@@ -186,7 +214,7 @@ func generateAliases(ctx context.Context, s *session.Session, article *corpus.Do
 	var out struct {
 		Aliases []string `json:"aliases"`
 	}
-	if err := generate(ctx, s, KindAliases, article.Path, prompt, "concept_aliases", aliasesSchema, &out); err != nil {
+	if err := generate(ctx, s, KindAliases, article.Path, prompt, "concept_aliases", aliasesSchema, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Aliases, nil
@@ -203,7 +231,7 @@ func generateConcepts(ctx context.Context, s *session.Session, kind, subject, pr
 	var out struct {
 		Concepts []proposedConcept `json:"concepts"`
 	}
-	if err := generate(ctx, s, kind, subject, prompt, "concept_list", conceptsSchema, &out); err != nil {
+	if err := generate(ctx, s, kind, subject, prompt, "concept_list", conceptsSchema, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Concepts, nil
@@ -212,8 +240,16 @@ func generateConcepts(ctx context.Context, s *session.Session, kind, subject, pr
 // errInvalidLiteral marks generated output that failed code validation.
 var errInvalidLiteral = errors.New("classify: invalid generated literal")
 
+// isInvalidLiteral reports a generation error caused by output that failed
+// validation (by the generation client's hook or by code here).
+func isInvalidLiteral(err error) bool {
+	return errors.Is(err, errInvalidLiteral) || errors.Is(err, generation.ErrInvalidOutput)
+}
+
 // generate runs one generation request and decodes its JSON into out.
-func generate(ctx context.Context, s *session.Session, kind, subject, prompt, schemaName string, schema json.RawMessage, out any) error {
+// validate, when non-nil, holds the required-literal checks that decide
+// whether the output is accepted (and cached) at all.
+func generate(ctx context.Context, s *session.Session, kind, subject, prompt, schemaName string, schema json.RawMessage, validate func(json.RawMessage) error, out any) error {
 	raw, err := s.Gen.Generate(ctx, generation.Request{
 		Topic:      s.Ref,
 		Kind:       kind,
@@ -222,6 +258,7 @@ func generate(ctx context.Context, s *session.Session, kind, subject, prompt, sc
 		Prompt:     prompt,
 		SchemaName: schemaName,
 		Schema:     schema,
+		Validate:   validate,
 	})
 	if err != nil {
 		return fmt.Errorf("classify: generate %s for %s: %w", kind, subject, err)
@@ -243,9 +280,9 @@ func softGenerationError(err error) (string, bool) {
 		return "", false
 	case errors.Is(err, generation.ErrBudget):
 		return decisions.ReasonBudget, true
-	case errors.Is(err, generation.ErrFailed):
+	case errors.Is(err, generation.ErrFailed) && !errors.Is(err, generation.ErrInvalidOutput):
 		return "failed", true
-	case errors.Is(err, errInvalidLiteral):
+	case isInvalidLiteral(err):
 		return "invalid_output", true
 	default:
 		return "", false
