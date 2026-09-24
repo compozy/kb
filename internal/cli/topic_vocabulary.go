@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/compozy/kb/internal/classify"
+	"github.com/compozy/kb/internal/link"
 	"github.com/compozy/kb/internal/output"
 	"github.com/compozy/kb/internal/session"
 )
@@ -14,6 +15,7 @@ import (
 var (
 	runDraftVocabulary  = classify.DraftVocabulary
 	runAcceptVocabulary = classify.AcceptVocabulary
+	runReverseLinks     = link.ReverseAll
 )
 
 type topicVocabularyOptions struct {
@@ -62,7 +64,17 @@ func runTopicVocabularyCommand(cmd *cobra.Command, options *topicVocabularyOptio
 				return fmt.Errorf("topic vocabulary: write output: %w", err)
 			}
 		}
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "created %d stub articles; next: kb classify %s --only-missing\n", len(created), s.Topic.Slug)
+		stderr := cmd.ErrOrStderr()
+		_, _ = fmt.Fprintf(stderr, "created %d stub articles; next: kb classify %s --only-missing\n", len(created), s.Topic.Slug)
+		// New articles get the reverse link pass (spec §9.4).
+		reverse, err := runReverseLinks(cmd.Context(), s, created)
+		for _, line := range reverse.Lines() {
+			_, _ = fmt.Fprintln(stderr, "reverse pass: "+line)
+		}
+		s.WriteSummary(stderr)
+		if err != nil {
+			return fmt.Errorf("topic vocabulary: %w", err)
+		}
 		return nil
 	}
 

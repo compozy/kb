@@ -64,6 +64,14 @@ func runClassifyCommand(cmd *cobra.Command, options *classifyCommandOptions, top
 	if report.NoVocabulary {
 		_, _ = fmt.Fprintf(stderr, "no vocabulary: run `kb topic vocabulary %s --draft`\n", s.Topic.Slug)
 	}
+	if runErr == nil && len(report.ArticlesChanged) > 0 {
+		// Articles that gained aliases get the reverse link pass (spec §9.4).
+		reverse, err := runReverseLinks(cmd.Context(), s, report.ArticlesChanged)
+		for _, line := range reverse.Lines() {
+			_, _ = fmt.Fprintln(stderr, "reverse pass: "+line)
+		}
+		runErr = err
+	}
 	s.WriteSummary(stderr)
 	if runErr != nil {
 		return fmt.Errorf("classify: %w", runErr)

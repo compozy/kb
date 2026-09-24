@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -288,6 +289,26 @@ func TestReversePassJudgesMentioningDocuments(t *testing.T) {
 	}
 	if strings.Contains(v.read(t, sourceA), "Vector Database") {
 		t.Fatal("a document without a mention was linked")
+	}
+}
+
+func TestReverseAllMergesArticles(t *testing.T) {
+	v := newLinkVault(t, "")
+	v.write(t, "wiki/concepts/Vector Database.md", "---\ntitle: Vector Database\ncriterion: Databases that index embeddings.\n---\nStores vectors.\n")
+	v.write(t, "wiki/concepts/Reranker.md", "---\ntitle: Reranker\ncriterion: Models that reorder retrieved candidates.\n---\nReorders hits.\n")
+	v.write(t, "raw/articles/source-b.md", "---\ntitle: Source B\n---\nWe picked a vector database and a reranker for search.\n")
+	fake := newFake(t, linkAll)
+
+	report, err := ReverseAll(context.Background(), v.open(t, fake), []string{"wiki/concepts/Vector Database.md", "wiki/concepts/Reranker.md"})
+	if err != nil {
+		t.Fatalf("ReverseAll: %v", err)
+	}
+	if report.Documents != 2 || report.Judged != 2 {
+		t.Fatalf("report = %+v", report)
+	}
+	got := frontmatterList(t, v.read(t, "raw/articles/source-b.md"), "extends")
+	if !slices.Contains(got, "[[Vector Database]]") || !slices.Contains(got, "[[Reranker]]") {
+		t.Fatalf("extends = %v, want both articles", got)
 	}
 }
 

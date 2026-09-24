@@ -264,6 +264,43 @@ func Reverse(ctx context.Context, s *session.Session, articlePath string) (Repor
 	return r.execute(ctx, jobs, report)
 }
 
+// ReverseAll runs the reverse pass for each article in turn (spec §9.4: an
+// article was created or gained aliases) and merges the reports. The corpus
+// is reloaded between articles so a document written for one article is read
+// fresh for the next.
+func ReverseAll(ctx context.Context, s *session.Session, articlePaths []string) (Report, error) {
+	total := Report{BodyMode: s.BodyMode(), Applied: map[string]int{}, Skipped: map[string]int{}}
+	for _, articlePath := range articlePaths {
+		s.ReloadCorpus()
+		report, err := Reverse(ctx, s, articlePath)
+		total.add(report)
+		if err != nil {
+			return total, err
+		}
+	}
+	s.ReloadCorpus()
+	return total, nil
+}
+
+// add folds another report's counts into r.
+func (r *Report) add(other Report) {
+	r.Documents += other.Documents
+	r.Judged += other.Judged
+	r.Inserted += other.Inserted
+	r.Proposals += other.Proposals
+	r.Reviews += other.Reviews
+	r.Demotions += other.Demotions
+	r.Contradictions += other.Contradictions
+	r.Undecided += other.Undecided
+	for key, count := range other.Applied {
+		r.Applied[key] += count
+	}
+	for key, count := range other.Skipped {
+		r.Skipped[key] += count
+	}
+	r.Changes = append(r.Changes, other.Changes...)
+}
+
 func newRunner(s *session.Session, neighbours Neighbours, dryRun bool) (*runner, []*corpus.Document, error) {
 	bank, err := questions.Load(BankID)
 	if err != nil {
