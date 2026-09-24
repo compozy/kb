@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/decisions"
@@ -126,6 +127,31 @@ type Result struct {
 	Hits         []Hit  `json:"results"`
 	// Dropped lists every candidate not returned (filled only with Explain).
 	Dropped []Drop `json:"dropped,omitempty"`
+	// Decided counts judged candidates whose answers_{id} was decided.
+	Decided int `json:"decided"`
+	// Undecided lists, sorted, the judged candidates whose answers_{id} was
+	// undecided (timeout, budget, invalid receipt): never a "no".
+	Undecided []string `json:"undecided"`
+}
+
+// maxListedDocuments caps the undecided candidates named in Lines.
+const maxListedDocuments = 10
+
+// Lines renders the run summary of a query: coverage and the undecided
+// candidates by name.
+func (r Result) Lines() []string {
+	kind := r.QuestionKind
+	if strings.TrimSpace(kind) == "" {
+		kind = "unknown"
+	}
+	lines := []string{
+		fmt.Sprintf("find: %d candidates judged, %d kept, question kind %s", r.Candidates, len(r.Hits), kind),
+		fmt.Sprintf("coverage: %d/%d candidates decided", r.Decided, r.Candidates),
+	}
+	if len(r.Undecided) > 0 {
+		lines = append(lines, fmt.Sprintf("undecided candidates (%d, not ranked; re-run to retry through the cache): %s", len(r.Undecided), corpus.ListPaths(r.Undecided, maxListedDocuments)))
+	}
+	return lines
 }
 
 // Judged is a candidate with its answers.
@@ -167,6 +193,15 @@ func Run(ctx context.Context, s *session.Session, q Query) (Result, error) {
 		return Result{}, err
 	}
 	result.QuestionKind = argmax(kindProbs)
+	result.Undecided = []string{}
+	for _, item := range judgedAll {
+		if item.Decided {
+			result.Decided++
+		} else {
+			result.Undecided = append(result.Undecided, item.Doc.Path)
+		}
+	}
+	sort.Strings(result.Undecided)
 	hits, rankDrops := Rank(judgedAll, result.QuestionKind, s.Threshold("find_keep"), s.Threshold("find_window"), q.Limit)
 	result.Hits = hits
 	if q.Explain {
@@ -279,71 +314,131 @@ func hasConcept(doc *corpus.Document, concept string) bool {
 	return false
 }
 
-// judge asks the find bank over candidates in requests of BatchSize. It
-// returns every candidate with its answers and the summed question_kind
-// distribution across requests.
+// judge asks the find bank over candidates in requests of BatchSize, run
+// concurrently over the engine's workers. It returns every candidate with its
+// answers, in candidate order, and the question_kind distribution summed
+// across requests in batch order (so the result does not depend on which
+// request finished first).
 func judge(ctx context.Context, s *session.Session, bank *questions.Bank, question string, candidates []*corpus.Document) ([]Judged, map[string]float64, error) {
+	batches := make([][]*corpus.Document, 0, (len(candidates)+BatchSize-1)/BatchSize)
+	for start := 0; start < len(candidates); start += BatchSize {
+		batches = append(batches, candidates[start:min(start+BatchSize, len(candidates))])
+	}
+	results := make([]batchResult, len(batches))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sem := make(chan struct{}, max(1, s.Engine.Concurrency()))
+	var (
+		wg       sync.WaitGroup
+		errOnce  sync.Once
+		firstErr error
+	)
+	for index, batch := range batches {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			result, err := judgeBatch(ctx, s, bank, question, batch)
+			if err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+					cancel()
+				})
+				return
+			}
+			results[index] = result
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, fmt.Errorf("find: %w", err)
+	}
+
 	all := make([]Judged, 0, len(candidates))
 	kinds := map[string]float64{}
-	for start := 0; start < len(candidates); start += BatchSize {
-		batch := candidates[start:min(start+BatchSize, len(candidates))]
-		state := map[string]any{"question": question}
-		entries := make([]map[string]any, 0, len(batch))
-		qs := make([]questions.Q, 0, len(batch)*2+1)
-		for index, doc := range batch {
-			id := "d" + strconv.Itoa(index+1)
-			entry := map[string]any{"id": id, "title": doc.Title, "head": corpus.Head(doc.Body, HeadChars)}
-			if genre := doc.Genre(); genre != "" {
-				entry["kind"] = genre
-			}
-			if concepts := doc.Concepts(); len(concepts) > 0 {
-				entry["concepts"] = concepts
-			}
-			if summary := doc.Summary(); summary != "" {
-				entry["summary"] = summary
-			}
-			entries = append(entries, entry)
-			for _, template := range []string{"answers_{id}", "specificity_{id}"} {
-				q, err := bank.Question(template, map[string]string{"id": id})
-				if err != nil {
-					return nil, nil, fmt.Errorf("find: %w", err)
-				}
-				qs = append(qs, q)
-			}
-		}
-		kindQ, err := bank.Question("question_kind", nil)
-		if err != nil {
-			return nil, nil, fmt.Errorf("find: %w", err)
-		}
-		qs = append(qs, kindQ)
-		state["candidates"] = entries
-
-		subject := "find:" + question
-		res, err := s.Engine.Decide(ctx, s.Request(decisions.PurposeFind, subject, bank, state, qs))
-		if err != nil {
-			return nil, nil, fmt.Errorf("find: %w", err)
-		}
-		if kind := res.Answers["question_kind"]; kind.Decided() {
-			for option, p := range kind.Probs {
-				kinds[option] += p
-			}
-		}
-		for index, doc := range batch {
-			id := "d" + strconv.Itoa(index+1)
-			answer := res.Answers["answers_"+id]
-			item := Judged{Doc: doc}
-			if p, ok := answer.P(""); ok {
-				item.PAnswers, item.Decided = p, true
-			} else {
-				item.Reason = reasonUndecided + undecidedReason(answer)
-			}
-			if spec := res.Answers["specificity_"+id]; spec.Decided() && spec.Score != nil {
-				item.Specificity = *spec.Score
-			}
-			all = append(all, item)
+	for _, result := range results {
+		all = append(all, result.judged...)
+		for _, option := range slices.Sorted(maps.Keys(result.kinds)) {
+			kinds[option] += result.kinds[option]
 		}
 	}
 	return all, kinds, nil
+}
+
+// batchResult is the outcome of one judgment request.
+type batchResult struct {
+	judged []Judged
+	kinds  map[string]float64
+}
+
+// judgeBatch asks one request over at most BatchSize candidates.
+func judgeBatch(ctx context.Context, s *session.Session, bank *questions.Bank, question string, batch []*corpus.Document) (batchResult, error) {
+	state := map[string]any{"question": question}
+	entries := make([]map[string]any, 0, len(batch))
+	qs := make([]questions.Q, 0, len(batch)*2+1)
+	for index, doc := range batch {
+		id := "d" + strconv.Itoa(index+1)
+		entry := map[string]any{"id": id, "title": doc.Title, "head": corpus.Head(doc.Body, HeadChars)}
+		if genre := doc.Genre(); genre != "" {
+			entry["kind"] = genre
+		}
+		if concepts := doc.Concepts(); len(concepts) > 0 {
+			entry["concepts"] = concepts
+		}
+		if summary := doc.Summary(); summary != "" {
+			entry["summary"] = summary
+		}
+		entries = append(entries, entry)
+		for _, template := range []string{"answers_{id}", "specificity_{id}"} {
+			q, err := bank.Question(template, map[string]string{"id": id})
+			if err != nil {
+				return batchResult{}, fmt.Errorf("find: %w", err)
+			}
+			qs = append(qs, q)
+		}
+	}
+	kindQ, err := bank.Question("question_kind", nil)
+	if err != nil {
+		return batchResult{}, fmt.Errorf("find: %w", err)
+	}
+	qs = append(qs, kindQ)
+	state["candidates"] = entries
+
+	subject := "find:" + question
+	res, err := s.Engine.Decide(ctx, s.Request(decisions.PurposeFind, subject, bank, state, qs))
+	if err != nil {
+		return batchResult{}, fmt.Errorf("find: %w", err)
+	}
+	out := batchResult{judged: make([]Judged, 0, len(batch)), kinds: map[string]float64{}}
+	if kind := res.Answers["question_kind"]; kind.Decided() {
+		maps.Copy(out.kinds, kind.Probs)
+	}
+	for index, doc := range batch {
+		id := "d" + strconv.Itoa(index+1)
+		answer := res.Answers["answers_"+id]
+		item := Judged{Doc: doc}
+		if p, ok := answer.P(""); ok {
+			item.PAnswers, item.Decided = p, true
+		} else {
+			item.Reason = reasonUndecided + undecidedReason(answer)
+		}
+		if spec := res.Answers["specificity_"+id]; spec.Decided() && spec.Score != nil {
+			item.Specificity = *spec.Score
+		}
+		out.judged = append(out.judged, item)
+	}
+	return out, nil
 }
 
 func undecidedReason(answer decisions.Answer) string {

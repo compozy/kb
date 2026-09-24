@@ -98,7 +98,9 @@ func runFind(cmd *cobra.Command, topicSlug, question string, options *findComman
 	if err := writeFindResult(cmd.OutOrStdout(), result, options.json, options.explain); err != nil {
 		return fmt.Errorf("kb find: write output: %w", err)
 	}
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "find: %d candidates judged, %d kept, question kind %s\n", result.Candidates, len(result.Hits), findValueOr(result.QuestionKind, "unknown"))
+	for _, line := range result.Lines() {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
+	}
 	s.WriteSummary(cmd.ErrOrStderr())
 	return nil
 }
@@ -220,11 +222,4 @@ func writeFacets(w io.Writer, report kfind.FacetReport) error {
 		}
 	}
 	return nil
-}
-
-func findValueOr(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }
