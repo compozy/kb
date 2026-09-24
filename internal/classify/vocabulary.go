@@ -240,20 +240,56 @@ func validConcepts(proposed []proposedConcept, taken map[string]bool, limit int)
 	return kept
 }
 
-// summaryMentions counts the sources whose summary mentions title
-// (case-insensitive).
+// summaryMentions counts the sources whose summary mentions title: the title
+// appears verbatim (case-insensitive), or at least two thirds of its content
+// words appear, allowing simple inflections ("swarm" matches "swarms"). A
+// proposed concept title rarely occurs verbatim in a one-line summary, so a
+// verbatim-only count would read zero for every concept.
 func summaryMentions(sources []*corpus.Document, title string) int {
 	needle := strings.ToLower(strings.TrimSpace(title))
 	if needle == "" {
 		return 0
 	}
+	words := corpus.Tokenize(needle)
+	need := (2*len(words) + 2) / 3
 	count := 0
 	for _, doc := range sources {
-		if strings.Contains(strings.ToLower(doc.Summary()), needle) {
+		summary := strings.ToLower(doc.Summary())
+		if summary == "" {
+			continue
+		}
+		if strings.Contains(summary, needle) || (need > 0 && matchedWords(words, corpus.Tokenize(summary)) >= need) {
 			count++
 		}
 	}
 	return count
+}
+
+// matchedWords counts title words found among summary words, treating a word
+// and its extension ("agent"/"agents", "orchestrate"/"orchestration") as a
+// match when the shorter has at least 4 runes.
+func matchedWords(title, summary []string) int {
+	matched := 0
+	for _, word := range title {
+		for _, candidate := range summary {
+			if word == candidate || sharesStem(word, candidate) {
+				matched++
+				break
+			}
+		}
+	}
+	return matched
+}
+
+func sharesStem(a, b string) bool {
+	if len([]rune(a)) > len([]rune(b)) {
+		a, b = b, a
+	}
+	if len([]rune(a)) < 4 {
+		return false
+	}
+	stem := string([]rune(a)[:max(4, len([]rune(a))-2)])
+	return strings.HasPrefix(b, stem)
 }
 
 // sampleEvenly returns at most limit documents spread evenly over docs

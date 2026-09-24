@@ -206,3 +206,29 @@ func TestCreateStubArticle(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSummaryMentions(t *testing.T) {
+	t.Parallel()
+	docs := []*corpus.Document{
+		{Frontmatter: map[string]any{"summary": "A study of agent swarms that hand off tasks between agents."}},
+		{Frontmatter: map[string]any{"summary": "Leader agents orchestrate specialist workers in a swarm."}},
+		{Frontmatter: map[string]any{"summary": "A recipe for sourdough bread."}},
+		{Frontmatter: map[string]any{}},
+	}
+	tests := []struct {
+		title string
+		want  int
+	}{
+		{title: "Agent handoffs", want: 1},
+		{title: "Leader agent orchestration", want: 1},
+		{title: "Agent swarm overview", want: 2},
+		{title: "Sourdough", want: 1},
+		{title: "Quantum computing", want: 0},
+		{title: " ", want: 0},
+	}
+	for _, tt := range tests {
+		if got := summaryMentions(docs, tt.title); got != tt.want {
+			t.Errorf("summaryMentions(%q) = %d, want %d", tt.title, got, tt.want)
+		}
+	}
+}
