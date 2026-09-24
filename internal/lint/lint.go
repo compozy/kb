@@ -15,6 +15,7 @@ import (
 
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/resolve"
 	"github.com/compozy/kb/internal/vault"
 )
 
@@ -25,21 +26,6 @@ var (
 	wikilinkPattern        = regexp.MustCompile(`\[\[([^\[\]|#]+?)(?:\|[^\[\]]*?)?(?:#[^\[\]]*?)?\]\]`)
 	linkTokenPattern       = regexp.MustCompile(`[\pL\pN]+`)
 )
-
-var linkStopwords = map[string]struct{}{
-	"a":    {},
-	"an":   {},
-	"and":  {},
-	"by":   {},
-	"for":  {},
-	"in":   {},
-	"of":   {},
-	"on":   {},
-	"or":   {},
-	"the":  {},
-	"to":   {},
-	"with": {},
-}
 
 var formatterColumns = []string{"severity", "kind", "filePath", "target", "message"}
 
@@ -78,16 +64,16 @@ type vaultFile struct {
 }
 
 type vaultState struct {
-	domain     string
-	files      []*vaultFile
-	allFiles   []*vaultFile
-	aliasIndex map[string][]*vaultFile
-	pathIndex  map[string]*vaultFile
-	stemIndex  map[string][]*vaultFile
-	titleIndex map[string][]*vaultFile
-	topicPath  string
-	topicSlug  string
-	vaultPath  string
+	domain   string
+	files    []*vaultFile
+	allFiles []*vaultFile
+	// filesByPath maps vault-relative paths to files so resolve.Index results
+	// map back to lint's own file state.
+	filesByPath map[string]*vaultFile
+	index       *resolve.Index
+	topicPath   string
+	topicSlug   string
+	vaultPath   string
 }
 
 // Lint walks one KB topic, validates structural issues, and returns sorted lint
@@ -213,18 +199,15 @@ func loadVault(topicPath string) (vaultState, error) {
 	}
 
 	state := vaultState{
-		files:      make([]*vaultFile, 0),
-		allFiles:   make([]*vaultFile, 0),
-		aliasIndex: make(map[string][]*vaultFile),
-		pathIndex:  make(map[string]*vaultFile),
-		stemIndex:  make(map[string][]*vaultFile),
-		titleIndex: make(map[string][]*vaultFile),
-		topicPath:  cleanTopicPath,
-		topicSlug:  filepath.Base(cleanTopicPath),
-		vaultPath:  filepath.Dir(cleanTopicPath),
+		files:       make([]*vaultFile, 0),
+		allFiles:    make([]*vaultFile, 0),
+		filesByPath: make(map[string]*vaultFile),
+		topicPath:   cleanTopicPath,
+		topicSlug:   filepath.Base(cleanTopicPath),
+		vaultPath:   filepath.Dir(cleanTopicPath),
 	}
 
-	topicRoots, err := discoverTopicRoots(state.vaultPath, cleanTopicPath)
+	topicRoots, err := resolve.DiscoverTopicRoots(state.vaultPath, cleanTopicPath)
 	if err != nil {
 		return vaultState{}, err
 	}
@@ -298,38 +281,21 @@ func loadVault(topicPath string) (vaultState, error) {
 		return state.allFiles[i].vaultRelativePath < state.allFiles[j].vaultRelativePath
 	})
 
+	indexFiles := make([]resolve.File, 0, len(state.allFiles))
 	for _, file := range state.allFiles {
-		vaultRelativeNoExt := strings.TrimSuffix(file.vaultRelativePath, ".md")
-		state.pathIndex[vaultRelativeNoExt] = file
-
+		state.filesByPath[file.vaultRelativePath] = file
+		indexFile := resolve.File{
+			Path:    file.vaultRelativePath,
+			InTopic: file.inTopic,
+			Title:   strings.TrimSpace(frontmatter.GetString(file.frontmatter, "title")),
+			Aliases: resolve.Aliases(file.frontmatter),
+		}
 		if file.inTopic {
-			relativeNoExt := strings.TrimSuffix(file.relativePath, ".md")
-			state.pathIndex[relativeNoExt] = file
-			state.pathIndex[path.Join(state.topicSlug, relativeNoExt)] = file
+			indexFile.TopicRel = file.relativePath
 		}
-
-		stem := path.Base(vaultRelativeNoExt)
-		if stem != "" {
-			state.stemIndex[stem] = append(state.stemIndex[stem], file)
-		}
-
-		if title := strings.TrimSpace(frontmatter.GetString(file.frontmatter, "title")); title != "" {
-			state.titleIndex[title] = append(state.titleIndex[title], file)
-		}
-
-		seenAliases := make(map[string]struct{})
-		for _, alias := range linkAliasesForFile(file, state.topicSlug) {
-			key := canonicalLinkKey(alias)
-			if key == "" {
-				continue
-			}
-			if _, exists := seenAliases[key]; exists {
-				continue
-			}
-			seenAliases[key] = struct{}{}
-			state.aliasIndex[key] = append(state.aliasIndex[key], file)
-		}
+		indexFiles = append(indexFiles, indexFile)
 	}
+	state.index = resolve.NewIndex(state.topicSlug, indexFiles)
 
 	return state, nil
 }
@@ -453,46 +419,6 @@ func buildLinkGraph(state vaultState) ([]models.LintIssue, map[string]map[string
 	}
 
 	return issues, incoming
-}
-
-func discoverTopicRoots(vaultPath, topicPath string) ([]string, error) {
-	entries, err := os.ReadDir(vaultPath)
-	if err != nil {
-		return nil, fmt.Errorf("read vault path %q: %w", vaultPath, err)
-	}
-
-	roots := make([]string, 0, len(entries)+1)
-	seen := map[string]struct{}{topicPath: {}}
-	roots = append(roots, topicPath)
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		candidate := filepath.Join(vaultPath, entry.Name())
-		if _, exists := seen[candidate]; exists {
-			continue
-		}
-
-		markerPath := filepath.Join(candidate, "CLAUDE.md")
-		info, err := os.Stat(markerPath)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("stat topic marker %q: %w", markerPath, err)
-		}
-		if info.IsDir() {
-			continue
-		}
-
-		seen[candidate] = struct{}{}
-		roots = append(roots, candidate)
-	}
-
-	sort.Strings(roots)
-	return roots, nil
 }
 
 func findOrphans(state vaultState, incoming map[string]map[string]struct{}) []models.LintIssue {
@@ -991,125 +917,16 @@ func (state vaultState) resolveTarget(target string, rawOnly bool) *vaultFile {
 		return nil
 	}
 
-	if file := state.pathIndex[normalized]; isAcceptableTarget(file, rawOnly) {
-		return file
-	}
-	if after, ok := strings.CutPrefix(normalized, state.topicSlug+"/"); ok {
-		if file := state.pathIndex[after]; isAcceptableTarget(file, rawOnly) {
-			return file
-		}
-	}
-	if file := pickCandidate(state.stemIndex[normalized], rawOnly); file != nil {
-		return file
-	}
-	if file := pickCandidate(state.titleIndex[normalized], rawOnly); file != nil {
-		return file
-	}
-	canonical := canonicalLinkKey(normalized)
-	if canonical == "" {
-		return nil
-	}
-	if file := pickCandidate(state.aliasIndex[canonical], rawOnly); file != nil {
-		return file
-	}
-	if file := state.resolveCanonicalPrefixTarget(canonical, rawOnly); file != nil {
-		return file
-	}
-
-	return nil
-}
-
-func canonicalLinkKey(target string) string {
-	normalized := strings.ToLower(normalizeLinkTarget(target))
-	tokens := linkTokenPattern.FindAllString(normalized, -1)
-	if len(tokens) == 0 {
-		return ""
-	}
-
-	filtered := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		if _, isStopword := linkStopwords[token]; isStopword {
-			continue
-		}
-		filtered = append(filtered, token)
-	}
-	if len(filtered) == 0 {
-		filtered = tokens
-	}
-
-	return strings.Join(filtered, " ")
-}
-
-func linkAliasesForFile(file *vaultFile, topicSlug string) []string {
-	aliases := make([]string, 0, 8)
-
-	vaultRelativeNoExt := strings.TrimSuffix(file.vaultRelativePath, ".md")
-	if vaultRelativeNoExt != "" {
-		aliases = append(aliases, vaultRelativeNoExt, path.Base(vaultRelativeNoExt))
-	}
-	if file.inTopic {
-		relativeNoExt := strings.TrimSuffix(file.relativePath, ".md")
-		if relativeNoExt != "" {
-			aliases = append(aliases, relativeNoExt, path.Join(topicSlug, relativeNoExt), path.Base(relativeNoExt))
-		}
-	}
-
-	title := strings.TrimSpace(frontmatter.GetString(file.frontmatter, "title"))
-	if title == "" {
-		return aliases
-	}
-
-	aliases = append(aliases, title)
-	if colon := strings.IndexRune(title, ':'); colon > 0 {
-		aliases = append(aliases, strings.TrimSpace(title[:colon]))
-	}
-
-	return aliases
-}
-
-func (state vaultState) resolveCanonicalPrefixTarget(target string, rawOnly bool) *vaultFile {
-	matches := make(map[*vaultFile]struct{})
-	for key, candidates := range state.aliasIndex {
-		if !hasCanonicalPrefixRelation(key, target) {
-			continue
-		}
-		for _, candidate := range candidates {
-			if !isAcceptableTarget(candidate, rawOnly) {
-				continue
-			}
-			matches[candidate] = struct{}{}
-		}
-	}
-
-	if len(matches) != 1 {
+	// Obsidian semantics (spec §6): path or file stem only, case-insensitive.
+	// Titles and frontmatter aliases never resolve a link.
+	resolved := state.index.ResolveWhere(normalized, func(candidate *resolve.File) bool {
+		return isAcceptableTarget(state.filesByPath[candidate.Path], rawOnly)
+	})
+	if resolved == nil {
 		return nil
 	}
 
-	for candidate := range matches {
-		return candidate
-	}
-
-	return nil
-}
-
-func hasCanonicalPrefixRelation(candidate, target string) bool {
-	if candidate == "" || target == "" {
-		return false
-	}
-	if candidate == target {
-		return true
-	}
-	return strings.HasPrefix(candidate, target+" ") || strings.HasPrefix(target, candidate+" ")
-}
-
-func pickCandidate(candidates []*vaultFile, rawOnly bool) *vaultFile {
-	for _, candidate := range candidates {
-		if isAcceptableTarget(candidate, rawOnly) {
-			return candidate
-		}
-	}
-
-	return nil
+	return state.filesByPath[resolved.Path]
 }
 
 func isAcceptableTarget(file *vaultFile, rawOnly bool) bool {

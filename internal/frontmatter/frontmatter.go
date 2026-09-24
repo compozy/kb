@@ -73,7 +73,7 @@ func Parse(markdown string) (map[string]any, string, error) {
 		return map[string]any{}, markdown, nil
 	}
 
-	source, body, found := splitFrontmatter(markdown)
+	source, body, found := Split(markdown)
 	if !found {
 		return nil, "", &Error{
 			Kind: ErrorKindMissingClosingDelimiter,
@@ -205,27 +205,6 @@ func GetBool(values map[string]any, key string) bool {
 
 func hasOpeningDelimiter(markdown string) bool {
 	return strings.HasPrefix(markdown, "---\n") || strings.HasPrefix(markdown, "---\r\n") || markdown == "---"
-}
-
-func splitFrontmatter(markdown string) (string, string, bool) {
-	start := firstLineEnd(markdown)
-	if start < 0 {
-		return "", "", false
-	}
-
-	lineStart := start
-	for lineStart <= len(markdown) {
-		lineEnd, next := lineBounds(markdown, lineStart)
-		if strings.TrimSuffix(markdown[lineStart:lineEnd], "\r") == "---" {
-			return markdown[start:lineStart], markdown[next:], true
-		}
-		if next == len(markdown) {
-			break
-		}
-		lineStart = next
-	}
-
-	return "", "", false
 }
 
 func firstLineEnd(markdown string) int {
