@@ -103,6 +103,10 @@ type EngineTypeSuggester struct {
 	Decider Decider
 	Topic   decisions.TopicRef
 	Options []TypeOption
+	// Extras are the topic's extra okf_type question banks (spec §4.3):
+	// their questions ride along in the same request and their answers are
+	// only recorded in receipts.
+	Extras []*questions.Bank
 }
 
 // SuggestType asks one okf_type choice with state {document: {title,
@@ -115,13 +119,17 @@ func (s EngineTypeSuggester) SuggestType(ctx context.Context, doc TypeDocument) 
 	if err != nil {
 		return TypeSuggestion{}, err
 	}
+	bank, qs, err := withExtras(bank, []questions.Q{question}, s.Extras)
+	if err != nil {
+		return TypeSuggestion{}, err
+	}
 	result, err := s.Decider.Decide(ctx, decisions.Request{
 		Topic:     s.Topic,
 		Purpose:   decisions.PurposeOKFType,
 		Subject:   doc.Subject,
 		Bank:      bank,
 		State:     typeState(doc.Title, doc.Body),
-		Questions: []questions.Q{question},
+		Questions: qs,
 	})
 	if err != nil {
 		return TypeSuggestion{}, fmt.Errorf("okf: suggest type: %w", err)
@@ -233,4 +241,18 @@ func decodeRawAnswer(raw json.RawMessage) (rawAnswer, bool) {
 		return rawAnswer{}, false
 	}
 	return answer, true
+}
+
+// withExtras appends the plain questions of the topic's extra okf_type banks
+// to qs and composes their bank after bank (unchanged without extras, so the
+// cache key only moves when a topic adds questions).
+func withExtras(bank *questions.Bank, qs []questions.Q, extras []*questions.Bank) (*questions.Bank, []questions.Q, error) {
+	extraBank, extra, err := questions.Instantiate(extras, nil)
+	if err != nil {
+		return bank, qs, fmt.Errorf("okf: topic extra okf_type questions: %w", err)
+	}
+	if extraBank == nil {
+		return bank, qs, nil
+	}
+	return questions.Compose(bank, extraBank), append(qs, extra...), nil
 }

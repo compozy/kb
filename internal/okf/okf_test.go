@@ -15,6 +15,7 @@ import (
 	"github.com/compozy/kb/internal/fakes"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
+	"github.com/compozy/kb/internal/questions"
 	"github.com/compozy/kb/internal/review"
 )
 
@@ -519,6 +520,70 @@ func TestEngineTypeSuggesterAsksOKFTypeChoice(t *testing.T) {
 	}
 	if state := calls[0].StateString(); !strings.Contains(state, `"title":"Alpha"`) || !strings.Contains(state, "Do this.") {
 		t.Fatalf("state = %s", state)
+	}
+}
+
+// TestOKFDecisionsExcludeAndExtras: a document matching decisions.exclude
+// is never sent (promote needs --type, check reports no advisory finding),
+// and the topic's extra okf_type questions ride along in the request.
+func TestOKFDecisionsExcludeAndExtras(t *testing.T) {
+	t.Parallel()
+	fake := fakes.NewOpenRouter(func(call fakes.Call, q fakes.Question) any {
+		if q.ID == "okf_type" {
+			return fakes.Pick("Playbook", 0.9)
+		}
+		return nil
+	}, nil)
+	t.Cleanup(fake.Close)
+	extra, err := questions.Parse([]byte(`{"id":"owner_okf","version":"1","purpose":"okf_type","guard":"G","questions":[{"id":"is_runbook","type":"noul","instructions":"Is it a runbook?","source":"topic owner"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := TypeOptions([]string{"Playbook", "Reference"}, nil)
+	ref := decisions.TopicRef{Slug: "research", Root: t.TempDir(), Thresholds: decisions.DefaultThresholds(), Exclude: []string{"wiki/private/**"}}
+	suggester := EngineTypeSuggester{Decider: newTestEngine(t, fake), Topic: ref, Options: options, Extras: []*questions.Bank{extra}}
+
+	excluded, err := suggester.SuggestType(context.Background(), TypeDocument{Subject: "wiki/private/Secret.md", Title: "Secret", Body: "1. Do this."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded.Status != decisions.StatusNotChecked || excluded.Reason != decisions.ReasonExcluded || len(fake.Calls()) != 0 {
+		t.Fatalf("excluded suggestion = %#v (calls %d)", excluded, len(fake.Calls()))
+	}
+	_, err = chooseType(context.Background(), PromoteInput{Suggester: &stubSuggester{suggestion: excluded}}, typeContext{document: TypeDocument{Subject: "wiki/private/Secret.md"}})
+	if !errors.Is(err, ErrTypeRequired) || !strings.Contains(err.Error(), "decisions.exclude") {
+		t.Fatalf("chooseType error = %v", err)
+	}
+
+	judged, err := suggester.SuggestType(context.Background(), TypeDocument{Subject: "wiki/concepts/Alpha.md", Title: "Alpha", Body: "1. Do this."})
+	if err != nil || !judged.Decided() || judged.Type != "Playbook" {
+		t.Fatalf("judged = %#v, %v", judged, err)
+	}
+	calls := fake.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d", len(calls))
+	}
+	if _, ok := calls[0].Questions["is_runbook"]; !ok || len(calls[0].Questions) != 2 {
+		t.Fatalf("questions = %#v", calls[0].Questions)
+	}
+
+	bundle := t.TempDir()
+	writeFile(t, filepath.Join(bundle, "index.md"), "---\nokf_version: \"0.1\"\n---\n# Index\n")
+	mkdirAll(t, filepath.Join(bundle, "private"))
+	writeFile(t, filepath.Join(bundle, "private", "rotate-key.md"), "---\ntitle: Rotate Key\ntype: Reference\ndescription: Rotating cut errors by 40%.\ntimestamp: 2026-06-27T10:11:12Z\n---\n1. Create a key. 2. Restart workers.\n")
+	before := len(fake.Calls())
+	advisory := &AdvisoryOptions{Options: options, Decider: newTestEngine(t, fake), Topic: decisions.TopicRef{Slug: "catalog", Root: bundle, Exclude: []string{"private/**"}}}
+	issues, err := Check(context.Background(), bundle, CheckOptions{Types: []string{"Playbook", "Reference"}, Advisory: advisory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if issue.Kind == models.LintIssueKindTypeMismatch || issue.Kind == models.LintIssueKindDescriptionUnsupported {
+			t.Fatalf("an excluded concept got an advisory finding: %#v", issue)
+		}
+	}
+	if len(fake.Calls()) != before {
+		t.Fatalf("an excluded concept was sent: %d new calls", len(fake.Calls())-before)
 	}
 }
 

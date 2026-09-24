@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -201,8 +202,93 @@ func TestReviewItemAndTally(t *testing.T) {
 	for _, triage := range []string{TriageKept, TriageReview, TriageQuarantined, TriageSkipped, TriageDuplicateSkipped, TriageKept} {
 		tally.Add(Outcome{Triage: triage})
 	}
-	if got := tally.Line(); got != "kept 2, review 1, quarantined 1, skipped 1, duplicates 1" {
+	if got := tally.Line(); got != "kept 2, review 1, quarantined 1, skipped 1, duplicates 1, undecided 0" {
 		t.Fatalf("Line = %q", got)
+	}
+	tally.Add(Outcome{Triage: TriageReview, Reason: ReasonUndecided})
+	tally.Add(Outcome{Triage: TriageKept, Excluded: true})
+	if got := tally.Line(); got != "kept 3, review 2, quarantined 1, skipped 1, duplicates 1, undecided 1, excluded 1 (decisions.exclude, not judged)" {
+		t.Fatalf("Line with undecided and excluded = %q", got)
+	}
+
+	undecided, ok := ReviewItem(Outcome{
+		Triage: TriageReview, Reason: ReasonUndecided, Stage: StageUndecided, Purpose: "relevance", Question: "role",
+		Undecided: []string{"role:timeout"},
+	}, "raw/b.md", "B")
+	if !ok || undecided.Queue != review.QueueGate || undecided.Action["reason"] != ReasonOffTopic || undecided.Action["undecided"] != "role:timeout" {
+		t.Fatalf("undecided item = %+v", undecided)
+	}
+}
+
+// TestMergeUndecided: a gate judgment that could not be made puts the
+// source in review with triage_reason `undecided`, never `kept`; answers not
+// checked because of decisions.exclude are no judgment, and a real verdict
+// wins (spec §2.3).
+func TestMergeUndecided(t *testing.T) {
+	t.Parallel()
+	decidedQuality := map[string]float64{classify.NoulThin: 0.1, classify.NoulPaywall: 0.1, classify.NoulErrorPage: 0.1}
+	tests := []struct {
+		name     string
+		j        classify.GateJudgment
+		flagged  bool
+		start    Outcome
+		triage   string
+		reason   string
+		question string
+	}{
+		{
+			name:   "decided judgment stays kept",
+			j:      classify.GateJudgment{RoleAsked: true, RoleDecided: true, Quality: decidedQuality, QualityDecided: true},
+			start:  Outcome{Triage: TriageKept},
+			triage: TriageKept,
+		},
+		{
+			name:   "undecided role goes to review",
+			j:      classify.GateJudgment{RoleAsked: true, Quality: decidedQuality, QualityDecided: true, Undecided: []string{"role:timeout"}},
+			start:  Outcome{Triage: TriageKept},
+			triage: TriageReview, reason: ReasonUndecided, question: "role",
+		},
+		{
+			name:   "undecided quality nouls go to review",
+			j:      classify.GateJudgment{Undecided: []string{"thin_or_boilerplate:budget", "paywall_or_login:budget"}},
+			start:  Outcome{Triage: TriageKept},
+			triage: TriageReview, reason: ReasonUndecided, question: "thin_or_boilerplate",
+		},
+		{
+			name:   "state too large is undecided too",
+			j:      classify.GateJudgment{RoleAsked: true, Undecided: []string{"role:not_checked:state_too_large", "thin_or_boilerplate:not_checked:state_too_large"}},
+			start:  Outcome{Triage: TriageKept},
+			triage: TriageReview, reason: ReasonUndecided, question: "role",
+		},
+		{
+			name:   "excluded answers are no judgment",
+			j:      classify.GateJudgment{RoleAsked: true, Undecided: []string{"role:not_checked:excluded", "thin_or_boilerplate:not_checked:excluded"}},
+			start:  Outcome{Triage: TriageKept},
+			triage: TriageKept,
+		},
+		{
+			name:    "code flag already decided quality",
+			j:       classify.GateJudgment{Undecided: []string{"thin_or_boilerplate:timeout"}},
+			flagged: true,
+			start:   Outcome{Triage: TriageKept},
+			triage:  TriageKept,
+		},
+		{
+			name:   "a real review verdict wins",
+			j:      classify.GateJudgment{RoleAsked: true, Undecided: []string{"role:timeout"}},
+			start:  Outcome{Triage: TriageReview, Reason: "thin"},
+			triage: TriageReview, reason: "thin",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := tt.start
+			out.mergeUndecided(tt.j, tt.flagged)
+			if out.Triage != tt.triage || out.Reason != tt.reason || out.Question != tt.question {
+				t.Fatalf("outcome = %+v", out)
+			}
+		})
 	}
 }
 
@@ -232,10 +318,20 @@ type evalEnv struct {
 
 func newEvalEnv(t *testing.T, decide fakes.DecideFunc, flags session.Flags, yaml string) *evalEnv {
 	t.Helper()
+	return newEvalEnvWith(t, decide, flags, yaml, nil)
+}
+
+// newEvalEnvWith is newEvalEnv with a setup run on the topic root before the
+// session opens (extra banks, fixtures).
+func newEvalEnvWith(t *testing.T, decide fakes.DecideFunc, flags session.Flags, yaml string, setup func(root string)) *evalEnv {
+	t.Helper()
 	vault := t.TempDir()
 	info, err := topic.New(vault, "demo", "Demo", "demo")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(info.RootPath)
 	}
 	if yaml != "" {
 		c := &contract.Contract{Purpose: "Decision models research.", Core: []string{"decision models"}, OutOfScope: []string{"cooking recipes"}}
@@ -316,6 +412,64 @@ func TestEvaluateStages(t *testing.T) {
 			}
 			if out.Triage != tt.triage || out.Reason != tt.reason || doc == nil {
 				t.Fatalf("outcome = %+v", out)
+			}
+			if got := len(env.or.Calls()); got != tt.calls {
+				t.Fatalf("decision calls = %d, want %d", got, tt.calls)
+			}
+		})
+	}
+}
+
+// TestEvaluateExclusionUndecidedAndSiteName: a source matching
+// decisions.exclude is kept without any decision call; a failed gate
+// judgment is written as review/undecided, never kept; a page whose title is
+// the site name the fetcher reported is not an article (no call).
+func TestEvaluateExclusionUndecidedAndSiteName(t *testing.T) {
+	t.Parallel()
+	brokenRole := func(_ fakes.Call, q fakes.Question) any {
+		if q.ID == "role" {
+			return map[string]any{"type": "choice", "choice": "core"}
+		}
+		return nil
+	}
+	tests := []struct {
+		name     string
+		decide   fakes.DecideFunc
+		yaml     string
+		title    string
+		site     string
+		triage   string
+		reason   string
+		excluded bool
+		calls    int
+	}{
+		{name: "excluded source is kept without a call", yaml: "decisions:\n  exclude:\n    - raw/articles/**\n", title: "Decision engines", triage: TriageKept, excluded: true},
+		{name: "excluded glob that does not match still judges", yaml: "decisions:\n  exclude:\n    - raw/private/**\n", title: "Decision engines", triage: TriageKept, calls: 2},
+		{name: "invalid role receipt is undecided review", decide: brokenRole, yaml: "\n", title: "Decision engines", triage: TriageReview, reason: ReasonUndecided, calls: 2},
+		{name: "title equal to the reported site name", title: "Catapult", site: "Catapult", triage: TriageQuarantined, reason: quality.NotAnArticle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := newEvalEnv(t, tt.decide, session.Flags{}, tt.yaml)
+			writeDoc(t, env.root, "raw/articles/other.md", map[string]any{
+				"title": "Decision engines survey", "source_url": "https://example.com/survey", "source_kind": "article",
+			}, longBody("survey", 400))
+			checker, err := NewChecker(env.s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := env.fetched(tt.title, "https://example.com/a", longBody("decision", 400))
+			in.SiteName = tt.site
+			out, _, err := checker.Evaluate(context.Background(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Triage != tt.triage || out.Reason != tt.reason || out.Excluded != tt.excluded {
+				t.Fatalf("outcome = %+v", out)
+			}
+			if tt.excluded && out.Evidence != ExcludedNote {
+				t.Fatalf("excluded evidence = %q", out.Evidence)
 			}
 			if got := len(env.or.Calls()); got != tt.calls {
 				t.Fatalf("decision calls = %d, want %d", got, tt.calls)
@@ -420,6 +574,54 @@ func TestPrefetchSkipsRecordsAndShadows(t *testing.T) {
 				t.Fatalf("shadow must not skip: rows %+v skips %+v decision %+v", rows, skips, decided[0])
 			}
 		})
+	}
+}
+
+// TestPrefetchExcludedItemsAndExtraQuestions: an item whose would-be path
+// matches decisions.exclude is fetched without entering any request; the
+// topic's extra relevance questions ride along once per item and never
+// change the built-in verdict (spec §4.3, §14).
+func TestPrefetchExcludedItemsAndExtraQuestions(t *testing.T) {
+	t.Parallel()
+	const extra = `{"id":"owner_relevance","version":"1","purpose":"relevance","guard":"G","questions":[` +
+		`{"id":"vendor_item_{id}","type":"noul","instructions":"Evaluate only item {id}. Is it a vendor page?","source":"topic owner"}]}`
+	env := newEvalEnvWith(t, func(_ fakes.Call, q fakes.Question) any {
+		switch q.ID {
+		case "role_item_i1":
+			return fakes.Pick("core", 0.9)
+		case "vendor_item_i1":
+			return fakes.Noul(0.99)
+		}
+		return nil
+	}, session.Flags{}, "decisions:\n  gates: apply\n  exclude:\n    - raw/private/**\n", func(root string) {
+		dir := filepath.Join(root, ".decisions", "banks")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "owner.json"), []byte(extra), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	items := []Item{
+		{URL: "https://example.com/secret", Title: "Secret memo", Path: "raw/private/secret-memo.md"},
+		{URL: "https://example.com/judges", Title: "Judges", Path: "raw/articles/judges.md"},
+	}
+	decided, err := Prefetch(context.Background(), env.s, items, PrefetchOptions{Batch: "b1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided[0].Action != ActionFetch || decided[0].Reason != PrefetchExcluded {
+		t.Fatalf("excluded item = %+v", decided[0])
+	}
+	if decided[1].Action != ActionFetch || decided[1].Role != "core" {
+		t.Fatalf("judged item = %+v", decided[1])
+	}
+	calls := env.or.Calls()
+	if len(calls) != 1 || strings.Contains(calls[0].StateString(), "Secret memo") {
+		t.Fatalf("the excluded item must stay out of the request: %d calls", len(calls))
+	}
+	if _, ok := calls[0].Questions["vendor_item_i1"]; !ok || len(calls[0].Questions) != 2 {
+		t.Fatalf("questions = %v", slices.Sorted(maps.Keys(calls[0].Questions)))
 	}
 }
 

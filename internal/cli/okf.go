@@ -123,6 +123,7 @@ func okfAdvisoryOptions(cmd *cobra.Command, cfg kconfig.Config, options *okfChec
 			return nil, nil, fmt.Errorf("okf check: %w", err)
 		}
 		advisory.Threshold = decisions.Thresholds(nil).Merge(cfg.Decisions.Thresholds).Merge(settings.Decisions.Thresholds).Get("okf_type")
+		advisory.Topic.Exclude = settings.Decisions.Exclude
 		return advisory, nil, nil
 	}
 
@@ -133,5 +134,6 @@ func okfAdvisoryOptions(cmd *cobra.Command, cfg kconfig.Config, options *okfChec
 	advisory.Decider = s.Engine
 	advisory.Topic = s.Ref
 	advisory.Threshold = s.Threshold("okf_type")
+	advisory.Extras = s.ExtraBanks(decisions.PurposeOKFType)
 	return advisory, s, nil
 }

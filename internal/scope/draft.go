@@ -67,6 +67,10 @@ type DraftOptions struct {
 	// ScreeningReasons caps the distinct reasons per screening decision
 	// (default 8).
 	ScreeningReasons int
+	// Exclude are topic.yaml `decisions.exclude` globs: matching files
+	// (CLAUDE.md, screening files; the corpus already drops documents) never
+	// enter the draft prompt (spec §14). Draft sets it from the session.
+	Exclude []string
 }
 
 func (o DraftOptions) withDefaults() DraftOptions {
@@ -170,6 +174,7 @@ var DraftRules = []string{
 // from. The active contract is never touched.
 func Draft(ctx context.Context, s *session.Session, opts DraftOptions) (*contract.Contract, DraftInputs, error) {
 	opts = opts.withDefaults()
+	opts.Exclude = s.Settings.Decisions.Exclude
 	c, err := s.Corpus()
 	if err != nil {
 		return nil, DraftInputs{}, fmt.Errorf("scope: draft: load corpus: %w", err)
@@ -269,8 +274,17 @@ func CollectDraftInputs(topicRoot, title, domain string, c *corpus.Corpus, opts 
 	opts = opts.withDefaults()
 	inputs := DraftInputs{Title: title, Domain: domain, Articles: []string{}, SourceSample: []SampleSource{}}
 
+	excluded := func(rel string) bool {
+		for _, pattern := range opts.Exclude {
+			if contract.MatchPath(pattern, rel) {
+				return true
+			}
+		}
+		return false
+	}
 	claude, err := os.ReadFile(filepath.Join(topicRoot, claudeFile))
 	switch {
+	case excluded(claudeFile):
 	case err == nil:
 		inputs.ScopeText = ScopeLine(string(claude))
 		if existing, parseErr := contract.ParseClaudeSection(string(claude)); parseErr == nil && !existing.Empty() {
@@ -284,16 +298,19 @@ func CollectDraftInputs(topicRoot, title, domain string, c *corpus.Corpus, opts 
 		if len(inputs.Articles) == maxArticleTitles {
 			break
 		}
+		if excluded(article.Path) {
+			continue
+		}
 		inputs.Articles = append(inputs.Articles, article.Title)
 	}
-	sources := c.Sources()
+	sources := slices.DeleteFunc(slices.Clone(c.Sources()), func(doc *corpus.Document) bool { return excluded(doc.Path) })
 	inputs.Sources = len(sources)
 	for _, doc := range Stratify(sources, opts.SourceSample) {
 		inputs.SourceSample = append(inputs.SourceSample, SampleSource{Title: doc.Title, Folder: Folder(doc.Path)})
 	}
 	inputs.Folders = FolderCounts(sources)
 
-	screening, err := SummarizeScreening(topicRoot, opts.ScreeningReasons)
+	screening, err := SummarizeScreening(topicRoot, opts.ScreeningReasons, opts.Exclude...)
 	if err != nil {
 		return inputs, err
 	}
@@ -347,8 +364,9 @@ func IsScreeningFile(name string) bool {
 // SummarizeScreening finds the topic's curation and screening files under
 // outputs/ and summarizes each: rows, and per decision its count, up to
 // maxReasons distinct reasons (most frequent first) and a few example
-// titles. Files that do not parse are skipped.
-func SummarizeScreening(topicRoot string, maxReasons int) ([]ScreeningSummary, error) {
+// titles. Files that do not parse, and files matching an exclude glob
+// (topic-relative, decisions.exclude), are skipped.
+func SummarizeScreening(topicRoot string, maxReasons int, exclude ...string) ([]ScreeningSummary, error) {
 	outputs := filepath.Join(topicRoot, "outputs")
 	var files []string
 	err := filepath.WalkDir(outputs, func(current string, entry fs.DirEntry, walkErr error) error {
@@ -364,9 +382,17 @@ func SummarizeScreening(topicRoot string, maxReasons int) ([]ScreeningSummary, e
 			}
 			return nil
 		}
-		if IsScreeningFile(entry.Name()) {
-			files = append(files, current)
+		if !IsScreeningFile(entry.Name()) {
+			return nil
 		}
+		if rel, relErr := filepath.Rel(topicRoot, current); relErr == nil {
+			for _, pattern := range exclude {
+				if contract.MatchPath(pattern, filepath.ToSlash(rel)) {
+					return nil
+				}
+			}
+		}
+		files = append(files, current)
 		return nil
 	})
 	if err != nil {

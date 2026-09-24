@@ -40,6 +40,9 @@ type GateOptions struct {
 	RequestedURL string
 	FinalURL     string
 	StatusCode   int
+	// SiteName is the site name the fetcher reported (Firecrawl
+	// ogSiteName), for the "title equals the site name" quality rule.
+	SiteName string
 	// PlatformID is the `youtube:<id>` / `instagram:<shortcode>` identity.
 	PlatformID string
 	// Prefetch is the stage-2 verdict of a bulk item (nil for single
@@ -61,6 +64,11 @@ type Result struct {
 	Refetched    bool     `json:"refetched,omitempty"`
 	ReviewItem   string   `json:"review_item,omitempty"`
 	Undecided    []string `json:"undecided,omitempty"`
+	// Excluded reports that the source matches decisions.exclude: it was
+	// written without any decision call and is left out of classify and
+	// link; Note says so.
+	Excluded bool   `json:"excluded,omitempty"`
+	Note     string `json:"note,omitempty"`
 }
 
 // RunOptions configures a decision-backed ingest run.
@@ -261,7 +269,8 @@ func fetched(options Options, built *builder, title, markdown string) gate.Fetch
 	in := gate.Fetched{
 		Title: title, Markdown: markdown, Build: built.build,
 		RequestedURL: options.Gate.RequestedURL, FinalURL: options.Gate.FinalURL, StatusCode: options.Gate.StatusCode,
-		Refetch: options.Gate.Refetch, PlatformID: options.Gate.PlatformID,
+		SiteName: options.Gate.SiteName,
+		Refetch:  options.Gate.Refetch, PlatformID: options.Gate.PlatformID,
 		Transcript: classify.IsTranscriptKind(string(options.SourceKind)),
 	}
 	if decision := options.Gate.Prefetch; decision != nil {
@@ -340,6 +349,10 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 		},
 		Triage: out.Triage, TriageReason: out.Reason, Quality: out.Quality, DuplicateOf: out.DuplicateOf,
 		Shadow: out.Shadow, Supersedes: out.Supersedes, Refetched: out.Refetched, Undecided: out.Undecided,
+		Excluded: out.Excluded,
+	}
+	if out.Excluded {
+		result.Note = gate.ExcludedNote
 	}
 	if item, ok := gate.ReviewItem(out, built.rel, doc.Title); ok {
 		item.ID = review.ItemID(item.Queue, item.Subject, item.Target, item.Question)
@@ -352,7 +365,9 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 	if refreshed, err := corpus.ReadDocument(root, finalRel, corpus.KindSource); err == nil {
 		r.checker.Register(refreshed, quarantined)
 	}
-	if !quarantined {
+	if !quarantined && !out.Excluded {
+		// Excluded sources stay out of every call, so they are not
+		// classified or linked either.
 		r.written = append(r.written, built.rel)
 	}
 	r.tally.Add(out)

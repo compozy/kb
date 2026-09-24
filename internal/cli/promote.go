@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/compozy/kb/internal/decisions"
 	kokf "github.com/compozy/kb/internal/okf"
 	"github.com/compozy/kb/internal/session"
 	ktopic "github.com/compozy/kb/internal/topic"
@@ -67,6 +68,7 @@ func newPromoteCommand() *cobra.Command {
 					Decider: s.Engine,
 					Topic:   s.Ref,
 					Options: kokf.TypeOptions(cfg.OKF.Types, cfg.OKF.TypeDescription),
+					Extras:  s.ExtraBanks(decisions.PurposeOKFType),
 				}
 				input.TypeThreshold = s.Threshold("okf_type")
 			}

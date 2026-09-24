@@ -186,6 +186,52 @@ func TestCollectDraftInputsAndPrompt(t *testing.T) {
 	}
 }
 
+// TestCollectDraftInputsSkipsExcluded: files matching decisions.exclude
+// (sources, CLAUDE.md, screening files) never enter the contract draft
+// prompt (spec §14).
+func TestCollectDraftInputsSkipsExcluded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		exclude       []string
+		wantSources   int
+		wantScreening int
+		wantScope     string
+		absent        []string
+	}{
+		{name: "nothing excluded", wantSources: 2, wantScreening: 1, wantScope: "Typed decision models."},
+		{name: "private sources and screening excluded", exclude: []string{"raw/private/**", "outputs/private/**"}, wantSources: 1, wantScope: "Typed decision models.", absent: []string{"Private memo", "Secret paper", "raw/private"}},
+		{name: "CLAUDE.md excluded", exclude: []string{"CLAUDE.md"}, wantSources: 2, wantScreening: 1, absent: []string{"Typed decision models."}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, root := newTestTopic(t)
+			writeFile(t, filepath.Join(root, "CLAUDE.md"), "# Demo\n\n**Topic scope:** Typed decision models.\n")
+			writeSource(t, root, "raw/articles/a.md", "Public article", "Body.\n")
+			writeSource(t, root, "raw/private/memo.md", "Private memo", "Body.\n")
+			writeFile(t, filepath.Join(root, "outputs/private/science-screening.jsonl"), `{"title":"Secret paper","included":false,"exclusion_reason":"internal"}`+"\n")
+			c, err := corpus.Load(root, corpus.LoadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			inputs, err := CollectDraftInputs(root, "Demo", "demo", c, DraftOptions{Exclude: tt.exclude})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inputs.Sources != tt.wantSources || len(inputs.Screening) != tt.wantScreening || inputs.ScopeText != tt.wantScope {
+				t.Fatalf("inputs = %+v", inputs)
+			}
+			prompt := inputs.Prompt()
+			for _, text := range tt.absent {
+				if strings.Contains(prompt, text) {
+					t.Fatalf("prompt leaks excluded %q:\n%s", text, prompt)
+				}
+			}
+		})
+	}
+}
+
 func TestDraftSavesValidatedDraft(t *testing.T) {
 	t.Parallel()
 	vault, root := newTestTopic(t)

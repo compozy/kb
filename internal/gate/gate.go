@@ -39,10 +39,14 @@ const (
 	TriageDuplicateSkipped = "duplicate-skipped"
 )
 
-// Gate reasons that are not quality reasons.
+// Gate reasons that are not quality reasons. ReasonUndecided marks a source
+// whose gate judgment could not be made (timeout, budget, invalid receipt,
+// state too large...): it is written with `triage: review` so a failed
+// judgment never reads as kept (spec §2 principle 3).
 const (
 	ReasonOffTopic  = "off_topic"
 	ReasonDuplicate = "duplicate"
+	ReasonUndecided = "undecided"
 )
 
 // Stage names, for outcomes and review evidence.
@@ -52,6 +56,7 @@ const (
 	StageQuality       = "quality"
 	StageRelevance     = "relevance"
 	StageNearDuplicate = "near-duplicate"
+	StageUndecided     = "undecided"
 )
 
 // Outcome is what the gates decided about one source.
@@ -87,6 +92,10 @@ type Outcome struct {
 	Refetched bool `json:"refetched,omitempty"`
 	// Undecided lists "<question>:<reason>" answers that could not be used.
 	Undecided []string `json:"undecided,omitempty"`
+	// Excluded reports that the source matches topic.yaml
+	// `decisions.exclude`: no decision call was made about it (code checks
+	// still ran) and it is kept without a judgment.
+	Excluded bool `json:"excluded,omitempty"`
 	// Evidence is one human-readable line for review items and logs.
 	Evidence string `json:"evidence,omitempty"`
 }
@@ -161,6 +170,12 @@ func ReviewItem(o Outcome, path, title string) (review.Item, bool) {
 		question = o.Stage
 	}
 	action := map[string]any{"reason": reason, "stage": o.Stage}
+	if reason == ReasonUndecided {
+		// Rejecting a source the gate could not judge removes it as not
+		// wanted; the failed answers stay visible in the item.
+		action["reason"] = ReasonOffTopic
+		action["undecided"] = strings.Join(o.Undecided, "; ")
+	}
 	if o.Triage == TriageQuarantined {
 		action["quarantined"] = true
 	}
@@ -187,6 +202,12 @@ type Tally struct {
 	Quarantined int `json:"quarantined"`
 	Skipped     int `json:"skipped"`
 	Duplicates  int `json:"duplicates"`
+	// Undecided counts review sources whose gate judgment failed (a subset
+	// of Review).
+	Undecided int `json:"undecided"`
+	// Excluded counts written sources matching decisions.exclude (never
+	// judged).
+	Excluded int `json:"excluded,omitempty"`
 	// Shadow counts sources with at least one would-be outcome not applied.
 	Shadow int `json:"shadow"`
 }
@@ -205,16 +226,26 @@ func (t *Tally) Add(o Outcome) {
 	case TriageDuplicateSkipped:
 		t.Duplicates++
 	}
+	if o.Triage == TriageReview && o.Reason == ReasonUndecided {
+		t.Undecided++
+	}
+	if o.Excluded && o.Kept() {
+		t.Excluded++
+	}
 	if len(o.Shadow) > 0 {
 		t.Shadow++
 	}
 }
 
 // Line renders the tally: "kept 2, review 1, quarantined 0, skipped 3,
-// duplicates 1".
+// duplicates 1, undecided 0" (undecided sources are also counted in review),
+// plus the excluded count when a source matched decisions.exclude.
 func (t Tally) Line() string {
-	line := fmt.Sprintf("kept %d, review %d, quarantined %d, skipped %d, duplicates %d",
-		t.Kept, t.Review, t.Quarantined, t.Skipped, t.Duplicates)
+	line := fmt.Sprintf("kept %d, review %d, quarantined %d, skipped %d, duplicates %d, undecided %d",
+		t.Kept, t.Review, t.Quarantined, t.Skipped, t.Duplicates, t.Undecided)
+	if t.Excluded > 0 {
+		line += fmt.Sprintf(", excluded %d (decisions.exclude, not judged)", t.Excluded)
+	}
 	if t.Shadow > 0 {
 		line += fmt.Sprintf(" (%d with shadow outcomes)", t.Shadow)
 	}

@@ -67,6 +67,8 @@ func chooseType(ctx context.Context, input PromoteInput, tc typeContext) (typeCh
 	}
 
 	switch {
+	case suggestion.Status == decisions.StatusNotChecked && suggestion.Reason == decisions.ReasonExcluded:
+		return typeChoice{}, fmt.Errorf("%w: %s matches decisions.exclude, so no type is suggested; pass --type", ErrTypeRequired, tc.document.Subject)
 	case !suggestion.Decided():
 		return typeChoice{}, fmt.Errorf("%w: the type suggestion is %s (%s); pass --type", ErrTypeRequired, suggestion.Status, suggestion.Reason)
 	case suggestion.Type == NoneType && suggestion.Probability >= threshold:

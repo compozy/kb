@@ -112,6 +112,7 @@ func ingestScraped(
 	options.Gate.RequestedURL = requested
 	options.Gate.FinalURL = scraped.FinalURL
 	options.Gate.StatusCode = scraped.StatusCode
+	options.Gate.SiteName = scraped.SiteName
 	options.Gate.Refetch = scrapeRefetch(scraper, cfg.Firecrawl, requested)
 	return runner.Ingest(ctx, options)
 }

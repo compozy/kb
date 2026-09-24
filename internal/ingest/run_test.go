@@ -98,7 +98,7 @@ func TestRunWritesOwnedKeysThroughTheWriter(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## [2026-09-24] ingest | url-2026-09-24-abc123 (url)",
-		"kept 1, review 0, quarantined 0, skipped 0, duplicates 1 · decisions US$",
+		"kept 1, review 0, quarantined 0, skipped 0, duplicates 1, undecided 0 · decisions US$",
 		"- kept: `Decision engines` → `demo/raw/articles/decision-engines.md`",
 		"- duplicate-skipped (duplicate): `Decision engines` — duplicate of raw/articles/decision-engines.md (url)",
 	} {

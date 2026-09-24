@@ -242,6 +242,96 @@ func TestIngestGatesQualityQuarantine(t *testing.T) {
 	}
 }
 
+// TestIngestGatesDecisionsExclude: a source whose would-be path matches
+// topic.yaml decisions.exclude is written kept with a clear note, and no
+// request about it reaches the fake decisions or generation endpoints
+// (spec §14: exclude keeps files out of every call).
+func TestIngestGatesDecisionsExclude(t *testing.T) {
+	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/private-memo": {Markdown: article("Private memo about decision engines", 400), Title: "Private memo"},
+	}))
+	env.acceptContract(t, "apply")
+	path := filepath.Join(env.root, "topic.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, string(data)+"  exclude:\n    - raw/articles/private-*.md\n")
+
+	result := env.ingestURL(t, "https://example.com/posts/private-memo")
+	if result.Triage != gate.TriageKept || !result.Excluded || result.Note != gate.ExcludedNote || len(result.Undecided) != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if !strings.HasPrefix(result.FilePath, "demo/raw/articles/private-") {
+		t.Fatalf("path = %q", result.FilePath)
+	}
+	if calls, gen := len(env.or.Calls()), len(env.or.GenCalls()); calls != 0 || gen != 0 {
+		t.Fatalf("an excluded source must not reach any model: %d decision and %d generation calls", calls, gen)
+	}
+	values, _ := env.read(t, topicRel(result.FilePath))
+	if values["triage"] != "kept" || values["triage_reason"] != nil || values["summary"] != nil {
+		t.Fatalf("frontmatter = %v", values)
+	}
+	if gated := env.pending(t, review.QueueGate); len(gated) != 0 {
+		t.Fatalf("gate queue = %+v", gated)
+	}
+	logText := env.file(t, "log.md")
+	if !strings.Contains(logText, "excluded 1 (decisions.exclude, not judged)") || !strings.Contains(logText, gate.ExcludedNote) {
+		t.Fatalf("log.md entry:\n%s", logText)
+	}
+}
+
+// TestIngestGatesSiteNameTitle: Firecrawl's ogSiteName reaches the code
+// quality check, so a capture titled with the site name alone is flagged
+// not_an_article without any decision call.
+func TestIngestGatesSiteNameTitle(t *testing.T) {
+	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
+		"https://www.catapultsports.com/products/vector": {Markdown: article("Catapult vector wearable", 500), Title: "Catapult", SiteName: "Catapult"},
+	}))
+	result := env.ingestURL(t, "https://www.catapultsports.com/products/vector")
+	if result.Triage != gate.TriageQuarantined || result.TriageReason != "not_an_article" {
+		t.Fatalf("result = %+v", result)
+	}
+	if calls := len(env.or.Calls()); calls != 0 {
+		t.Fatalf("decision calls = %d, want 0", calls)
+	}
+}
+
+// TestIngestGatesUndecidedIsReview: a gate judgment that fails (an invalid
+// receipt for `role`) writes triage: review with triage_reason undecided,
+// queues a gate item and counts undecided in the summary and log.md; it is
+// never written as kept (spec §2 principle 3).
+func TestIngestGatesUndecidedIsReview(t *testing.T) {
+	env := newGateEnv(t, func(_ fakes.Call, q fakes.Question) any {
+		if q.ID == "role" {
+			return map[string]any{"type": "choice", "choice": "core"}
+		}
+		return nil
+	}, pages(map[string]fakes.ScrapeResponse{
+		"https://example.com/posts/typed-judges": {Markdown: article("Typed judges in practice", 400), Title: "Typed judges in practice"},
+	}))
+
+	stdout, stderr := env.mustRun(t, "ingest", "url", "https://example.com/posts/typed-judges", "--topic", "demo")
+	var result kingest.Result
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Triage != gate.TriageReview || result.TriageReason != gate.ReasonUndecided || result.ReviewItem == "" {
+		t.Fatalf("result = %+v", result)
+	}
+	values, _ := env.read(t, topicRel(result.FilePath))
+	if values["triage"] != "review" || values["triage_reason"] != "undecided" {
+		t.Fatalf("frontmatter = %v", values)
+	}
+	gated := env.pending(t, review.QueueGate)
+	if len(gated) != 1 || gated[0].Question != "role" || gated[0].Purpose != "relevance" {
+		t.Fatalf("gate items = %+v", gated)
+	}
+	if !strings.Contains(stderr, "undecided 1") || !strings.Contains(env.file(t, "log.md"), "review 1, quarantined 0, skipped 0, duplicates 0, undecided 1") {
+		t.Fatalf("summary must count undecided:\n%s\nlog.md:\n%s", stderr, env.file(t, "log.md"))
+	}
+}
+
 // TestIngestGatesRefetchKeepsFullBody: a thin first capture is refetched
 // with maxAge 0; the full body is kept and `quality` is not written.
 func TestIngestGatesRefetchKeepsFullBody(t *testing.T) {

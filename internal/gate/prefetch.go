@@ -27,6 +27,9 @@ const (
 const (
 	PrefetchCollectedPath = "collected_on_purpose_path"
 	PrefetchRelevanceOff  = "relevance_off"
+	// PrefetchExcluded marks an item whose would-be path matches
+	// decisions.exclude: it is fetched without a pre-fetch call.
+	PrefetchExcluded = "excluded"
 )
 
 // relevanceBank holds the `role_item_{id}` question.
@@ -85,9 +88,9 @@ func PrefetchAction(pOffTopic, pKept, quarantine, fetch float64) string {
 	}
 }
 
-// Prefetch runs stage 2 over bulk items: items matching
-// collected_on_purpose_paths, and every item of a topic with relevance off,
-// are fetched without a call; the rest are judged in requests of at most
+// Prefetch runs stage 2 over bulk items: items whose would-be path matches
+// decisions.exclude or collected_on_purpose_paths, and every item of a topic
+// with relevance off, are fetched without a call; the rest are judged in requests of at most
 // MaxItemsPerRequest items with the state
 // `{contract, items:[{id,title,description,channel,date,provenance}]}` and
 // one `role_item_{id}` question per item. In apply mode, skipped items are
@@ -104,6 +107,8 @@ func Prefetch(ctx context.Context, s *session.Session, items []Item, opts Prefet
 		}
 		out[index] = PrefetchDecision{Item: item, Action: ActionFetch}
 		switch {
+		case s.Excluded(item.Path):
+			out[index].Reason = PrefetchExcluded
 		case !s.RelevanceEnabled():
 			out[index].Reason = PrefetchRelevanceOff
 		case s.Contract.MatchesCollectedPath(item.Path):
@@ -120,7 +125,11 @@ func Prefetch(ctx context.Context, s *session.Session, items []Item, opts Prefet
 	queue := review.Open(s.Root(), s.Now)
 	for start := 0; start < len(pending); start += MaxItemsPerRequest {
 		chunk := pending[start:min(start+MaxItemsPerRequest, len(pending))]
-		result, err := s.Engine.Decide(ctx, prefetchRequest(s, out, chunk, opts))
+		request, err := prefetchRequest(s, out, chunk, opts)
+		if err != nil {
+			return out, fmt.Errorf("gate: pre-fetch relevance: %w", err)
+		}
+		result, err := s.Engine.Decide(ctx, request)
 		if err != nil {
 			return out, fmt.Errorf("gate: pre-fetch relevance: %w", err)
 		}
@@ -156,9 +165,14 @@ func Prefetch(ctx context.Context, s *session.Session, items []Item, opts Prefet
 // itemQuestionID is the element id of the item at position in a request.
 func itemQuestionID(position int) string { return "i" + strconv.Itoa(position+1) }
 
-func prefetchRequest(s *session.Session, out []PrefetchDecision, chunk []int, opts PrefetchOptions) decisions.Request {
+// prefetchRequest builds the request of one chunk: the built-in
+// `role_item_{id}` per item plus the topic's extra relevance questions
+// (templates once per item id; their answers are only recorded in
+// receipts).
+func prefetchRequest(s *session.Session, out []PrefetchDecision, chunk []int, opts PrefetchOptions) (decisions.Request, error) {
 	stateItems := make([]map[string]any, 0, len(chunk))
 	qs := make([]questions.Q, 0, len(chunk))
+	ids := make([]string, 0, len(chunk))
 	for position, index := range chunk {
 		item := out[index].Item
 		id := itemQuestionID(position)
@@ -169,6 +183,11 @@ func prefetchRequest(s *session.Session, out []PrefetchDecision, chunk []int, op
 		setText(entry, "date", item.Date)
 		stateItems = append(stateItems, entry)
 		qs = append(qs, relevanceBank.MustQuestion("role_item_{id}", map[string]string{"id": id}))
+		ids = append(ids, id)
+	}
+	bank, qs, err := s.WithExtras(decisions.PurposeRelevance, relevanceBank, qs, ids...)
+	if err != nil {
+		return decisions.Request{}, err
 	}
 	contractState := map[string]any{}
 	if !s.Contract.Empty() {
@@ -176,7 +195,7 @@ func prefetchRequest(s *session.Session, out []PrefetchDecision, chunk []int, op
 	}
 	state := map[string]any{"contract": contractState, "items": stateItems}
 	subject := "prefetch:" + opts.Batch
-	return s.Request(decisions.PurposeRelevance, subject, relevanceBank, state, qs)
+	return s.Request(decisions.PurposeRelevance, subject, bank, state, qs), nil
 }
 
 func itemProvenance(item Item, opts PrefetchOptions) map[string]any {

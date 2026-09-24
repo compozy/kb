@@ -34,7 +34,12 @@ type AdvisoryOptions struct {
 	// Decider computes missing answers; nil reads receipts only.
 	Decider Decider
 	// Topic is the bundle's topic reference for Decide (Root = bundle).
+	// Concepts matching Topic.Exclude (decisions.exclude) get no advisory
+	// finding: they are never judged.
 	Topic decisions.TopicRef
+	// Extras are the topic's extra okf_type banks, asked with type_mismatch
+	// (answers only recorded in receipts).
+	Extras []*questions.Bank
 }
 
 type conceptFile struct {
@@ -63,6 +68,9 @@ func advisoryIssues(ctx context.Context, bundlePath string, concepts []conceptFi
 
 	issues := make([]models.LintIssue, 0)
 	for _, concept := range concepts {
+		if options.Topic.Excluded(concept.relativePath) {
+			continue // decisions.exclude: out of every call (spec §14)
+		}
 		content, err := os.ReadFile(concept.absolutePath)
 		if err != nil {
 			continue // reported by the conformance check
@@ -107,7 +115,7 @@ func typeMismatch(ctx context.Context, bank *questions.Bank, stored storedAnswer
 	if err != nil {
 		return nil, err
 	}
-	probs, found, err := answerProbabilities(ctx, stored, options, subject, bank, state, question)
+	probs, found, err := answerProbabilities(ctx, stored, options, subject, bank, state, question, options.Extras...)
 	if err != nil || !found {
 		return nil, err
 	}
@@ -161,7 +169,7 @@ func descriptionUnsupported(ctx context.Context, bank *questions.Bank, stored st
 // asks it when a Decider is configured. A noul answer is returned as
 // {"": P(yes)}; a choice as its option distribution. found is false when no
 // usable answer exists.
-func answerProbabilities(ctx context.Context, stored storedAnswers, options AdvisoryOptions, subject string, bank *questions.Bank, state any, question questions.Q) (map[string]float64, bool, error) {
+func answerProbabilities(ctx context.Context, stored storedAnswers, options AdvisoryOptions, subject string, bank *questions.Bank, state any, question questions.Q, extras ...*questions.Bank) (map[string]float64, bool, error) {
 	if raw, ok := stored[subject][question.ID]; ok {
 		if answer, ok := decodeRawAnswer(raw); ok {
 			return rawProbabilities(answer)
@@ -170,13 +178,17 @@ func answerProbabilities(ctx context.Context, stored storedAnswers, options Advi
 	if options.Decider == nil {
 		return nil, false, nil
 	}
+	requestBank, qs, err := withExtras(bank, []questions.Q{question}, extras)
+	if err != nil {
+		return nil, false, err
+	}
 	result, err := options.Decider.Decide(ctx, decisions.Request{
 		Topic:     options.Topic,
 		Purpose:   decisions.PurposeOKFType,
 		Subject:   subject,
-		Bank:      bank,
+		Bank:      requestBank,
 		State:     state,
-		Questions: []questions.Q{question},
+		Questions: qs,
 	})
 	if err != nil {
 		return nil, false, err

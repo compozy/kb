@@ -23,10 +23,12 @@ type Fetched struct {
 	// provenance, body) for a title and body. The gate calls it again after
 	// a refetch, so the judged document is always the one that is written.
 	Build func(title, markdown string) (*corpus.Document, error)
-	// RequestedURL, FinalURL and StatusCode are what the fetcher reported.
+	// RequestedURL, FinalURL, StatusCode and SiteName are what the fetcher
+	// reported (SiteName feeds the "title equals the site name" rule).
 	RequestedURL string
 	FinalURL     string
 	StatusCode   int
+	SiteName     string
 	// Refetch performs the one fresh stage-4 scrape (URL sources only; nil
 	// disables stage 4).
 	Refetch func(ctx context.Context) (*firecrawl.ScrapeResult, error)
@@ -151,7 +153,7 @@ func (c *Checker) Evaluate(ctx context.Context, in Fetched) (Outcome, *corpus.Do
 		return skip, doc, nil
 	}
 
-	fetch := fetchInfo{requested: in.RequestedURL, final: in.FinalURL, status: in.StatusCode}
+	fetch := fetchInfo{requested: in.RequestedURL, final: in.FinalURL, status: in.StatusCode, site: in.SiteName}
 	flags := c.flags(doc, fetch, in.Transcript)
 	if NeedsRefetch(flags, c.words(doc), in.Refetch != nil) {
 		refetched, info, ok := c.refetch(ctx, in, doc, &out)
@@ -178,6 +180,16 @@ func (c *Checker) Evaluate(ctx context.Context, in Fetched) (Outcome, *corpus.Do
 		}
 	}
 
+	if c.s.Excluded(doc.Path) {
+		// decisions.exclude keeps the source out of every call (spec §14):
+		// no judgment, no near-duplicate request. It is kept without one.
+		out.Excluded = true
+		if out.Evidence == "" {
+			out.Evidence = ExcludedNote
+		}
+		return out, doc, nil
+	}
+
 	judgment, err := classify.JudgeGate(ctx, c.s, doc, classify.GateOptions{IsTranscript: in.Transcript, Flags: flags})
 	if err != nil {
 		return out, doc, fmt.Errorf("gate: %w", err)
@@ -187,6 +199,7 @@ func (c *Checker) Evaluate(ctx context.Context, in Fetched) (Outcome, *corpus.Do
 		out.mergeQuality(judgment, c.s.Threshold("quality_apply"), c.s.Threshold("quality_review"), qualityMode)
 	}
 	out.mergeRelevance(judgment, c.s.Threshold("relevance_quarantine"), c.s.Threshold("relevance_review"), c.s.RelevanceGateMode())
+	out.mergeUndecided(judgment, len(flags) > 0)
 
 	if out.Triage == TriageQuarantined {
 		return out, doc, nil
@@ -223,6 +236,44 @@ func (o *Outcome) mergeQuality(j classify.GateJudgment, apply, reviewAt float64,
 	}, mode)
 }
 
+// ExcludedNote is the evidence line of a source kept without a judgment
+// because it matches decisions.exclude.
+const ExcludedNote = "decisions.exclude: kept without a judgment (no decision call)"
+
+// mergeUndecided puts a source whose gate judgment failed in the review
+// band with triage_reason `undecided` (spec §2 principle 3: a failed
+// judgment is never a "no", and never a "kept" either): the `role` answer
+// when it was asked, or a quality noul when no code flag already decided
+// quality. Answers not checked because of decisions.exclude are no
+// judgment, not a failure. Any other review or quarantine verdict wins.
+func (o *Outcome) mergeUndecided(j classify.GateJudgment, flagged bool) {
+	failed := make([]string, 0, len(j.Undecided))
+	purpose := decisions.PurposeQuality
+	for _, entry := range j.Undecided {
+		if strings.HasSuffix(entry, ":"+decisions.ReasonExcluded) {
+			continue
+		}
+		question, _, _ := strings.Cut(entry, ":")
+		if question == "role" {
+			if !j.RoleAsked {
+				continue
+			}
+			purpose = decisions.PurposeRelevance
+		} else if flagged {
+			continue
+		}
+		failed = append(failed, entry)
+	}
+	if len(failed) == 0 {
+		return
+	}
+	question, _, _ := strings.Cut(failed[0], ":")
+	o.merge(verdict{
+		triage: TriageReview, reason: ReasonUndecided, stage: StageUndecided, purpose: purpose,
+		question: question, receipt: j.ReceiptKey, evidence: "undecided: " + strings.Join(failed, ", "),
+	}, session.ModeApply)
+}
+
 // mergeRelevance bands P(off_topic): ≥ quarantine → quarantine off_topic,
 // ≥ review → review. A role from the path globs, relevance off or an
 // undecided role never moves anything.
@@ -248,8 +299,8 @@ func (o *Outcome) mergeRelevance(j classify.GateJudgment, quarantine, reviewAt f
 
 // fetchInfo is what the fetcher reported about the kept body.
 type fetchInfo struct {
-	requested, final string
-	status           int
+	requested, final, site string
+	status                 int
 }
 
 func (c *Checker) flags(doc *corpus.Document, fetch fetchInfo, transcript bool) []quality.Flag {
@@ -261,6 +312,7 @@ func (c *Checker) flags(doc *corpus.Document, fetch fetchInfo, transcript bool) 
 		FinalURL:     fetch.final,
 		RequestedURL: fetch.requested,
 		StatusCode:   fetch.status,
+		SiteName:     fetch.site,
 		HostLines:    c.hostLines[host],
 		SkipThin:     !webCapture(doc, transcript),
 	})
@@ -295,7 +347,7 @@ func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document,
 		out.Undecided = append(out.Undecided, "refetch:"+err.Error())
 		return nil, fetchInfo{}, false
 	}
-	return refetched, fetchInfo{requested: in.RequestedURL, final: result.FinalURL, status: result.StatusCode}, true
+	return refetched, fetchInfo{requested: in.RequestedURL, final: result.FinalURL, status: result.StatusCode, site: firstNonEmpty(result.SiteName, in.SiteName)}, true
 }
 
 // webCapture reports whether the thin rule applies: an http(s) capture that
@@ -306,4 +358,13 @@ func webCapture(doc *corpus.Document, transcript bool) bool {
 		return false
 	}
 	return !transcript && !classify.IsTranscriptKind(doc.SourceKind()) && doc.SourceKind() != string(models.SourceKindBookmarkCluster)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

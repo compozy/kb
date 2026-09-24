@@ -141,8 +141,10 @@ func (n *nearDuplicates) check(ctx context.Context, doc *corpus.Document, source
 
 	entries := make([]map[string]any, 0, len(candidates))
 	qs := make([]questions.Q, 0, len(candidates))
+	ids := make([]string, 0, len(candidates))
 	for index, candidate := range candidates {
 		id := "c" + strconv.Itoa(index+1)
+		ids = append(ids, id)
 		entries = append(entries, map[string]any{
 			"id": id, "title": candidate.Doc.Title,
 			"excerpt":    corpus.Head(candidate.Doc.Body, nearHeadChars),
@@ -151,7 +153,13 @@ func (n *nearDuplicates) check(ctx context.Context, doc *corpus.Document, source
 		qs = append(qs, duplicateBank.MustQuestion("relation_{id}", map[string]string{"id": id}))
 	}
 	state := map[string]any{"document": corpus.DocumentState(doc, nearExcerptTokens, nil), "candidates": entries}
-	result, err := n.s.Engine.Decide(ctx, n.s.Request(decisions.PurposeDuplicate, doc.Path, duplicateBank, state, qs))
+	// Topic extra duplicate questions ride along (templates once per
+	// candidate); their answers are only recorded in receipts.
+	bank, qs, err := n.s.WithExtras(decisions.PurposeDuplicate, duplicateBank, qs, ids...)
+	if err != nil {
+		return fmt.Errorf("gate: near-duplicate %s: %w", doc.Path, err)
+	}
+	result, err := n.s.Engine.Decide(ctx, n.s.Request(decisions.PurposeDuplicate, doc.Path, bank, state, qs))
 	if err != nil {
 		return fmt.Errorf("gate: near-duplicate %s: %w", doc.Path, err)
 	}
