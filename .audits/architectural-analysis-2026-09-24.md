@@ -75,6 +75,16 @@ recorded as each portion is completed.
   numeric value instead of requiring a float64 representation. JSON numbers
   remain exact via the standard decoder's `UseNumber`. `make verify` (1,893
   tests) and integration (2,009 tests) passed with the existing platform skip.
+- CI `36096191996` on `75c9ab3` failed in an unchanged media assertion: the
+  shell executable created by `writeFakeYTDLP` returned Linux `ETXTBSY` before
+  metadata parsing. The fixture now uses the same `/bin/sh <script>` command
+  boundary as the existing QMD suite, keeping the real backend/subprocess and
+  every assertion. No production retry, test retry or skip was added.
+  `go test -race ./internal/mediadl -count=20`, `make verify` (1,893 tests) and
+  integration (2,009 tests) passed locally; Linux confirmation is via CI.
+- CI also reported deprecated Node 20 runtimes in checkout/setup-go. Verified
+  the official action releases and Node 24 manifests, then updated both to v7
+  using the repository's existing major-version pinning convention.
 - `784a10f`: GitHub CI `36094879117` and Release `36094879126` succeeded.
 - Decision queue regressions reproduced two provider calls where the second
   should have stopped after budget exhaustion or authentication failure.

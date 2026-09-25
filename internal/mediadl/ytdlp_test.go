@@ -828,6 +828,11 @@ func newFakeYTDLPBackend(scriptPath string, cfg BackendConfig, retry retryPolicy
 	backend.lookPath = func(string) (string, error) {
 		return scriptPath, nil
 	}
+	// Run the shell fixture as data, as the QMD suite does. Executing a newly
+	// written script directly can race with parallel forks on Linux (ETXTBSY).
+	backend.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "/bin/sh", append([]string{name}, args...)...)
+	}
 	return backend
 }
 

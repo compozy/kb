@@ -53,7 +53,7 @@ jobs:
       (github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -116,7 +116,7 @@ jobs:
       GGOOS: ${{ matrix.ggoos }}
       GGOARCH: ${{ matrix.ggoarch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -166,7 +166,7 @@ jobs:
     needs: dry-run-split
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -221,7 +221,7 @@ jobs:
     outputs:
       version: ${{ steps.create-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -295,7 +295,7 @@ jobs:
       GGOARCH: ${{ matrix.ggoarch }}
       GORELEASER_CURRENT_TAG: v${{ needs.prepare-release-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -350,7 +350,7 @@ jobs:
     env:
       GORELEASER_CURRENT_TAG: v${{ needs.prepare-release-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
