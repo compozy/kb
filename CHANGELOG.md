@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 
+### 📚 Documentation
+- *(docs)* Restructure the kb skill and cover the decision-model follow-ups ([#31](https://github.com/compozy/kb/issues/31))
+
+## 0.0.11 - 2026-09-24
+
+
 ### 🎉 Features
 - Implement okf standard ([#25](https://github.com/compozy/kb/issues/25))
 - *(cli)* Make the Jev decision model the core of kb (gates, classify, link, find, review) ([#29](https://github.com/compozy/kb/issues/29))
@@ -20,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 - Fix skill
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.11 ([#30](https://github.com/compozy/kb/issues/30))
 
 ## 0.0.10 - 2026-06-27
 
@@ -218,6 +229,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.11]: https://github.com/compozy/kb/compare/v0.0.10...v0.0.11
 [0.0.10]: https://github.com/compozy/kb/compare/v0.0.9...v0.0.10
 [0.0.9]: https://github.com/compozy/kb/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/compozy/kb/compare/v0.0.7...v0.0.8
