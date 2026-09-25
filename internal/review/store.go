@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/jsonl"
 )
 
 // Queue names (spec §12.1).
@@ -314,59 +315,12 @@ func readJSONL(path string, fn func([]byte) error) error {
 }
 
 func appendJSONL(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("review: create %s: %w", filepath.Dir(path), err)
-	}
 	line, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("review: encode row: %w", err)
 	}
-	// O_APPEND makes each write land at the end of the file atomically, so
-	// separate stores and separate kb processes appending to the same log
-	// never overwrite each other's rows.
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
-	if err != nil {
-		return fmt.Errorf("review: open %s: %w", path, err)
+	if err := jsonl.Append(path, line); err != nil {
+		return fmt.Errorf("review: %w", err)
 	}
-	row := make([]byte, 0, len(line)+2)
-	torn, err := endsMidRow(file)
-	if err != nil {
-		_ = file.Close()
-		return fmt.Errorf("review: read %s: %w", path, err)
-	}
-	if torn {
-		// A crash left the last row without its newline. Start the new row
-		// on its own line instead of gluing it to those bytes (which would
-		// discard it on reload); a torn fragment then stays an ignored
-		// line, and a complete row that only lacked the newline is kept.
-		// Nothing is truncated, so a concurrent writer never loses a row;
-		// at worst a race adds a blank line, which readers skip.
-		row = append(row, '\n')
-	}
-	row = append(append(row, line...), '\n')
-	if _, err := file.Write(row); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("review: append %s: %w", path, err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("review: sync %s: %w", path, err)
-	}
-	return file.Close()
-}
-
-// endsMidRow reports whether a non-empty file does not end with a newline.
-func endsMidRow(file *os.File) (bool, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return false, err
-	}
-	if info.Size() == 0 {
-		return false, nil
-	}
-	last := make([]byte, 1)
-	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
-		return false, err
-	}
-	return last[0] != '\n', nil
+	return nil
 }

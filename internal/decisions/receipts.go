@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/compozy/kb/internal/jsonl"
 )
 
 // ReceiptsDir is the per-topic directory holding decision records.
@@ -149,18 +151,15 @@ func (s *Receipts) Append(topicRoot string, row Receipt) error {
 	if err != nil {
 		return fmt.Errorf("encode receipt: %w", err)
 	}
-	line = append(line, '\n')
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rows, err := s.topicLocked(topicRoot)
 	if err != nil {
-		rows = map[string]Receipt{}
-		s.topics[topicRoot] = rows
+		return err
 	}
 	if topicRoot != "" {
-		if err := appendLine(ReceiptsPath(topicRoot), line); err != nil {
-			return err
+		if err := jsonl.Append(ReceiptsPath(topicRoot), line); err != nil {
+			return fmt.Errorf("append receipt: %w", err)
 		}
 	}
 	if row.Status == StatusDecided {
@@ -187,22 +186,4 @@ func (s *Receipts) topicLocked(topicRoot string) (map[string]Receipt, error) {
 	}
 	s.topics[topicRoot] = rows
 	return rows, nil
-}
-
-func appendLine(path string, line []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create receipts dir: %w", err)
-	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open receipts: %w", err)
-	}
-	if _, err := file.Write(line); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("append receipt: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close receipts: %w", err)
-	}
-	return nil
 }

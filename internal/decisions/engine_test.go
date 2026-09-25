@@ -778,6 +778,49 @@ func TestDecideCacheHits(t *testing.T) {
 	}
 }
 
+func TestDecideCacheSurvivesUnterminatedLog(t *testing.T) {
+	t.Parallel()
+	for _, torn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("torn=%v", torn), func(t *testing.T) {
+			t.Parallel()
+			fake := newFakeServer(t, nil)
+			root := t.TempDir()
+			engine, _ := newTestEngine(t, fake, engineSetup{})
+			first := qualityRequest(t, root)
+			if _, err := engine.Decide(t.Context(), first); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(ReceiptsPath(root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seed := strings.TrimSuffix(string(content), "\n")
+			if torn {
+				seed = string(content) + `{"key":`
+			}
+			if err := os.WriteFile(ReceiptsPath(root), []byte(seed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			second := qualityRequest(t, root)
+			second.State = map[string]any{"document": "another article"}
+			writer, _ := newTestEngine(t, fake, engineSetup{})
+			if _, err := writer.Decide(t.Context(), second); err != nil {
+				t.Fatal(err)
+			}
+			reopened, _ := newTestEngine(t, fake, engineSetup{budget: NewBudget(0)})
+			for _, req := range []Request{first, second} {
+				result, err := reopened.Decide(t.Context(), req)
+				if err != nil || !result.CacheHit {
+					t.Fatalf("receipt lost after reopen: result=%+v, err=%v", result, err)
+				}
+			}
+			if got := len(fake.calls()); got != 2 {
+				t.Fatalf("provider calls = %d, want 2", got)
+			}
+		})
+	}
+}
+
 func TestDecideBatchesLargeQuestionSets(t *testing.T) {
 	t.Parallel()
 

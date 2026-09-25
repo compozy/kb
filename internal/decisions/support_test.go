@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -172,6 +173,29 @@ func TestBudget(t *testing.T) {
 	unlimited.Charge(5)
 	if unlimited.Exceeded() || unlimited.Spent() != 0 {
 		t.Fatal("a nil budget is unlimited")
+	}
+}
+
+func TestReceiptsRetryLoadAfterReadError(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	path := ReceiptsPath(root)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := NewReceipts()
+	if err := store.Append(root, Receipt{Key: "new", Status: StatusDecided}); err == nil {
+		t.Fatal("append to an unreadable log must fail")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"key":"existing","status":"decided"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	row, ok, err := store.Lookup(root, "existing")
+	if err != nil || !ok || row.Key != "existing" {
+		t.Fatalf("cache failed to reload repaired log: %+v, %v, %v", row, ok, err)
 	}
 }
 

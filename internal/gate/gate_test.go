@@ -719,6 +719,13 @@ func TestSkippedRowsRoundTrip(t *testing.T) {
 	if err := AppendSkipped(root, row); err != nil {
 		t.Fatal(err)
 	}
+	content, err := os.ReadFile(SkippedPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SkippedPath(root), append(content, []byte(`{"id":`)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := MarkRescued(root, row, "2026-09-24T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}

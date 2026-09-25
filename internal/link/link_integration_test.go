@@ -118,6 +118,8 @@ func frontmatterList(t *testing.T, content, key string) []string {
 func TestLinkApplyInsertsBodyLinkAndIsIncremental(t *testing.T) {
 	v := newLinkVault(t, session.ModeApply)
 	fake := newFake(t, linkAll)
+	// A prior complete record without a newline must survive the next append.
+	v.write(t, ".decisions/"+InsertedLinksFile, `{"subject":"raw/previous.md","target":"Previous","text":"previous","mode":"apply"}`)
 
 	report, err := Run(context.Background(), v.open(t, fake), Options{})
 	if err != nil {
@@ -140,7 +142,7 @@ func TestLinkApplyInsertsBodyLinkAndIsIncremental(t *testing.T) {
 		t.Fatalf("report = %+v", report)
 	}
 	rows := readJSONL(t, filepath.Join(v.root, ".decisions", InsertedLinksFile))
-	if len(rows) != 1 || rows[0]["subject"] != sourceA || rows[0]["target"] != ragArticle || rows[0]["text"] != "RAG" || rows[0]["mode"] != "apply" {
+	if len(rows) != 2 || rows[0]["subject"] != "raw/previous.md" || rows[1]["subject"] != sourceA || rows[1]["target"] != ragArticle || rows[1]["text"] != "RAG" || rows[1]["mode"] != "apply" {
 		t.Fatalf("inserted-links rows = %v", rows)
 	}
 	for _, call := range fake.Calls() {

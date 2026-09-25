@@ -21,6 +21,7 @@ import (
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/decisions"
 	"github.com/compozy/kb/internal/frontmatter"
+	"github.com/compozy/kb/internal/jsonl"
 	"github.com/compozy/kb/internal/resolve"
 )
 
@@ -637,24 +638,12 @@ func quarantineID(rel, stamp string) string {
 }
 
 func appendLedger(topicRoot string, entry LedgerEntry) error {
-	path := LedgerPath(topicRoot)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("refs: create %s: %w", filepath.Dir(path), err)
-	}
 	line, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("refs: encode ledger row: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("refs: open ledger: %w", err)
-	}
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		_ = file.Close()
+	if err := jsonl.Append(LedgerPath(topicRoot), line); err != nil {
 		return fmt.Errorf("refs: append ledger: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("refs: close ledger: %w", err)
 	}
 	return nil
 }

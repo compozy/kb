@@ -8,10 +8,8 @@ package link
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -22,6 +20,7 @@ import (
 
 	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/jsonl"
 	"github.com/compozy/kb/internal/questions"
 	"github.com/compozy/kb/internal/resolve"
 	"github.com/compozy/kb/internal/review"
@@ -656,13 +655,26 @@ func (r *runner) request(plan Plan) (decisions.Request, error) {
 	return r.s.Request(decisions.PurposeLink, doc.Path, bank, state, qs), nil
 }
 
-// insertedLink is one row of .decisions/inserted-links.jsonl.
-type insertedLink struct {
+// InsertedLink is one row of .decisions/inserted-links.jsonl.
+type InsertedLink struct {
 	Time    string `json:"time"`
 	Subject string `json:"subject"`
 	Target  string `json:"target"`
 	Text    string `json:"text"`
 	Mode    string `json:"mode"`
+}
+
+// RecordInsertion appends a body-link insertion made by link or review.
+func RecordInsertion(topicRoot string, row InsertedLink) error {
+	line, err := json.Marshal(row)
+	if err != nil {
+		return fmt.Errorf("link: encode inserted link: %w", err)
+	}
+	path := filepath.Join(topicRoot, decisions.ReceiptsDir, InsertedLinksFile)
+	if err := jsonl.Append(path, line); err != nil {
+		return fmt.Errorf("link: inserted links: %w", err)
+	}
+	return nil
 }
 
 func (r *runner) logInsertions(subject string, insertions []Insertion) error {
@@ -672,28 +684,13 @@ func (r *runner) logInsertions(subject string, insertions []Insertion) error {
 	r.logMu.Lock()
 	defer r.logMu.Unlock()
 
-	dir := filepath.Join(r.s.Root(), decisions.ReceiptsDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("link: inserted links: %w", err)
-	}
-	file, err := os.OpenFile(filepath.Join(dir, InsertedLinksFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("link: inserted links: %w", err)
-	}
 	now := r.s.Now().UTC().Format(time.RFC3339)
-	var writeErr error
 	for _, insertion := range insertions {
-		line, err := json.Marshal(insertedLink{Time: now, Subject: subject, Target: insertion.Target, Text: insertion.Text, Mode: r.bodyMode})
-		if err != nil {
-			writeErr = err
-			break
-		}
-		if _, err := file.Write(append(line, '\n')); err != nil {
-			writeErr = err
-			break
+		if err := RecordInsertion(r.s.Root(), InsertedLink{Time: now, Subject: subject, Target: insertion.Target, Text: insertion.Text, Mode: r.bodyMode}); err != nil {
+			return err
 		}
 	}
-	return errors.Join(writeErr, file.Close())
+	return nil
 }
 
 // describe renders the changes an outcome makes, for dry runs.

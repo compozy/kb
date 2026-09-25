@@ -309,6 +309,44 @@ func TestRestoreAfterEditReportsManual(t *testing.T) {
 	}
 }
 
+func TestQuarantineRoundTripAfterUnterminatedLedger(t *testing.T) {
+	t.Parallel()
+	for _, seed := range []string{
+		`{"quarantine_id":`,
+		`{"quarantine_id":"prior","op":"restore","line_or_key":"move"}`,
+	} {
+		t.Run(seed, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t)
+			writeFile(t, LedgerPath(fx.topic), seed)
+			indexPath := filepath.Join(fx.topic, "wiki/index/Source Index.md")
+			articlePath := filepath.Join(fx.topic, "wiki/concepts/Article.md")
+			originalIndex := readString(t, indexPath)
+			originalArticle := readString(t, articlePath)
+			result, err := Quarantine(t.Context(), Options{
+				VaultPath: fx.vault, TopicRoot: fx.topic, Path: "raw/articles/x.md", Reason: "thin", Now: fixedNow,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			active, err := List(fx.topic)
+			if err != nil || len(active) != 1 || active[0].ID != result.ID {
+				t.Fatalf("quarantine lost after log reload: %+v, %v", active, err)
+			}
+			restored, err := Restore(t.Context(), Options{VaultPath: fx.vault, TopicRoot: fx.topic, ID: result.ID})
+			if err != nil || len(restored.Manual) != 0 {
+				t.Fatalf("Restore = %+v, %v", restored, err)
+			}
+			if readString(t, indexPath) != originalIndex || readString(t, articlePath) != originalArticle {
+				t.Fatal("restored references differ from original bytes")
+			}
+			if _, err := os.Stat(filepath.Join(fx.topic, "raw/articles/x.md")); err != nil {
+				t.Fatalf("source was not restored: %v", err)
+			}
+		})
+	}
+}
+
 func TestQuarantineRefusals(t *testing.T) {
 	t.Parallel()
 

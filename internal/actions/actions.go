@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/compozy/kb/internal/classify"
@@ -721,39 +720,11 @@ func insideLink(body string, offset int) bool {
 	return !strings.Contains(body[open:offset], "]]")
 }
 
-// insertedLink mirrors link's inserted-links.jsonl row.
-type insertedLink struct {
-	Time    string `json:"time"`
-	Subject string `json:"subject"`
-	Target  string `json:"target"`
-	Text    string `json:"text"`
-	Mode    string `json:"mode"`
-}
-
-var insertedMu sync.Mutex
-
-// logInsertion appends a row to inserted-links.jsonl (mode "review": the
-// link was inserted by an accepted review item).
+// logInsertion records the body link inserted by an accepted review item.
 func logInsertion(s *session.Session, subject, target, text string) error {
-	insertedMu.Lock()
-	defer insertedMu.Unlock()
-	dir := filepath.Join(s.Root(), decisions.ReceiptsDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("inserted links: %w", err)
-	}
-	line, err := json.Marshal(insertedLink{Time: s.Now().UTC().Format(time.RFC3339), Subject: subject, Target: target, Text: text, Mode: "review"})
-	if err != nil {
-		return fmt.Errorf("inserted links: %w", err)
-	}
-	file, err := os.OpenFile(filepath.Join(dir, link.InsertedLinksFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("inserted links: %w", err)
-	}
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("inserted links: %w", err)
-	}
-	return file.Close()
+	return link.RecordInsertion(s.Root(), link.InsertedLink{
+		Time: s.Now().UTC().Format(time.RFC3339), Subject: subject, Target: target, Text: text, Mode: "review",
+	})
 }
 
 // sameTarget reports whether a relation entry (`[[x]]`, `[[x|alias]]` or a

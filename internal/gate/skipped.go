@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/compozy/kb/internal/decisions"
+	"github.com/compozy/kb/internal/jsonl"
 )
 
 // SkippedFile is the log of items skipped before fetch, under
@@ -63,23 +64,11 @@ var skippedMu sync.Mutex
 func AppendSkipped(topicRoot string, row SkippedRow) error {
 	skippedMu.Lock()
 	defer skippedMu.Unlock()
-	path := SkippedPath(topicRoot)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("gate: skipped log: %w", err)
-	}
 	line, err := json.Marshal(row)
 	if err != nil {
 		return fmt.Errorf("gate: skipped log: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("gate: skipped log: %w", err)
-	}
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("gate: skipped log: %w", err)
-	}
-	if err := file.Close(); err != nil {
+	if err := jsonl.Append(SkippedPath(topicRoot), line); err != nil {
 		return fmt.Errorf("gate: skipped log: %w", err)
 	}
 	return nil
