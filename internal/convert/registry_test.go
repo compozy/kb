@@ -2,6 +2,7 @@ package convert
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -282,30 +283,30 @@ func TestCSVConverterHandlesHeaderOnlyAndEscapesSpecialCharacters(t *testing.T) 
 
 func TestJSONConverterWrapsContentAndExtractsTitle(t *testing.T) {
 	t.Parallel()
-
-	converter := JSONConverter{}
-	result, err := converter.Convert(context.Background(), models.ConvertInput{
-		Reader:   strings.NewReader(`{"title":"KB Pivot","count":2}`),
-		FilePath: "doc.json",
-	})
-	if err != nil {
-		t.Fatalf("Convert returned error: %v", err)
-	}
-
-	if result.Title != "KB Pivot" {
-		t.Fatalf("title = %q, want KB Pivot", result.Title)
-	}
-	if !strings.HasPrefix(result.Markdown, "```json\n{\n") {
-		t.Fatalf("markdown = %q", result.Markdown)
-	}
-	if !strings.Contains(result.Markdown, `"count": 2`) {
-		t.Fatalf("markdown = %q", result.Markdown)
-	}
-	if !strings.HasSuffix(result.Markdown, "\n```") {
-		t.Fatalf("markdown = %q", result.Markdown)
-	}
-	if got := result.Metadata["count"]; got != float64(2) {
-		t.Fatalf("metadata count = %#v, want 2", got)
+	for _, count := range []string{"2", "9007199254740993", "0.1234567890123456789", "1e400", "1e-400"} {
+		t.Run(count, func(t *testing.T) {
+			t.Parallel()
+			result, err := (JSONConverter{}).Convert(t.Context(), models.ConvertInput{
+				Reader:   strings.NewReader(`{"title":"KB Pivot","count":` + count + `}`),
+				FilePath: "doc.json",
+			})
+			if err != nil {
+				t.Fatalf("Convert returned error: %v", err)
+			}
+			if result.Title != "KB Pivot" {
+				t.Fatalf("title = %q, want KB Pivot", result.Title)
+			}
+			if !strings.HasPrefix(result.Markdown, "```json\n{\n") || !strings.HasSuffix(result.Markdown, "\n```") {
+				t.Fatalf("markdown = %q", result.Markdown)
+			}
+			if !strings.Contains(result.Markdown, `"count": `+count) {
+				t.Fatalf("markdown changed the number: %q", result.Markdown)
+			}
+			got, err := json.Marshal(result.Metadata["count"])
+			if err != nil || string(got) != count {
+				t.Fatalf("metadata count = %s, %v; want JSON number %s", got, err, count)
+			}
+		})
 	}
 }
 

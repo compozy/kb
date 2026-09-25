@@ -20,7 +20,7 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
 | State persistence and frontmatter ownership | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair/compaction read current data. Alias merging also deleted existing values and overwrote unrecognized shapes; it now preserves existing entries and skips unknown formats. | State fix published `784a10f`, CI/Release successful; ownership fix verified locally |
 | Decision/generation/session boundaries | Queue admission now covers accounting/fatal state and cache reuse. Invalid output envelopes lost billed usage; authentication/cancellation lost entire call receipts. Both clients now account for usage before decoding output and retain interrupted attempts. | Queue fix published `5c08099`, CI/Release successful; accounting fix verified locally |
-| Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
+| Ingestion, conversion and media | Reviewed exclusive raw writes, gate orchestration, Firecrawl and media subprocess/cancellation paths. JSON conversion rounded large integers/precise decimals, underflowed small numbers and rejected valid large exponents through float64 decoding; numeric literals now remain exact. | Converter fix verified; CI exposed an executable-fixture race in the media suite |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
 | Retrieval, links, lint and QMD | Ranking, paths and subprocess failure handling. | Pending |
 | Codebase scan, adapters, graph, metrics and vault | Invalid rendered input deleted the previous codebase output before validation; a duplicate symlink writer overwrote manual `AGENTS.md`. Output validation now runs before mutations and the existing preserving scaffold owns AGENTS creation. Scanner, pipeline cancellation boundaries, graph normalization and metric entrypoints inspected. | Vault fixes verified; adapter/inspection review ongoing |
@@ -69,6 +69,12 @@ recorded as each portion is completed.
   of all record names and bytes, strengthening the read-only assertion. Final
   `make verify`: 1,868 tests; integration: 1,984 tests; both passed with one
   existing macOS platform skip.
+- JSON conversion: regression cases reproduced `9007199254740993` rounding
+  down, precision loss in decimal metadata, underflow to zero, and rejection
+  of valid `1e400`. The existing converter test now checks the serialized
+  numeric value instead of requiring a float64 representation. JSON numbers
+  remain exact via the standard decoder's `UseNumber`. `make verify` (1,893
+  tests) and integration (2,009 tests) passed with the existing platform skip.
 - `784a10f`: GitHub CI `36094879117` and Release `36094879126` succeeded.
 - Decision queue regressions reproduced two provider calls where the second
   should have stopped after budget exhaustion or authentication failure.

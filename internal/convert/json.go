@@ -21,7 +21,7 @@ func (JSONConverter) Accepts(ext string, mimeType string) bool {
 }
 
 // Convert pretty-prints JSON and extracts lightweight metadata from top-level
-// scalar fields.
+// scalar fields. Numeric metadata retains the original JSON number literal.
 func (JSONConverter) Convert(ctx context.Context, input models.ConvertInput) (*models.ConvertResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -36,7 +36,9 @@ func (JSONConverter) Convert(ctx context.Context, input models.ConvertInput) (*m
 	}
 
 	var parsed any
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&parsed); err != nil {
 		return nil, err
 	}
 
@@ -81,7 +83,7 @@ func jsonMetadata(value any) map[string]any {
 			if strings.TrimSpace(typed) != "" {
 				metadata[key] = strings.TrimSpace(typed)
 			}
-		case float64, bool, nil:
+		case json.Number, bool, nil:
 			metadata[key] = typed
 		}
 	}
