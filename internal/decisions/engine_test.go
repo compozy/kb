@@ -587,7 +587,8 @@ func TestDecideAuthFailuresAreFatalAndSticky(t *testing.T) {
 				writeJSON(w, status, map[string]any{"error": map[string]any{"code": status, "message": "Insufficient credits"}})
 			})
 			engine, _ := newTestEngine(t, fake, engineSetup{})
-			_, err := engine.Decide(context.Background(), qualityRequest(t, t.TempDir()))
+			root := t.TempDir()
+			_, err := engine.Decide(context.Background(), qualityRequest(t, root))
 			if !errors.Is(err, ErrAuth) || !strings.Contains(err.Error(), strconv.Itoa(status)) || !strings.Contains(err.Error(), "Insufficient credits") {
 				t.Fatalf("err = %v, want ErrAuth with status and message", err)
 			}
@@ -598,7 +599,36 @@ func TestDecideAuthFailuresAreFatalAndSticky(t *testing.T) {
 			if got := len(fake.calls()); got != 1 {
 				t.Fatalf("calls = %d, want 1 (later calls must fail fast)", got)
 			}
+			rows, err := LoadReceipts(root)
+			if err != nil || len(rows) != 1 || rows[0].Status != StatusUndecided || !rows[0].CostUnknown || rows[0].Reason != ReasonHTTPStatus {
+				t.Fatalf("fatal request missing from receipts: %+v, %v", rows, err)
+			}
+			if summary := engine.Summary(); summary.Calls != 1 || summary.CostUnknown != 1 {
+				t.Fatalf("fatal request missing from summary: %+v", summary)
+			}
 		})
+	}
+}
+
+func TestDecideRecordsCanceledNetworkCall(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	fake := newFakeServer(t, func(_ http.ResponseWriter, r *http.Request, _ int, _ decisionRequest) {
+		cancel()
+		<-r.Context().Done()
+	})
+	engine, _ := newTestEngine(t, fake, engineSetup{})
+	root := t.TempDir()
+	if _, err := engine.Decide(ctx, qualityRequest(t, root)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Decide = %v, want cancellation", err)
+	}
+	rows, err := LoadReceipts(root)
+	if err != nil || len(rows) != 1 || rows[0].Reason != ReasonContextCanceled || !rows[0].CostUnknown || rows[0].Attempts != 1 {
+		t.Fatalf("canceled request missing from receipts: %+v, %v", rows, err)
+	}
+	if summary := engine.Summary(); summary.Calls != 1 || summary.CostUnknown != 1 {
+		t.Fatalf("canceled request missing from summary: %+v", summary)
 	}
 }
 
@@ -716,6 +746,53 @@ func TestDecideStopsAtBudget(t *testing.T) {
 	cached, err := engine.Decide(context.Background(), qualityRequest(t, root))
 	if err != nil || !cached.CacheHit {
 		t.Fatalf("a cache hit must still be served past the budget: %+v, %v", cached, err)
+	}
+}
+
+func TestDecideAccountsForInvalidAnswerEnvelope(t *testing.T) {
+	t.Parallel()
+	for _, answers := range []any{nil, "invalid", []any{}} {
+		t.Run(fmt.Sprintf("answers=%v", answers), func(t *testing.T) {
+			t.Parallel()
+			fake := newFakeServer(t, func(w http.ResponseWriter, _ *http.Request, _ int, req decisionRequest) {
+				response := validResponse(req)
+				response["answers"] = answers
+				writeJSON(w, http.StatusOK, response)
+			})
+			engine, _ := newTestEngine(t, fake, engineSetup{budget: NewBudget(0.00004)})
+			root := t.TempDir()
+			req := qualityRequest(t, root)
+			first, err := engine.Decide(t.Context(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for id, answer := range first.Answers {
+				if answer.Status != StatusUndecided || answer.Reason != ReasonInvalidReceipt {
+					t.Errorf("%s = %+v, want undecided:invalid_receipt", id, answer)
+				}
+			}
+			rows, err := LoadReceipts(root)
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("receipts = %+v, %v", rows, err)
+			}
+			row := rows[0]
+			if row.Cost == nil || *row.Cost != 0.000042 || row.CostUnknown || first.CostUSD != 0.000042 ||
+				row.InputTokens == nil || *row.InputTokens != 1000 || row.ResponseID != "gen-dec-1" {
+				t.Fatalf("invalid output lost reported usage: result=%+v, receipt=%+v", first, row)
+			}
+			if summary := engine.Summary(); summary.Calls != 1 || summary.CostUSD != 0.000042 || summary.CostUnknown != 0 {
+				t.Fatalf("summary = %+v", summary)
+			}
+			second, err := engine.Decide(t.Context(), req)
+			if err != nil || second.CacheHit || len(fake.calls()) != 1 {
+				t.Fatalf("budget did not stop retry: result=%+v, err=%v, calls=%d", second, err, len(fake.calls()))
+			}
+			for id, answer := range second.Answers {
+				if answer.Reason != ReasonBudget {
+					t.Errorf("%s = %+v, want budget stop", id, answer)
+				}
+			}
+		})
 	}
 }
 

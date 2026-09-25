@@ -333,17 +333,24 @@ func (e *Engine) decideBatch(ctx context.Context, r Request, state json.RawMessa
 	}
 
 	started := e.now()
-	call, err := e.call(ctx, payload)
-	if err != nil {
-		return batchOutcome{}, err
+	call, callErr := e.call(ctx, payload)
+	if callErr != nil {
+		switch {
+		case errors.Is(callErr, context.Canceled):
+			call.reason = ReasonContextCanceled
+		case errors.Is(callErr, context.DeadlineExceeded):
+			call.reason = ReasonTimeout
+		default:
+			call.reason = ReasonHTTPStatus
+		}
 	}
 	outcome := batchOutcome{key: key, answers: make(map[string]Answer, len(batch))}
 	if call.attempts == 0 {
-		// Nothing reached the network (budget): no receipt row.
+		// Nothing reached the network: no receipt row.
 		for _, pq := range batch {
 			outcome.answers[pq.q.ID] = undecided(pq.q.Type, call.reason)
 		}
-		return outcome, nil
+		return outcome, callErr
 	}
 
 	bankID, bankVersion, bankHash := bankFields(r.Bank)
@@ -371,18 +378,25 @@ func (e *Engine) decideBatch(ctx context.Context, r Request, state json.RawMessa
 		row.InputTokens = response.inputTokens()
 		row.Cost = response.cost()
 		row.CostUnknown = row.Cost == nil
-		row.Answers = response.Answers
 		e.charge(row.Cost, row.InputTokens)
 		e.stats.call(row.Cost)
 		if row.Cost != nil {
 			outcome.cost = *row.Cost
 		}
-		answers, allDecided := validateAnswers(batch, response.Answers)
-		outcome.answers = answers
-		if allDecided {
-			row.Status, row.Reason = StatusDecided, ""
-		} else {
+		// Decode answers after usage: rejected output can still be billed.
+		if err := json.Unmarshal(response.Answers, &row.Answers); err != nil || row.Answers == nil {
 			row.Reason = ReasonInvalidReceipt
+			for _, pq := range batch {
+				outcome.answers[pq.q.ID] = undecided(pq.q.Type, ReasonInvalidReceipt)
+			}
+		} else {
+			answers, allDecided := validateAnswers(batch, row.Answers)
+			outcome.answers = answers
+			if allDecided {
+				row.Status, row.Reason = StatusDecided, ""
+			} else {
+				row.Reason = ReasonInvalidReceipt
+			}
 		}
 	} else {
 		row.CostUnknown = true
@@ -394,7 +408,7 @@ func (e *Engine) decideBatch(ctx context.Context, r Request, state json.RawMessa
 	if err := e.receipts.Append(r.Topic.Root, row); err != nil {
 		e.logger.Warn("decisions: receipt not written", "topic", r.Topic.Slug, "key", key, "error", err)
 	}
-	return outcome, nil
+	return outcome, callErr
 }
 
 // fromCache returns re-validated answers of a decided receipt for key.
@@ -440,9 +454,9 @@ func (e *Engine) setFatal(err error) error {
 
 // apiResponse is the decisions endpoint's 200 body.
 type apiResponse struct {
-	ID      string                     `json:"id"`
-	Model   string                     `json:"model"`
-	Answers map[string]json.RawMessage `json:"answers"`
+	ID      string          `json:"id"`
+	Model   string          `json:"model"`
+	Answers json.RawMessage `json:"answers"`
 	Usage   *struct {
 		InputTokens json.RawMessage `json:"input_tokens"`
 		Cost        json.RawMessage `json:"cost"`
@@ -535,7 +549,7 @@ func (e *Engine) call(ctx context.Context, payload []byte) (callResult, error) {
 		switch {
 		case status == http.StatusOK:
 			var response apiResponse
-			if err := json.Unmarshal(body, &response); err != nil || response.Answers == nil {
+			if err := json.Unmarshal(body, &response); err != nil {
 				result.reason = ReasonInvalidReceipt
 				return result, nil
 			}

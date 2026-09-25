@@ -19,7 +19,7 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Published `18044ed`; CI and Release workflow successful |
 | Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
 | State persistence | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair reads the current tail and compaction reloads the current log. Normal appends read one tail byte, avoiding a full-log scan per write. | Published `784a10f`; CI and Release workflow successful; broader frontmatter ownership review ongoing |
-| Decision/generation/session boundaries | Queued requests bypassed budget/authentication limits checked before queueing. Admission now covers accounting and rechecks fatal state; waiting duplicates reuse completed receipts. | Queue fix verified; accounting and cancellation review ongoing |
+| Decision/generation/session boundaries | Queue admission now covers accounting/fatal state and cache reuse. Invalid output envelopes lost billed usage; authentication/cancellation lost entire call receipts. Both clients now account for usage before decoding output and retain interrupted attempts. | Queue fix published `5c08099`, CI/Release successful; accounting fix verified locally |
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
 | Retrieval, links, lint and QMD | Ranking, paths and subprocess failure handling. | Pending |
@@ -76,3 +76,11 @@ recorded as each portion is completed.
   sleeps and also cover queued cache reuse. The owning engine race suite,
   `make verify` (1,872 tests), and integration (1,988 tests) passed; one existing
   macOS platform skip in each full suite.
+- `5c08099`: GitHub CI `36095329968` and Release `36095329974` succeeded.
+- Accounting regressions reproduced lost usage for null/malformed decision
+  answers and malformed generation choices, plus missing receipts for
+  authentication failures and cancellations on both routes. The client suites
+  now retain billed cost, stop at the shared budget and preserve failed calls
+  with unknown cost; existing error returns and invalid-output rejection stay
+  intact. The owning race suites, `make verify` (1,879 tests), and integration
+  (1,995 tests) passed, with the existing macOS platform skip.

@@ -242,9 +242,15 @@ func (c *Client) Generate(ctx context.Context, req Request) (json.RawMessage, er
 		}
 		output, err := c.tryModel(ctx, model, system, prompt, req, schemaTree, schema, &run)
 		if err != nil {
-			if errors.Is(err, ErrBudget) {
-				c.finish(req, key, &run, nil)
+			switch {
+			case errors.Is(err, context.Canceled):
+				run.lastReason = decisions.ReasonContextCanceled
+			case errors.Is(err, context.DeadlineExceeded):
+				run.lastReason = ReasonTimeout
+			case errors.Is(err, decisions.ErrAuth):
+				run.lastReason = ReasonHTTPStatus
 			}
+			c.finish(req, key, &run, nil)
 			return nil, err
 		}
 		if output != nil {
@@ -355,14 +361,10 @@ func (c *Client) tryModel(ctx context.Context, model, system, prompt string, req
 
 // chatResponse is the subset of a chat-completions body kb reads.
 type chatResponse struct {
-	ID      string `json:"id"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content *string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Usage *struct {
+	ID      string          `json:"id"`
+	Model   string          `json:"model"`
+	Choices json.RawMessage `json:"choices"`
+	Usage   *struct {
 		PromptTokens            *int64          `json:"prompt_tokens"`
 		Cost                    json.RawMessage `json:"cost"`
 		CompletionTokensDetails *struct {
@@ -405,10 +407,16 @@ func (c *Client) readResponse(body []byte, schema *objectSchema, run *attemptLog
 	if response.Usage != nil && response.Usage.CompletionTokensDetails != nil && response.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
 		return nil, ReasonInvalidOutput
 	}
-	if len(response.Choices) == 0 || response.Choices[0].Message.Content == nil {
+	// Decode output after accounting so malformed choices cannot hide usage.
+	var choices []struct {
+		Message struct {
+			Content *string `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(response.Choices, &choices); err != nil || len(choices) == 0 || choices[0].Message.Content == nil {
 		return nil, ReasonInvalidOutput
 	}
-	output, err := validateOutput(*response.Choices[0].Message.Content, schema)
+	output, err := validateOutput(*choices[0].Message.Content, schema)
 	if err != nil {
 		return nil, ReasonInvalidOutput
 	}

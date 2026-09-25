@@ -460,7 +460,8 @@ func TestGenerateBudgetAuthAndRedaction(t *testing.T) {
 			http.Error(w, `{"error":{"code":401,"message":"No auth credentials found"}}`, http.StatusUnauthorized)
 		})
 		client := newTestClient(t, fake, decisions.NewBudget(1), nil)
-		_, err := client.Generate(context.Background(), summaryRequest(t.TempDir()))
+		root := t.TempDir()
+		_, err := client.Generate(context.Background(), summaryRequest(root))
 		if !errors.Is(err, decisions.ErrAuth) || !strings.Contains(err.Error(), "No auth credentials found") {
 			t.Fatalf("err = %v", err)
 		}
@@ -469,6 +470,13 @@ func TestGenerateBudgetAuthAndRedaction(t *testing.T) {
 		}
 		if len(fake.calls()) != 1 {
 			t.Fatalf("calls = %d", len(fake.calls()))
+		}
+		rows, err := decisions.LoadReceipts(root)
+		if err != nil || len(rows) != 1 || rows[0].Reason != ReasonHTTPStatus || !rows[0].CostUnknown {
+			t.Fatalf("fatal request missing from receipts: %+v, %v", rows, err)
+		}
+		if summary := client.Summary(); summary.Calls != 1 || summary.CostUnknown != 1 || summary.Failures != 1 {
+			t.Fatalf("fatal request missing from summary: %+v", summary)
 		}
 	})
 
@@ -528,6 +536,51 @@ func TestGenerateBudgetAuthAndRedaction(t *testing.T) {
 			t.Fatal("invalid requests must not be sent")
 		}
 	})
+}
+
+func TestGenerateAccountsForMalformedEnvelope(t *testing.T) {
+	t.Parallel()
+	fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "gen-invalid", "model": req.Model, "choices": "invalid",
+			"usage": map[string]any{"cost": 0.25, "prompt_tokens": 500},
+		})
+	})
+	budget := decisions.NewBudget(0.1)
+	client := newTestClient(t, fake, budget, nil)
+	root := t.TempDir()
+	if _, err := client.Generate(t.Context(), summaryRequest(root)); !errors.Is(err, ErrBudget) {
+		t.Fatalf("Generate = %v, want budget stop after invalid billed output", err)
+	}
+	if len(fake.calls()) != 1 || budget.Spent() != 0.25 {
+		t.Fatalf("calls=%d, spent=%v; want 1 call and 0.25 spent", len(fake.calls()), budget.Spent())
+	}
+	rows, err := decisions.LoadReceipts(root)
+	if err != nil || len(rows) != 1 || rows[0].Cost == nil || *rows[0].Cost != 0.25 || rows[0].CostUnknown || rows[0].ResponseID != "gen-invalid" {
+		t.Fatalf("invalid output lost reported cost: %+v, %v", rows, err)
+	}
+	if summary := client.Summary(); summary.Calls != 1 || summary.CostUSD != 0.25 || summary.CostUnknown != 0 || summary.Failures != 1 {
+		t.Fatalf("summary = %+v", summary)
+	}
+}
+
+func TestGenerateRecordsCanceledNetworkCall(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	fake := newFakeChat(t, func(_ http.ResponseWriter, _ int, _ chatRequest) { cancel() })
+	client := newTestClient(t, fake, decisions.NewBudget(1), nil)
+	root := t.TempDir()
+	if _, err := client.Generate(ctx, summaryRequest(root)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Generate = %v, want cancellation", err)
+	}
+	rows, err := decisions.LoadReceipts(root)
+	if err != nil || len(rows) != 1 || rows[0].Reason != decisions.ReasonContextCanceled || !rows[0].CostUnknown || rows[0].Attempts != 1 {
+		t.Fatalf("canceled request missing from receipts: %+v, %v", rows, err)
+	}
+	if summary := client.Summary(); summary.Calls != 1 || summary.CostUnknown != 1 || summary.Failures != 1 {
+		t.Fatalf("canceled request missing from summary: %+v", summary)
+	}
 }
 
 func TestShareBudgetAndReceiptsWithEngine(t *testing.T) {
