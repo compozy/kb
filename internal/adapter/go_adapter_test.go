@@ -222,6 +222,36 @@ func Run() {
 	}
 }
 
+func TestGoAdapterResolvesCallsWithinPackageDirectory(t *testing.T) {
+	t.Parallel()
+	parsed := parseGoSources(t, map[string]string{
+		"cmd/first/helper.go":     "package main\nfunc helper() {}\n",
+		"cmd/first/main.go":       "package main\nfunc main() { helper() }\n",
+		"cmd/second/main.go":      "package main\nfunc helper() {}\nfunc main() { helper() }\n",
+		"cmd/second/main_test.go": "package main_test\nfunc helper() {}\nfunc Check() { helper() }\n",
+	})
+	byPath := make(map[string]models.ParsedFile, len(parsed))
+	for _, file := range parsed {
+		byPath[file.File.FilePath] = file
+	}
+	for caller, target := range map[string]string{
+		"cmd/first/main.go":       "cmd/first/helper.go",
+		"cmd/second/main.go":      "cmd/second/main.go",
+		"cmd/second/main_test.go": "cmd/second/main_test.go",
+	} {
+		helper := mustFindSymbol(t, byPath[target].Symbols, "helper")
+		var targets []string
+		for _, relation := range byPath[caller].Relations {
+			if relation.Type == models.RelCalls {
+				targets = append(targets, relation.ToID)
+			}
+		}
+		if len(targets) != 1 || targets[0] != helper.ID {
+			t.Errorf("%s call targets = %v, want only %s", caller, targets, helper.ID)
+		}
+	}
+}
+
 func TestGoAdapterComputesCyclomaticComplexity(t *testing.T) {
 	t.Parallel()
 

@@ -95,3 +95,12 @@ recorded as each portion is completed.
   numeric retry delays before conversion. Existing client suites own these
   regressions. `make verify` (1,882 tests) and integration (1,998 tests) passed
   with the existing macOS platform skip.
+- `b565b17`: Release `36095700897` succeeded; CI `36095700917` was cancelled
+  by the next main push under the workflow's concurrency policy. Its changes
+  are included in `fca713c`, whose CI `36095873675` and Release `36095873664`
+  both succeeded. Subsequent pushes wait for the preceding CI to finish.
+- Go adapter: two `package main` directories incorrectly shared the function
+  lookup and produced a call from one command to the other's helper. Package
+  lookup now includes directory and package name. The owning adapter test
+  covers local cross-file resolution, repeated names and external test
+  packages. Full verification and integration passed.

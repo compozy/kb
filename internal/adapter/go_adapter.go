@@ -3,6 +3,7 @@ package adapter
 import (
 	"fmt"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -78,7 +79,10 @@ func (adapter GoAdapter) ParseFilesWithProgress(
 	})
 
 	parsedEntries := make([]parsedGoFile, 0, len(orderedFiles))
-	packageFunctions := make(map[string]map[string]string)
+	// Package names can repeat across directories; external test packages
+	// in the same directory also have a distinct function namespace.
+	type packageKey struct{ directory, name string }
+	packageFunctions := make(map[packageKey]map[string]string)
 
 	for _, file := range orderedFiles {
 		if !adapter.Supports(file.Language) {
@@ -91,10 +95,11 @@ func (adapter GoAdapter) ParseFilesWithProgress(
 		}
 
 		if len(entry.diagnostics) == 0 && entry.packageName != "" {
-			symbolsByName := packageFunctions[entry.packageName]
+			key := packageKey{path.Dir(entry.file.FilePath), entry.packageName}
+			symbolsByName := packageFunctions[key]
 			if symbolsByName == nil {
 				symbolsByName = make(map[string]string)
-				packageFunctions[entry.packageName] = symbolsByName
+				packageFunctions[key] = symbolsByName
 			}
 
 			for _, symbolMatch := range entry.symbolMatches {
@@ -118,7 +123,7 @@ func (adapter GoAdapter) ParseFilesWithProgress(
 
 	for _, entry := range parsedEntries {
 		if len(entry.diagnostics) == 0 {
-			symbolsByName := packageFunctions[entry.packageName]
+			symbolsByName := packageFunctions[packageKey{path.Dir(entry.file.FilePath), entry.packageName}]
 
 			for _, symbolMatch := range entry.symbolMatches {
 				if symbolMatch.symbol.SymbolKind != goSymbolKindFunction && symbolMatch.symbol.SymbolKind != goSymbolKindMethod {
