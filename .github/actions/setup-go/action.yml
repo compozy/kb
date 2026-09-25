@@ -5,7 +5,7 @@ inputs:
   go-version:
     description: "Go version to install"
     required: false
-    default: "1.24"
+    default: "1.26"
   install-tools:
     description: "Install common development tools"
     required: false
@@ -42,5 +42,5 @@ runs:
       shell: bash
       run: |-
         echo "Installing Go development tools..."
-        go install gotest.tools/gotestsum@latest
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.11.4
+        go install gotest.tools/gotestsum@v1.13.0
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.14.0

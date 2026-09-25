@@ -1,7 +1,7 @@
 MAGE ?= $(shell command -v mage 2>/dev/null)
 
 ifeq ($(strip $(MAGE)),)
-MAGE_RUN = go run github.com/magefile/mage@v1.15.0
+MAGE_RUN = go run github.com/magefile/mage
 else
 MAGE_RUN = $(MAGE)
 endif

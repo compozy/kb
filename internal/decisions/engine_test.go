@@ -889,15 +889,13 @@ func TestDecideRespectsConcurrency(t *testing.T) {
 	root := t.TempDir()
 	var wg sync.WaitGroup
 	for index := range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			req := qualityRequest(t, root)
 			req.State = map[string]any{"n": index}
 			if _, err := engine.Decide(context.Background(), req); err != nil {
 				t.Errorf("Decide: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := fake.maxInflight.Load(); got > 2 {
@@ -1034,9 +1032,7 @@ func TestDecideHonoursExtendedSharedPause(t *testing.T) {
 	root := t.TempDir()
 	var wg sync.WaitGroup
 	for index := range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			req := qualityRequest(t, root)
 			req.State = map[string]any{"n": index}
 			result, err := engine.Decide(context.Background(), req)
@@ -1049,7 +1045,7 @@ func TestDecideHonoursExtendedSharedPause(t *testing.T) {
 					t.Errorf("%s = %+v, want decided after the pause", id, answer)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

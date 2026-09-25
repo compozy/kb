@@ -182,9 +182,9 @@ func TestParseCostAndRetryAfter(t *testing.T) {
 		raw  string
 		want *float64
 	}{
-		{`0.0002`, ptr(0.0002)},
-		{`"0.0003"`, ptr(0.0003)},
-		{`0`, ptr(0)},
+		{`0.0002`, new(0.0002)},
+		{`"0.0003"`, new(0.0003)},
+		{`0`, new(float64(0))},
 		{``, nil},
 		{`null`, nil},
 		{`-1`, nil},

@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	golangciLintVersion   = "v2.11.4"
+	golangciLintVersion   = "v2.14.0"
 	gotestsumVersion      = "v1.13.0"
-	goplsModernizeVersion = "v0.22.0"
+	goplsModernizeVersion = "v0.23.0"
 	binDir                = "bin"
 	cliBinary             = "kb"
 	versionPackage        = "github.com/compozy/kb/internal/version"

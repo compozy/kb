@@ -994,9 +994,7 @@ func forEach(ctx context.Context, workers int, items []*corpus.Document, fn func
 		firstErr error
 	)
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for item := range jobs {
 				if ctx.Err() != nil {
 					continue
@@ -1008,7 +1006,7 @@ func forEach(ctx context.Context, workers int, items []*corpus.Document, fn func
 					})
 				}
 			}
-		}()
+		})
 	}
 feed:
 	for _, item := range items {

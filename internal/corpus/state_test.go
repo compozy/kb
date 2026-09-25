@@ -161,13 +161,11 @@ func TestStateStoreConcurrentPut(t *testing.T) {
 
 	var group sync.WaitGroup
 	for index := range 20 {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+		group.Go(func() {
 			if err := store.Put(corpus.StateRow{Path: filepath.ToSlash(filepath.Join("raw", string(rune('a'+index))+".md")), BodyHash: "h"}); err != nil {
 				t.Errorf("Put: %v", err)
 			}
-		}()
+		})
 	}
 	group.Wait()
 

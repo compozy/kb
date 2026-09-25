@@ -467,9 +467,7 @@ func (r *runner) execute(ctx context.Context, jobs []*job, report Report) (Repor
 			break
 		}
 		sem <- struct{}{}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }()
 			result, err := r.link(ctx, current)
 			if err != nil {
@@ -482,7 +480,7 @@ func (r *runner) execute(ctx context.Context, jobs []*job, report Report) (Repor
 				return
 			}
 			results[index] = result
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {

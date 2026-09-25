@@ -317,8 +317,7 @@ func loadDocument(absolute, relative string, kind Kind) (*Document, string) {
 	raw := string(content)
 	values, body, err := frontmatter.Parse(raw)
 	if err != nil {
-		var fmErr *frontmatter.Error
-		if errors.As(err, &fmErr) {
+		if fmErr, ok := errors.AsType[*frontmatter.Error](err); ok {
 			return nil, fmt.Sprintf("frontmatter: %s", fmErr.Kind)
 		}
 		return nil, fmt.Sprintf("frontmatter: %v", err)

@@ -6,7 +6,7 @@ Thanks for your interest in contributing. Whether it's a bug report, a new langu
 
 ## Prerequisites
 
-- [Go](https://go.dev) >= 1.24
+- [Go](https://go.dev) >= 1.26
 - [Git](https://git-scm.com)
 
 Optional (auto-downloaded by the build system if missing):

@@ -524,13 +524,11 @@ func TestWriterConcurrentDocuments(t *testing.T) {
 
 	var group sync.WaitGroup
 	for index, doc := range loaded.Sources() {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+		group.Go(func() {
 			if _, err := writer.Apply(doc, map[string]any{"summary": fmt.Sprintf("s%d", index)}, corpus.StateMeta{}); err != nil {
 				t.Errorf("Apply: %v", err)
 			}
-		}()
+		})
 	}
 	group.Wait()
 

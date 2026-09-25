@@ -6,7 +6,7 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/pedronauck/kodebase-go/ci.yaml?branch=main&label=CI)](https://github.com/pedronauck/kodebase-go/actions)
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev/)
 
 [Install](#install) &#8226; [See It Work](#see-it-work) &#8226; [Features](#features) &#8226; [Decision Model](#decision-model) &#8226; [Commands](#commands) &#8226; [Contributing](#contributing)
 
@@ -59,7 +59,7 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.24. `OPENROUTER_API_KEY` is required by every command that ingests, classifies, links, finds, reviews or promotes (see [Decision model](#decision-model)). The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
+> **Requirements:** Go >= 1.26. `OPENROUTER_API_KEY` is required by every command that ingests, classifies, links, finds, reviews or promotes (see [Decision model](#decision-model)). The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
 
 <details>
 <summary><strong>What it touches</strong></summary>
@@ -816,7 +816,7 @@ See [`config.example.toml`](config.example.toml) for the full TOML schema.
 
 ## Development
 
-**Prerequisites:** [Go](https://go.dev) >= 1.24
+**Prerequisites:** [Go](https://go.dev) >= 1.26
 
 ```bash
 git clone https://github.com/pedronauck/kodebase-go.git

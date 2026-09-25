@@ -83,8 +83,7 @@ func TestRegistryConvertReturnsUnsupportedInputError(t *testing.T) {
 		t.Fatal("expected Convert to fail")
 	}
 
-	var unsupportedErr *UnsupportedInputError
-	if !errors.As(err, &unsupportedErr) {
+	if _, ok := errors.AsType[*UnsupportedInputError](err); !ok {
 		t.Fatalf("expected UnsupportedInputError, got %T", err)
 	}
 	if !strings.Contains(err.Error(), ".bin") {

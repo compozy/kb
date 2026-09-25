@@ -236,9 +236,7 @@ func (extractor *Extractor) BulkExtract(
 	jobs := make(chan ChannelVideo)
 	var wg sync.WaitGroup
 	for range concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for video := range jobs {
 				if ctx.Err() != nil {
 					emit(VideoOutcome{Video: video, Err: ctx.Err()})
@@ -246,7 +244,7 @@ func (extractor *Extractor) BulkExtract(
 				}
 				emit(extractor.extractOneVideo(ctx, video, extractOptions, pacer, maxRetries))
 			}
-		}()
+		})
 	}
 
 feed:

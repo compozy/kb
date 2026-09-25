@@ -342,9 +342,7 @@ func judge(ctx context.Context, s *session.Session, bank *questions.Bank, questi
 		if ctx.Err() != nil {
 			break
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }()
 			result, err := judgeBatch(ctx, s, bank, question, batch)
 			if err != nil {
@@ -355,7 +353,7 @@ func judge(ctx context.Context, s *session.Session, bank *questions.Bank, questi
 				return
 			}
 			results[index] = result
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {

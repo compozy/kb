@@ -120,9 +120,7 @@ func TestStoreConcurrentIndependentAppendsKeepEveryRow(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, writers)
 	for w := range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			store := Open(root, fixedClock)
 			for n := range perWriter {
 				subject := fmt.Sprintf("raw/w%02d-%02d.md", w, n)
@@ -135,7 +133,7 @@ func TestStoreConcurrentIndependentAppendsKeepEveryRow(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

@@ -334,9 +334,7 @@ func (extractor *Extractor) transcribeChunks(ctx context.Context, chunks []audio
 			continue
 		case sem <- struct{}{}:
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }()
 			data, err := os.ReadFile(chunk.Path)
 			if err != nil {
@@ -354,7 +352,7 @@ func (extractor *Extractor) transcribeChunks(ctx context.Context, chunks []audio
 				return
 			}
 			results[index] = transcribedChunk{Text: text, Offset: chunk.Offset}
-		}()
+		})
 	}
 	wg.Wait()
 	if firstErr != nil {

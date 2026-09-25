@@ -243,8 +243,7 @@ func (client *Client) ScrapeWithOptions(ctx context.Context, sourceURL string, o
 			return nil, err
 		}
 		if attempt == maxAttempts {
-			var reqErr *statusError
-			if errors.As(err, &reqErr) {
+			if reqErr, ok := errors.AsType[*statusError](err); ok {
 				return nil, reqErr.afterAttempts(attempt)
 			}
 			return nil, err

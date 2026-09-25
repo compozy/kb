@@ -125,7 +125,7 @@ func validateAnswer(pq preparedQuestion, raw json.RawMessage) (Answer, error) {
 		if answer.Noul == nil || !unit(*answer.Noul) {
 			return Answer{}, errors.New("noul missing or outside [0,1]")
 		}
-		return Answer{Type: pq.q.Type, Status: StatusDecided, Noul: ptr(*answer.Noul)}, nil
+		return Answer{Type: pq.q.Type, Status: StatusDecided, Noul: new(*answer.Noul)}, nil
 	case questions.TypeChoice:
 		return validateChoice(pq, answer)
 	default:
@@ -183,7 +183,7 @@ func validateChoice(pq preparedQuestion, answer rawAnswer) (Answer, error) {
 		Status:     StatusDecided,
 		Choice:     *answer.Choice,
 		Probs:      copyProbs(answer.Probabilities),
-		Confidence: ptr(*answer.Confidence),
+		Confidence: new(*answer.Confidence),
 	}, nil
 }
 
@@ -215,9 +215,9 @@ func validateScore(pq preparedQuestion, answer rawAnswer) (Answer, error) {
 	return Answer{
 		Type:       pq.q.Type,
 		Status:     StatusDecided,
-		Score:      ptr(*answer.Score),
+		Score:      new(*answer.Score),
 		Probs:      copyProbs(answer.Probabilities),
-		Confidence: ptr(*answer.Confidence),
+		Confidence: new(*answer.Confidence),
 	}, nil
 }
 
@@ -272,10 +272,6 @@ func notChecked(questionType, reason string) Answer {
 
 func unit(value float64) bool {
 	return !math.IsNaN(value) && value >= 0 && value <= 1
-}
-
-func ptr(value float64) *float64 {
-	return &value
 }
 
 func copyProbs(probabilities map[string]float64) map[string]float64 {
