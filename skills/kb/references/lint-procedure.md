@@ -4,7 +4,7 @@ Run `kb lint <topic-id> --save` for automated checks. The report is saved to `<t
 
 | Kind | Severity | Fix |
 | --- | --- | --- |
-| `dead-link` / `frontmatter-dead-link` | error | create the target or correct the link (frontmatter lists included) |
+| `dead-link` / `frontmatter-dead-link` | error | create the target or correct the link (frontmatter lists included). Links resolve like Obsidian: by file name or vault/topic path (case-insensitive), never by `title` or `aliases`; link as `[[File name\|display text]]` |
 | `link-to-quarantined` | warning | the target was quarantined: restore it (`kb review accept`) or rewrite the prose |
 | `orphan` | warning | add incoming links; frontmatter relations count |
 | `missing-source`, `format` | error | fix the reference or the frontmatter shape |
