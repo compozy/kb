@@ -24,3 +24,4 @@
 
 ### 📦 Build System
 - *(repo)* Update Go dependencies and align Go 1.26 tooling
+- Release v0.0.12 ([#33](https://github.com/compozy/kb/issues/33))
