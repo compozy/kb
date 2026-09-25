@@ -467,11 +467,11 @@ func (r *apiResponse) inputTokens() *int64 {
 	if r.Usage == nil {
 		return nil
 	}
-	var tokens int64
-	if err := json.Unmarshal(r.Usage.InputTokens, &tokens); err != nil || tokens < 0 {
+	var tokens *int64
+	if err := json.Unmarshal(r.Usage.InputTokens, &tokens); err != nil || tokens == nil || *tokens < 0 {
 		return nil
 	}
-	return &tokens
+	return tokens
 }
 
 func (r *apiResponse) cost() *float64 {
@@ -668,10 +668,10 @@ func retryAfter(header http.Header, now time.Time) (time.Duration, bool) {
 	}
 	var wait time.Duration
 	if ms, err := strconv.ParseFloat(strings.TrimSpace(header.Get("retry-after-ms")), 64); err == nil && ms >= 0 {
-		wait = time.Duration(ms * float64(time.Millisecond))
+		wait = time.Duration(min(ms, float64(maxRetryAfter/time.Millisecond)) * float64(time.Millisecond))
 	} else if value := strings.TrimSpace(header.Get("Retry-After")); value != "" {
 		if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds >= 0 {
-			wait = time.Duration(seconds * float64(time.Second))
+			wait = time.Duration(min(seconds, maxRetryAfter.Seconds()) * float64(time.Second))
 		} else if date, err := http.ParseTime(value); err == nil {
 			wait = max(date.Sub(now), 0)
 		} else {

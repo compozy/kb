@@ -751,12 +751,22 @@ func TestDecideStopsAtBudget(t *testing.T) {
 
 func TestDecideAccountsForInvalidAnswerEnvelope(t *testing.T) {
 	t.Parallel()
-	for _, answers := range []any{nil, "invalid", []any{}} {
-		t.Run(fmt.Sprintf("answers=%v", answers), func(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		answers any
+		tokens  *int64
+	}{
+		{"null answers", nil, new(int64(1000))},
+		{"string answers", "invalid", new(int64(1000))},
+		{"array answers", []any{}, new(int64(1000))},
+		{"unknown tokens", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fake := newFakeServer(t, func(w http.ResponseWriter, _ *http.Request, _ int, req decisionRequest) {
 				response := validResponse(req)
-				response["answers"] = answers
+				response["answers"] = tc.answers
+				response["usage"].(map[string]any)["input_tokens"] = tc.tokens
 				writeJSON(w, http.StatusOK, response)
 			})
 			engine, _ := newTestEngine(t, fake, engineSetup{budget: NewBudget(0.00004)})
@@ -777,8 +787,11 @@ func TestDecideAccountsForInvalidAnswerEnvelope(t *testing.T) {
 			}
 			row := rows[0]
 			if row.Cost == nil || *row.Cost != 0.000042 || row.CostUnknown || first.CostUSD != 0.000042 ||
-				row.InputTokens == nil || *row.InputTokens != 1000 || row.ResponseID != "gen-dec-1" {
+				row.ResponseID != "gen-dec-1" {
 				t.Fatalf("invalid output lost reported usage: result=%+v, receipt=%+v", first, row)
+			}
+			if (row.InputTokens == nil) != (tc.tokens == nil) || (row.InputTokens != nil && *row.InputTokens != *tc.tokens) {
+				t.Fatalf("reported tokens = %v, want %v", row.InputTokens, tc.tokens)
 			}
 			if summary := engine.Summary(); summary.Calls != 1 || summary.CostUSD != 0.000042 || summary.CostUnknown != 0 {
 				t.Fatalf("summary = %+v", summary)

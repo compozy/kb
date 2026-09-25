@@ -88,3 +88,10 @@ recorded as each portion is completed.
   on invalid input and replacement of a manual `AGENTS.md`. Both now pass
   through the real filesystem writer. `make verify` (1,880 tests) and
   integration (1,996 tests) passed with the existing macOS platform skip.
+- Provider metadata boundaries: a null token count became a reported zero.
+  Large Retry-After values overflowed when converted before capping (the old
+  expression produced a negative duration in an executed amd64 binary on this
+  Mac; arm64 saturates differently). The fixes retain unknown tokens and cap
+  numeric retry delays before conversion. Existing client suites own these
+  regressions. `make verify` (1,882 tests) and integration (1,998 tests) passed
+  with the existing macOS platform skip.

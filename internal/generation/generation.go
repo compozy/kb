@@ -566,11 +566,11 @@ func retryAfter(header http.Header, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	if ms, err := strconv.ParseFloat(strings.TrimSpace(header.Get("retry-after-ms")), 64); err == nil && ms >= 0 {
-		return min(time.Duration(ms*float64(time.Millisecond)), maxRetryAfter), true
+		return time.Duration(min(ms, float64(maxRetryAfter/time.Millisecond)) * float64(time.Millisecond)), true
 	}
 	value := strings.TrimSpace(header.Get("Retry-After"))
 	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds >= 0 {
-		return min(time.Duration(seconds*float64(time.Second)), maxRetryAfter), true
+		return time.Duration(min(seconds, maxRetryAfter.Seconds()) * float64(time.Second)), true
 	}
 	if date, err := http.ParseTime(value); err == nil {
 		return min(max(date.Sub(now), 0), maxRetryAfter), true

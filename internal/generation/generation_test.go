@@ -538,6 +538,19 @@ func TestGenerateBudgetAuthAndRedaction(t *testing.T) {
 	})
 }
 
+func TestRetryAfterCapsLargeValues(t *testing.T) {
+	t.Parallel()
+	for _, header := range []http.Header{
+		{"Retry-After": {"1e20"}},
+		{"Retry-After-Ms": {"1e20"}},
+	} {
+		wait, ok := retryAfter(header, time.Now())
+		if !ok || wait != maxRetryAfter {
+			t.Errorf("retryAfter(%v) = %v, %v; want %v, true", header, wait, ok, maxRetryAfter)
+		}
+	}
+}
+
 func TestGenerateAccountsForMalformedEnvelope(t *testing.T) {
 	t.Parallel()
 	fake := newFakeChat(t, func(w http.ResponseWriter, _ int, req chatRequest) {

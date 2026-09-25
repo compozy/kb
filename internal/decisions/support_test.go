@@ -231,6 +231,8 @@ func TestParseCostAndRetryAfter(t *testing.T) {
 		{http.Header{"Retry-After-Ms": {"250"}}, 250 * time.Millisecond, true},
 		{http.Header{"Retry-After": {now.Add(4 * time.Second).Format(http.TimeFormat)}}, 4 * time.Second, true},
 		{http.Header{"Retry-After": {"600"}}, maxRetryAfter, true},
+		{http.Header{"Retry-After": {"1e20"}}, maxRetryAfter, true},
+		{http.Header{"Retry-After-Ms": {"1e20"}}, maxRetryAfter, true},
 		{http.Header{"Retry-After": {"soon"}}, 0, false},
 		{http.Header{}, 0, false},
 	}
