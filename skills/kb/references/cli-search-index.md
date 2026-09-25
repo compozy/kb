@@ -101,6 +101,8 @@ The index command is idempotent. It checks `qmd status` first and selects the op
 
 Run `kb index` repeatedly without side effects.
 
+A collection kb creates uses the mask `**/*.md,!**/raw/_quarantine/**,!**/.decisions/**`, so quarantined sources and decision records are never indexed. A collection created before this mask existed keeps its old pattern: `kb index` warns, and `kb search` (and the vector candidates of `kb link` / `kb find`) filter those hits out while widening the qmd request so they cannot crowd out valid results. Re-create it with `qmd collection remove <name>` followed by `kb index --topic <topic-id>`.
+
 ### Output Schema (indexResultPayload)
 
 ```

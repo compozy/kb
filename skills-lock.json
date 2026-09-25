@@ -1,28 +1,94 @@
 {
   "version": 1,
   "skills": {
+    "architectural-analysis": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/architectural-analysis/SKILL.md",
+      "computedHash": "fbcf0a29d4cdbf36dcb6edf2ae3e74f943944737dcbe4d03398edd2a47dd03c0"
+    },
+    "bubbletea": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/bubbletea/SKILL.md",
+      "computedHash": "1c0f7c55e874bd9b878c9c7c0b67729955dd078c43441f1d52d80194d2cd8bc4"
+    },
+    "codebase-design": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/codebase-design/SKILL.md",
+      "computedHash": "5a17552cc1482f1a40124bf4e6c9dbd90ac0dbb47e71c07d47369f9e5f2ae3b5"
+    },
+    "deslop": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/deslop/SKILL.md",
+      "computedHash": "4c245f72669adc593f6bcf84cafecb8d9c25eba47f9a40954778f1ec95d26557"
+    },
+    "domain-modeling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/domain-modeling/SKILL.md",
+      "computedHash": "a11713c0ff7870efa3c331b2e273f09116158485246edc89ae5088eefd1b0b48"
+    },
     "exa-web-search-free": {
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "4456756ff2cf096cc7c6d2fc9d6771e2a1ea0084868f28b69f68157757ee50c8"
     },
+    "git-rebase": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/git-rebase/SKILL.md",
+      "computedHash": "eab4b280b56769cfeda91d07935efb753f92ee0ca1cd1c031c7370716684eb7f"
+    },
+    "golang-master": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/golang-master/SKILL.md",
+      "computedHash": "dd910d6be862d4d3e8e8686d0c118ca0f26cea9395630ecb9e1ce75bbd519d08"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
+    },
+    "grill-with-docs": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
+      "computedHash": "35e62aa423aaeab6a414bcac273f56dfb17802ef2334b41b6a3b00f28196c8cf"
+    },
     "grilling": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/productivity/grilling/SKILL.md",
-      "computedHash": "ef685a6fa0bbe73b05bbd8dc1ec97258191587f07c6aa7dbc9006675ceb8f90f"
+      "computedHash": "4dd886b0196bf43729d954ae326016f2bd9f5f79d892500b407c33a753362f14"
     },
     "handoff": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/productivity/handoff/SKILL.md",
-      "computedHash": "5d0f81e38abe6b984e1feaa731927de5291d040982106ac513cf54ec240e00ec"
+      "computedHash": "20e5f4afdef502637510bc5c64d27645d3c85c88df9cb006824bbb0980166319"
+    },
+    "herdr-orchestration": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/herdr-orchestration/SKILL.md",
+      "computedHash": "a0514ec5eedb73f6a5696ecd55bc48d0a8b06a02cf8676375a0e91bd04216cdd"
     },
     "impl-peer-review": {
       "source": "pedronauck/skills",
       "sourceType": "github",
       "skillPath": "skills/mine/impl-peer-review/SKILL.md",
       "computedHash": "cf550086267cce22a730e001b02197b5f1266e3f771e63cdd1a8d53bfccd5701"
+    },
+    "improve-codebase-architecture": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
+      "computedHash": "2449db6ab1ded9581f69fcc56c1f64818112d05e271fd4c5da23c6523f9d3d9d"
     },
     "karpathy-kb": {
       "source": "pedronauck/skills",
@@ -33,7 +99,19 @@
       "source": "pedronauck/skills",
       "sourceType": "github",
       "skillPath": "skills/mine/kb-yt-channel/SKILL.md",
-      "computedHash": "ac8abbed19967d61e5b3f98c21c66429eabd56402681f78603bdf9f6e0a953fe"
+      "computedHash": "4b9c81f589063f754599c780e28471dc9bb82177675b579fe10c453b3b1bb2fa"
+    },
+    "no-workarounds": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/no-workarounds/SKILL.md",
+      "computedHash": "c36d9a5afdcbf9cf40b1b8573c697ac2f8119feb9dfee96477a7bb4c8e46a86e"
+    },
+    "refactoring-analysis": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/refactoring-analysis/SKILL.md",
+      "computedHash": "ef4079fef46121a0cc57ce5c293df989dc62cd399eb511c1f82ab910ec3444e7"
     },
     "spec-peer-review": {
       "source": "pedronauck/skills",
@@ -45,6 +123,36 @@
       "source": "pedronauck/skills",
       "sourceType": "github",
       "computedHash": "cbc36a65128986475cb78c7a025b57abcde1383653af2616a40f59d546435295"
+    },
+    "testing-boss": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/testing-boss/SKILL.md",
+      "computedHash": "3a0cc1b11eb7f7419b781608683a07b3951a450f00d29adaea2aed812f3227f7"
+    },
+    "to-prompt": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/to-prompt/SKILL.md",
+      "computedHash": "4c9453ebe1c8fa3d0659d94b0c575e8c2f5fdb4158ad4864f6edc9b11f904462"
+    },
+    "wayfinder": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/wayfinder/SKILL.md",
+      "computedHash": "fa790eb4255b13d24d7e33ff4891ccd3d621558cc0ab87ae226777538ea16a8f"
+    },
+    "writing-agents-md": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/writing-agents-md/SKILL.md",
+      "computedHash": "44e52261c7ad9e7b4931ab01f44270acc558474717ed364e6d5b99ae9a4970ff"
+    },
+    "writing-skills": {
+      "source": "pedronauck/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mine/writing-skills/SKILL.md",
+      "computedHash": "2b1ff28c0f6f24f28f59e0ef527b00db19f402fb9258ad0273e59813b6f29958"
     }
   }
 }

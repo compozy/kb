@@ -1,58 +1,22 @@
 ---
 name: git-rebase
-description: Resolve Git merge and rebase conflicts conservatively, preserving both sides' intent, staging only understood resolutions, and leaving a git-clean conflict state.
+description: "Rebase branches and resolve cross-commit conflicts while preserving changes. Excludes merge-commit workflows, cherry-picking, and repository setup."
+metadata:
+  author: Pedro Nauck
+  github: https://github.com/pedronauck
+  repository: https://github.com/pedronauck/skills
 ---
 
-# Git Rebase Conflict Resolution
+# Git Rebase
 
-Use this skill when Compozy asks you to resolve conflicts in an integration
-worktree. The goal is a clean merge result, not a clever shortcut.
+Carry out the requested rebase while preserving both sides' intended behavior and unrelated work. A rebase request does not by itself authorize squashing, dropping commits, changing global Git settings, or publishing a rewritten branch.
 
-## Core Rules
+1. Inspect status, current branch, target, and any in-progress rebase. Reuse a known target and current fetch evidence. Preserve dirty work; do not auto-stash, reset, checkout, clean, or stage unrelated paths. Use an isolated checkout when needed.
+2. Before starting a new rebase, record HEAD and keep a backup ref when rewriting valuable history. `bash <skill-dir>/scripts/pre-rebase-backup.sh` creates a backup for a clean branch without modifying tracked files. An existing verified backup needs no duplicate.
+3. Rebase onto the requested target directly by default. Use interactive/squash/reorder operations only when the user requested that history change; commit count is not a reason to squash. Consult `references/strategies.md` for an actual strategy decision.
+4. When conflicts occur, inspect the replayed commit, base, and both sides. During rebase, `ours` is the target plus commits already replayed; `theirs` is the commit being replayed. Trace changed APIs and preserve intended security, state, and compatibility contracts rather than accepting one side wholesale.
+5. Resolve the affected files, inspect their diff, stage only those resolved paths, then continue. Reuse valid observations for repeated conflicts. Do not add merge-history comments to production code or run a full suite after every file.
+6. At the completed rebase, inspect the resulting patch series/diff and run checks for affected behavior plus the project's required delivery gate. Tests that expose a regression require a production fix, not weaker assertions.
+7. Publish only when already authorized. Use `--force-with-lease` for a rewritten remote branch, and follow the project's current-head CI policy. If the lease fails, inspect the new remote commits; do not replace it with unconditional force.
 
-1. Understand every conflicted hunk before editing it.
-2. Preserve important behavior from both sides whenever possible.
-3. Prefer the smallest readable merge that keeps the code idiomatic for the
-   affected language and project.
-4. Do not delete tests, weaken assertions, suppress lint, swallow errors, or
-   otherwise hide a failing invariant.
-5. Do not commit. Compozy owns the final squash commit.
-6. Do not leave conflict markers in any file.
-7. If a conflict is unsafe or unclear, leave it unresolved so Compozy can abort
-   and roll back honestly.
-
-## Required Workflow
-
-1. Inspect the conflicted files listed in the prompt.
-2. For each hunk, identify what the integration branch changed and what the
-   incoming task changed.
-3. Edit the file so both sides' required behavior is represented.
-4. Run only language-specific formatting commands that are clearly required for
-   the files you edited and are safe for this repository.
-5. Stage resolved files with `git add`.
-6. Check `git status --porcelain`; no unmerged entries may remain.
-7. Report what was resolved and any files that remain unsafe.
-
-## Resolution Guidance
-
-- For Go files, keep error wrapping with `fmt.Errorf("context: %w", err)`.
-- For Go files, preserve `context.Context` propagation and cancellation behavior.
-- Preserve synchronization ownership; do not introduce unmanaged background
-  work.
-- Keep tests focused on behavior and invariants, not implementation details.
-- When both sides add cases to a table test, combine the cases unless they prove
-  the same invariant twice.
-- When both sides alter an interface, update every implementation instead of
-  guessing from the conflicted file alone.
-
-## Fail-Honestly Criteria
-
-Stop and leave the conflict unresolved when:
-
-- you cannot tell which side owns the invariant,
-- resolving would require deleting behavior from either side without evidence,
-- conflict markers remain, or
-- a binary/generated file conflict cannot be validated safely.
-
-Compozy will roll back the integration branch when resolution is exhausted, so
-an honest unresolved conflict is safer than a speculative broken merge.
+Use `references/resolution-patterns.md` for semantic conflicts and `references/troubleshooting.md` for diagnosed operational failures. Helpers live under this skill's actual `scripts/` path; `analyze-conflicts.sh`/`validate-merge.sh` are optional aids after checking their repository assumptions. They do not replace the owning tests or gate. Recovery that discards work still needs the repository's explicit permission; a backup ref is evidence, not permission to reset.

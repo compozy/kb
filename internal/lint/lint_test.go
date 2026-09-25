@@ -79,6 +79,35 @@ func TestLintDetectsDeadLinksWithoutFlaggingValidDisplayLinks(t *testing.T) {
 	}
 }
 
+func TestLintDistinguishesImportedMathAndMarkdownLabelsFromWikilinks(t *testing.T) {
+	t.Parallel()
+
+	topicPath := newTestTopic(t)
+	writeMarkdownFile(t, topicPath, "raw/articles/paper.md", sourceFrontmatter("Paper", "document", "2026-04-10"), strings.Join([]string{
+		"# Paper",
+		"Integer intervals [[n, m]], [[0,T]], [[1, T − 1]], [[0, τ X Θ0]], [[1, 2 Conv{ ∈ T]].",
+		"Interpolation v[[y]], vi[[x + δ(x)]] and vi[[x + δ∗j(x)]].",
+		"[[Opens in a new window]](https://example.com) [[email protected]](https://example.com/email)",
+		"Real links [[Missing Paper]] and [[0,T|Timeline]].",
+	}, "\n"))
+	writeMarkdownFile(t, topicPath, "wiki/index/Dashboard.md", indexFrontmatter("Dashboard"), "[[Paper]]\n[[0,T]]\n")
+
+	issues := mustLint(t, topicPath)
+	if len(issues) != 3 {
+		t.Fatalf("issues = %#v, want only three genuine broken links", issues)
+	}
+	for _, expected := range []struct{ file, target string }{
+		{"raw/articles/paper.md", "Missing Paper"},
+		{"raw/articles/paper.md", "0,T"},
+		{"wiki/index/Dashboard.md", "0,T"},
+	} {
+		assertHasIssue(t, issues, models.LintIssue{
+			Kind: models.LintIssueKindDeadLink, Severity: models.SeverityError,
+			FilePath: expected.file, Target: expected.target,
+		})
+	}
+}
+
 func TestLintDetectsOrphanArticles(t *testing.T) {
 	t.Parallel()
 

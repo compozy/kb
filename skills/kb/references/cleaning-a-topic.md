@@ -5,7 +5,7 @@ How to bring a topic that predates the decision model in line: a written scope, 
 **Before you start**
 
 - `OPENROUTER_API_KEY` is set (`--import-claude` and the label import are the only steps that call no model).
-- Budget: about US$ 0.30 per 1,000 documents to classify, US$ 0.30 to link, US$ 0.15 in generation, plus about US$ 0.15 for the contract preview. Each run stops at `[decisions].budget_usd` (US$ 1 by default) or `--budget`; re-run to continue from the cache.
+- Budget: about US$ 0.30 per 1,000 documents to classify, US$ 0.30 to link, US$ 0.15 in generation, plus about US$ 0.15 for the contract preview. Each run stops at `[decisions].budget_usd` (US$ 1 by default) or `--budget`; re-run to continue from the cache. `--budget 0` replays cached answers only, which is a free way to re-print a summary.
 - Commit or back up the vault. kb writes only its own frontmatter keys, `topic.yaml` and `<topic>/.decisions/`, but you will review its changes.
 
 ## 1. Write and accept the selection contract
@@ -34,7 +34,7 @@ kb review import-labels <topic> --from outputs/datasets/science-screening.jsonl 
   --id-field pmcid --match pmcid --decision-field decision --keep-values include,true
 ```
 
-`--match` is `url`, `path`, `doi` or `pmcid`; files may be JSONL, JSON or CSV. Unmatched rows are counted and listed. Imported labels keep their origin, are reported separately, and never count toward the 30 labels that switch relevance gates to `apply`. Treat them as imperfect: a title-only screen keeps things a full read would drop.
+`--match` is `url`, `path`, `doi` or `pmcid`; files may be JSONL, JSON or CSV. Unmatched rows are counted and listed. Imported labels keep their origin, are reported separately, and never produce thresholds or switch relevance gates to `apply` on their own; that needs labels given in `kb review`. Treat them as imperfect: a title-only screen keeps things a full read would drop.
 
 ## 3. Classify
 
@@ -88,7 +88,7 @@ Confident links become frontmatter relations (`related`, `extends`, `prerequisit
 ## Afterwards
 
 - `kb lint <topic>`: `unclassified`, `criterion-missing`, `off-topic-kept`, `recapture-pending`, `remove-pending` and `pending-review` should be empty or explained.
-- `kb review import-links <topic>` turns existing human links into positive link labels. With ≥ 30 labels per purpose, `kb review calibrate <topic>` reports dev and holdout precision; `--write` stores topic-specific thresholds and lets relevance gates leave shadow.
+- `kb review import-links <topic>` turns existing human links into positive link labels. Once a purpose has ≥ 30 dev labels given in `kb review` and ≥ 10 holdout labels, `kb review calibrate <topic>` reports dev and holdout precision; `--write` (with the user's approval) stores topic-specific thresholds and lets relevance gates leave shadow. Changing the contract later makes that calibration stale: relevance gates return to shadow until you re-classify and calibrate again.
 - New ingests now run the same gates, classification and linking automatically.
 
 Measured on a 34-topic research vault: US$ 2.03 for 8,588 sources (relevance and quality), 320 sources marked at P ≥ 0.8 and split into 101 broken captures and 219 off-topic, 13 of the 101 recovered with full text by a fresh refetch (about 160 Firecrawl credits).

@@ -32,6 +32,27 @@ These occur in commands that use the decision or generation model (`ingest` exce
 | `skipped:locked` | The file has `locked: true` | Remove `locked` to let kb write it |
 | `topic contract: pass exactly one of --draft, --import-claude or --accept` | Zero or several actions | Run one action per call |
 | Self-check conflicts on `--accept` | A kept line is excluded by an `out_of_scope` line | Qualify the `out_of_scope` line (`selection-contract.md`); `--force` only for a false alarm |
+| `--budget must be a finite amount in US$ >= 0` / `invalid amount` | Negative or non-numeric `--budget` | Pass a non-negative amount; `--budget 0` runs on cached answers only |
+| `not_checked:excluded` / `decisions.exclude: kept without a judgment` | The file matches `topic.yaml` `decisions.exclude` | Intended: excluded files never reach a model. Remove the glob to have them judged |
+| `triage: review` with `triage_reason: undecided` after an ingest | The gate's judgment failed (timeout, invalid receipt, budget) | Re-run the ingest, or decide the `gate` review item yourself; the source was never treated as kept or rejected |
+| `<command>: invalid topic question bank under <topic>/.decisions/banks` | A topic extra question bank fails the schema check | Fix the file (`decision-workflow.md`, Topic extra questions) or move it out of `banks/` |
+| `--decisions=apply ignored for relevance: ...` in the run summary | No accepted contract, or `decisions.relevance: off` | Accept a contract first; relevance cannot be applied without one |
+| `calibration is stale (<contract, model or bank> changed)` in the run summary | The stored calibration was made under another contract, model or question bank | Re-judge with `kb classify`, then `kb review calibrate <topic> --write` with the user's approval; relevance gates stay in shadow until then |
+| `skipped <id>: already resolved by <id>` during a bulk `kb review accept\|reject` | An earlier item in the same run closed this one (same source) | Nothing to do |
+| `actions: required judgment is undecided` on a `recapture` accept | The fresh page could not be judged | Re-run the accept later; the body, metadata and item stay unchanged |
+| Restore prints manual repair entries (file, line or key, original text) | A file touched by the quarantine changed since | Re-insert the printed text by hand where it belongs; kb never forces it |
+
+## OKF Errors
+
+These occur in `kb promote` and `kb okf check`.
+
+| Error Message | Cause | Recovery |
+|---------------|-------|----------|
+| `promote: target topic must use mode okf` | `--to` points at a wiki topic | Pass an existing `mode: okf` topic, or create one with `kb topic new <slug> <title> <domain> --mode okf` |
+| `required flag(s) "to" not set` | `--to` was omitted | Pass `--to <okf-topic>` |
+| `--type is required` | No `[okf].types` vocabulary, or the type suggestion was not confident (the error lists the top candidates) | Pass `--type <Type>`, ideally from `[okf].types` |
+| `promote: source document not found: <path>` | The source path does not resolve | Use a vault-relative path to an existing wiki document, e.g. `<topic>/wiki/concepts/<Article>.md` |
+| `okf check` exits non-zero with diagnostics | `severity=error` concepts (missing/empty `type`, bad frontmatter); under `--strict` also warnings (missing producer fields, off-vocabulary types) | Fix the listed concepts; see `okf-mode.md` |
 
 ## Inspect Lookup Errors
 
@@ -52,6 +73,7 @@ These occur when `search` or `index` cannot communicate with the QMD binary.
 |---------------|-------|----------|
 | `<command>: QMD is not available to kb. Install it with 'npm install -g @tobilu/qmd' and ensure 'qmd' is on PATH` | The `qmd` binary was not found on the system PATH | Run `npm install -g @tobilu/qmd` and verify with `qmd --version` |
 | `<command>: <qmd error details>` | QMD returned an error during execution | Read the stderr diagnostics from QMD for details; common causes include missing collections or corrupted index files |
+| `warning: qmd collection "<name>" uses pattern "...", not kb's "..."` on `kb index` | The collection was created before kb added its mask, so quarantined files stay indexed (kb filters them from results) | `qmd collection remove <name>`, then `kb index --topic <topic>` |
 
 ## Flag Validation Errors
 

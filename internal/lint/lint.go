@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/models"
@@ -24,6 +26,8 @@ var (
 	inlineCodePattern      = regexp.MustCompile("`[^`\n]+`")
 	leadingFrontmatterExpr = regexp.MustCompile(`(?s)^---\r?\n.*?\r?\n---\r?\n?`)
 	wikilinkPattern        = regexp.MustCompile(`\[\[([^\[\]|#]+?)(?:\|[^\[\]]*?)?(?:#[^\[\]]*?)?\]\]`)
+	linkTokenPattern       = regexp.MustCompile(`[\pL\pN]+`)
+	mathSymbolPattern      = regexp.MustCompile(`^(?:[0-9]+|[a-zA-Z][0-9]*|\p{Greek}[\pL\pN]*|Conv)$`)
 )
 
 var formatterColumns = []string{"severity", "kind", "filePath", "target", "message"}
@@ -869,26 +873,60 @@ func markdownBody(markdown string) string {
 }
 
 func extractWikilinks(text string) []string {
+	return extractBodyWikilinks(text, false)
+}
+
+func extractBodyWikilinks(text string, importedDocument bool) []string {
 	clean := stripCode(text)
-	matches := wikilinkPattern.FindAllStringSubmatch(clean, -1)
+	matches := wikilinkPattern.FindAllStringSubmatchIndex(clean, -1)
 	links := make([]string, 0, len(matches))
 	for _, match := range matches {
-		if len(match) < 2 {
+		// A nested bracket label followed by a Markdown destination is an
+		// ordinary Markdown link, not a vault wikilink.
+		after := clean[match[1]:]
+		if strings.HasPrefix(after, "(") && strings.Contains(after, ")") {
 			continue
 		}
-		target := normalizeLinkTarget(match[1])
-		if target == "" {
+		target := clean[match[2]:match[3]]
+		if importedDocument && isSourceMath(clean[:match[0]], clean[match[0]:match[1]], target) {
 			continue
 		}
-		links = append(links, target)
+		target = normalizeLinkTarget(target)
+		if target != "" {
+			links = append(links, target)
+		}
 	}
-
 	return links
+}
+
+// Converted papers can retain double-bracket interval/interpolation notation
+// without math delimiters. Recognize its symbol grammar only in imported
+// documents; managed wiki links and explicitly aliased source links stay links.
+func isSourceMath(before, markup, target string) bool {
+	if strings.ContainsAny(markup, "|#") {
+		return false
+	}
+	previous, _ := utf8.DecodeLastRuneInString(before)
+	if !strings.Contains(target, ",") && !unicode.IsLetter(previous) {
+		return false
+	}
+	symbols := linkTokenPattern.FindAllString(target, -1)
+	if len(symbols) == 0 {
+		return false
+	}
+	for _, symbol := range symbols {
+		if !mathSymbolPattern.MatchString(symbol) {
+			return false
+		}
+	}
+	return true
 }
 
 func extractDocumentWikilinks(body string, values map[string]any) []string {
 	sourceKind := strings.TrimSpace(frontmatter.GetString(values, "source_kind"))
 	switch sourceKind {
+	case string(models.SourceKindDocument):
+		return extractBodyWikilinks(body, frontmatter.GetString(values, "stage") == "raw")
 	case string(models.SourceKindCodebaseFile):
 		return extractManagedCodebaseLinks(body, "Symbols", "Outgoing Relations", "Backlinks")
 	case string(models.SourceKindCodebaseSymbol):
