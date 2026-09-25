@@ -295,7 +295,7 @@ Concept bodies use **relative markdown links** (`[label](other-concept.md)`), ne
 | Key | On | Shape | Written by |
 |-----|----|-------|------------|
 | `triage` | source | `kept` \| `review` \| `quarantined` | ingest gates |
-| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate` | ingest gates |
+| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate`, `undecided` (the gate's judgment failed; the source waits for a verdict in the `gate` queue) | ingest gates |
 | `genre` | source, article | `paper`, `article_or_essay`, `tutorial_or_guide`, `reference_docs`, `announcement_or_news`, `opinion_or_discussion`, `talk_or_interview`, `repository_or_code`, `dataset_or_benchmark`, `other` | `kb classify` |
 | `depth` | source | 0–3, one decimal (0 mention, 1 overview, 2 detailed, 3 primary) | `kb classify` |
 | `relevance` | source | `core` \| `adjacent` \| `collected_on_purpose` \| `general` \| `off_topic` \| `unknown` | `kb classify` (`collected_on_purpose` from `contract.collected_on_purpose_paths`) |

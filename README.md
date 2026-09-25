@@ -284,7 +284,7 @@ The drafting rules the generation model follows, and that agents drafting by han
 Every `kb ingest` subcommand except `codebase` runs the same staged pipeline; only survivors pay for the next stage.
 
 1. **Exact dedupe** (code): normalized URL, platform video id and body hash against existing sources. `--force` skips the gates.
-2. **Pre-fetch relevance** (bulk only: `channel`, `bookmarks`, URL lists): title and description are judged against the contract before anything is fetched. P(off_topic) ≥ 0.8 skips the item: it is recorded in `.decisions/skipped.jsonl`, never fetched, and can be rescued with `--rescue <id>`.
+2. **Pre-fetch relevance** (bulk only: `channel` and URL lists; a bookmark cluster is gated as one document): title and description are judged against the contract before anything is fetched. P(off_topic) ≥ 0.8 skips the item: it is recorded in `.decisions/skipped.jsonl`, never fetched, and can be rescued with `--rescue <id>`.
 3. **Code quality checks**: `not_an_article` (root or listing URL, redirect to the site home, title equal to the site name), `thin` (< 300 words after navigation lines), `error_page` (HTTP ≥ 400 or a 404-like title).
 4. **Refetch** (URL sources): a flagged or thin capture is scraped once more with Firecrawl `maxAge: 0`, `waitFor` (`[firecrawl].refetch_wait_ms`, default 3000) and `onlyMainContent` (`[firecrawl].refetch_only_main_content`, default false); the longer body is kept.
 5. **Post-fetch quality and relevance**: `paywall_or_login`, `error_or_placeholder_page`, `thin_or_boilerplate`, `no_speech_content` (transcripts only) and the relevance role over the real content. ≥ 0.8 quarantines; 0.5–0.8 writes the source with `triage: review`.
@@ -341,7 +341,7 @@ kb writes plain keys, flat at the top level, so Obsidian, Dataview and Bases rea
 | Key | On | Shape | Written by |
 | --- | --- | --- | --- |
 | `triage` | source | `kept` \| `review` \| `quarantined` | gate |
-| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate` | gate |
+| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate`, `undecided` | gate |
 | `genre` | source, article | `paper`, `article_or_essay`, `tutorial_or_guide`, `reference_docs`, `announcement_or_news`, `opinion_or_discussion`, `talk_or_interview`, `repository_or_code`, `dataset_or_benchmark`, `other` | classify |
 | `depth` | source | 0–3 (0 mention, 1 overview, 2 detailed, 3 primary), one decimal | classify |
 | `relevance` | source | `core` \| `adjacent` \| `collected_on_purpose` \| `general` \| `off_topic` \| `unknown` | classify |
