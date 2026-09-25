@@ -15,8 +15,8 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 
 | Area | Evidence / finding | Status |
 | --- | --- | --- |
-| Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Local gates passed; publishing |
-| Package boundaries | `magefile.go` checks only four hard-coded directories, including removed `internal/kodebase`, and treats every grep failure as success. The stated rule applies to all internal packages. | Confirmed; fix pending |
+| Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Published `d9ecec9`; CI and Release workflow successful |
+| Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Fixed; owning tests, executable probe and `make verify` passed |
 | Corpus/frontmatter persistence, review and quarantine | Receipts and quarantine append without separating an unterminated last row, losing the new record on reload. State truncation uses offsets captured when the store opened. | Reproduction/fixes pending |
 | Decision/generation/session boundaries | Budget, receipt validity, cache and cancellation review. | Pending |
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
@@ -42,3 +42,9 @@ recorded as each portion is completed.
   make that graph-only inventory appear current.
 - Release orchestrator v0.0.29: the existing `pr-release --force
   --enable-rollback --ci-output` flags verified against its help output.
+- `d9ecec9`: GitHub CI `36093489452` and Release `36093489476` both succeeded.
+- Boundary regression: compiled the old Mage command and ran it on an isolated
+  `internal/ingest` package importing `internal/cli`: it incorrectly exited 0.
+  The fixed command exits 1 and identifies that source file. The owning
+  `internal/repohealth` race suite and `make verify` passed (1,857 tests, one
+  platform skip).

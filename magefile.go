@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compozy/kb/internal/repohealth"
 	"github.com/magefile/mage/sh"
 )
 
@@ -119,41 +120,14 @@ func buildGo() error {
 }
 
 // Boundaries verifies that package import rules are not violated.
-// Rules: no package may import cli/.
+// Internal packages outside cli may not import the CLI layer.
 func Boundaries() error {
-	forbidden := []struct {
-		importer string
-		imported string
-	}{
-		{"internal/config", "internal/cli"},
-		{"internal/logger", "internal/cli"},
-		{"internal/version", "internal/cli"},
-		{"internal/kodebase", "internal/cli"},
+	violations, err := repohealth.FindPackageBoundaryViolations(".")
+	if err != nil {
+		return err
 	}
-
-	violations := 0
-	for _, rule := range forbidden {
-		importerDir := rule.importer
-		if _, err := os.Stat(importerDir); os.IsNotExist(err) {
-			continue
-		}
-		importPath := "github.com/compozy/kb/" + rule.imported
-		cmd := exec.Command("grep", "-r", "--include=*.go", "-l", importPath, importerDir)
-		out, err := cmd.Output()
-		if err != nil {
-			continue // grep returns exit 1 when no match — that's good
-		}
-		if len(strings.TrimSpace(string(out))) > 0 {
-			fmt.Printf("VIOLATION: %s imports %s\n", rule.importer, rule.imported)
-			for _, f := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-				fmt.Printf("  %s\n", f)
-			}
-			violations++
-		}
-	}
-
-	if violations > 0 {
-		return fmt.Errorf("found %d boundary violations", violations)
+	if len(violations) > 0 {
+		return fmt.Errorf("found %d boundary violations:\n%s", len(violations), repohealth.FormatPathViolations(violations))
 	}
 	fmt.Println("OK: all package boundaries respected")
 	return nil
