@@ -547,7 +547,7 @@ kb review import-labels <topic> --from <file> --id-field <field> --match url|pat
 kb review calibrate <topic> [--write] [--format table|json]
 ```
 
-Queues: `gate`, `skip`, `recapture`, `remove`, `link`, `contradiction`, `concept-proposal`, `okf-type`. `import-labels` reads JSONL, JSON or CSV, matches each row to a source by the chosen key and lists unmatched rows. `list`, `import-links`, `import-labels` and `calibrate` read files only and need no decision model.
+Queues: `gate`, `skip`, `recapture`, `remove`, `link`, `contradiction`, `concept-proposal`, `okf-type`. `import-labels` reads JSONL, JSON or CSV, matches each row to a source by the chosen key and lists unmatched rows. Every row must contain the selected identifier and decision fields; a missing field aborts the import before any labels are written. `list`, `import-links`, `import-labels` and `calibrate` use local files and need no decision model.
 
 ### `kb lint`
 

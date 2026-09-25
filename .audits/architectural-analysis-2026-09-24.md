@@ -11,27 +11,31 @@ are delivery gates. Preserve user-owned content and unrelated worktree changes.
 Baseline: `734b54b4912b79dfa538467eaf84333a015c955c`, clean `main`.
 Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 
-## Coverage and findings (in progress)
+## Coverage and resolved findings
 
 | Area | Evidence / finding | Status |
 | --- | --- | --- |
 | Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Published `d9ecec9`; CI and Release workflow successful |
 | Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Published `18044ed`; CI and Release workflow successful |
 | Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
-| State persistence and frontmatter ownership | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair/compaction read current data. Alias merging also deleted existing values and overwrote unrecognized shapes; it now preserves existing entries and skips unknown formats. | State fix published `784a10f`, CI/Release successful; ownership fix verified locally |
-| Decision/generation/session boundaries | Queue admission now covers accounting/fatal state and cache reuse. Invalid output envelopes lost billed usage; authentication/cancellation lost entire call receipts. Both clients now account for usage before decoding output and retain interrupted attempts. | Queue fix published `5c08099`, CI/Release successful; accounting fix verified locally |
-| Ingestion, conversion and media | Reviewed exclusive raw writes, gate orchestration, Firecrawl and media subprocess/cancellation paths. JSON conversion rounded large integers/precise decimals, underflowed small numbers and rejected valid large exponents through float64 decoding; numeric literals now remain exact. | Converter fix verified; CI exposed an executable-fixture race in the media suite |
-| CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
-| Retrieval, links, lint and QMD | Ranking, paths and subprocess failure handling. | Pending |
-| Codebase scan, adapters, graph, metrics and vault | Invalid rendered input deleted the previous codebase output before validation; a duplicate symlink writer overwrote manual `AGENTS.md`. Output validation now runs before mutations and the existing preserving scaffold owns AGENTS creation. Scanner, pipeline cancellation boundaries, graph normalization and metric entrypoints inspected. | Vault fixes verified; adapter/inspection review ongoing |
+| State persistence and frontmatter ownership | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair/compaction read current data. Alias merging also deleted existing values and overwrote unrecognized shapes; it now preserves existing entries and skips unknown formats. | Fixed in `784a10f`, `ed580bf`; published and covered by successful CI on `e9094e4` |
+| Decision/generation/session boundaries | Queue admission now covers accounting/fatal state and cache reuse. Invalid output envelopes lost billed usage; authentication/cancellation lost entire call receipts. Both clients account for usage before decoding output and retain interrupted attempts. Retry delays are capped before numeric conversion; null tokens stay unknown. | Fixed in `5c08099`, `b565b17`, `75c9ab3`; published and covered by successful CI on `e9094e4` |
+| Ingestion, conversion and media | Reviewed exclusive raw writes, gate orchestration, Firecrawl and media subprocess/cancellation paths. JSON conversion rounded large integers/precise decimals, underflowed small numbers and rejected valid large exponents through float64 decoding; numeric literals now remain exact. A media subprocess fixture also caused Linux CI flakiness. | Fixed in `9ccf4c8`, `e9094e4`; CI and Release successful |
+| CLI, topics, contracts, OKF and review actions | Reviewed flag/session validation, scaffold preservation, contract activation, OKF allocation/checks, review actions and label/calibration joins. Missing import columns became negative labels or partial imports; all rows are now validated before labels are written. | Import fix passed full gates and real CLI validation; no other confirmed finding in reviewed paths |
+| Retrieval, links, lint and QMD | Reviewed candidate/facet filtering, ranking entrypoints, shadow/write policy, relative resolution, read-only decision lint and QMD over-fetch/subprocess handling. The shared insertion log recovery fix covers link actions. | Reviewed; no additional confirmed finding |
+| Codebase scan, adapters, graph, metrics and vault | Invalid rendered input deleted the previous output before validation; a duplicate symlink writer overwrote manual `AGENTS.md`; same-name Go packages in different directories shared function resolution. Reviewed scan ignores, parser lifecycle, graph normalization, metrics and inspection entrypoints. | Fixed in `fca713c`, `1323016`; published and covered by successful CI on `e9094e4`; real self-ingest and inspection passed |
 
-Uninspected areas are pending, not evidence of an absence of defects. This audit
-does not claim that tests prove the absence of every possible bug.
+This was a risk-based review of package entrypoints, ownership, persistence and
+failure paths, supplemented by the full repository gates and integration suite.
+It is not an exhaustive line-by-line proof or an assertion that no possible bug
+remains. Every confirmed finding recorded here has a fix; provider behavior was
+tested at the existing HTTP boundary without paid live calls. Windows state
+locking was cross-compiled, not executed on Windows.
 
 ## Delivery evidence
 
-The final commit list, local checks and exact published-head CI results will be
-recorded as each portion is completed.
+The small commits are on `main`; the evidence below distinguishes local checks,
+CLI runs and published-head CI results.
 
 - Dependency packet: `make verify` and `make test-integration` passed with the
   updated Go 1.26 sources and dependency versions. Local `/dev/full` test skips on
@@ -69,6 +73,20 @@ recorded as each portion is completed.
   of all record names and bytes, strengthening the read-only assertion. Final
   `make verify`: 1,868 tests; integration: 1,984 tests; both passed with one
   existing macOS platform skip.
+- Label imports: missing fields in JSONL/JSON, wrong CSV headers and short CSV
+  rows reproduced fabricated negative labels or partial imports. The existing
+  review import suite now verifies rejection before any label writes. Final
+  `make verify`: 1,898 tests, zero lint findings, build and boundaries passed;
+  integration: 2,014 tests. Both retain the single existing macOS platform skip.
+- `e9094e4`: CI `36096639607` and Release `36096639596` succeeded, confirming
+  the Linux media fixture fix and the updated Node 24 actions. This head includes
+  the Go package, alias and JSON fixes as well as the earlier accounting work.
+- Real CLI run in `/tmp/kb-audit-vault.GKGdXR`: ingested this repository's 325
+  Go source files, wrote 4,609 artifacts, inspected `internal/decisions/engine.go`,
+  and regenerated while preserving a manual `AGENTS.md`. A valid label import
+  succeeded; a second import with a missing decision field exited 1 and left
+  the existing labels byte-identical. Local receipt:
+  `/tmp/kb-cli-smoke-receipt.json`; source/vault originals were not modified.
 - JSON conversion: regression cases reproduced `9007199254740993` rounding
   down, precision loss in decimal metadata, underflow to zero, and rejection
   of valid `1e400`. The existing converter test now checks the serialized

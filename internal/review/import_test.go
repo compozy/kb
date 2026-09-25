@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +163,34 @@ func TestImportLabelsRejectsBadOptions(t *testing.T) {
 		if _, err := ImportLabels(root, opts); err == nil {
 			t.Errorf("ImportLabels(%+v) succeeded", opts)
 		}
+	}
+}
+
+func TestImportLabelsRejectsMissingFieldsBeforeWriting(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, filename, content, field string
+	}{
+		{"missing decision", "labels.jsonl", "{\"pmcid\":\"PMC100\",\"decision\":\"include\"}\n{\"pmcid\":\"PMC200\"}\n", "decision"},
+		{"missing identifier", "labels.json", `[{"pmcid":"PMC100","decision":"include"},{"decision":"exclude"}]`, "pmcid"},
+		{"wrong CSV header", "labels.csv", "pmcid,verdict\nPMC100,include\n", "decision"},
+		{"short CSV row", "labels.csv", "pmcid,decision\nPMC100,include\nPMC200\n", "decision"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := screeningTopic(t)
+			from := filepath.Join(t.TempDir(), tc.filename)
+			if err := os.WriteFile(from, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			report, err := ImportLabels(root, ImportOptions{From: from, IDField: "pmcid", Match: MatchPMCID, DecisionField: "decision"})
+			if err == nil || !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("missing %s: report=%+v, err=%v", tc.field, report, err)
+			}
+			if labels := labelsBySubject(t, root); len(labels) != 0 {
+				t.Fatalf("invalid import wrote labels: %+v", labels)
+			}
+		})
 	}
 }
 

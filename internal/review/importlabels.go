@@ -103,7 +103,8 @@ type ImportReport struct {
 // negative one, with purpose `relevance`, question `role` and origin
 // `import:<file base name>@<sha256 of the file>`. Re-importing the same file
 // writes nothing new; when one subject appears on several rows the last row
-// wins.
+// wins. Every row must contain the selected ID and decision fields; missing
+// fields reject the import before any labels are written.
 func ImportLabels(topicRoot string, opts ImportOptions) (ImportReport, error) {
 	if strings.TrimSpace(opts.IDField) == "" || strings.TrimSpace(opts.DecisionField) == "" {
 		return ImportReport{}, errors.New("review: import-labels needs --id-field and --decision-field")
@@ -119,6 +120,13 @@ func ImportLabels(topicRoot string, opts ImportOptions) (ImportReport, error) {
 	rows, err := parseRows(opts.From, data)
 	if err != nil {
 		return ImportReport{}, err
+	}
+	for index, row := range rows {
+		for _, field := range []string{opts.IDField, opts.DecisionField} {
+			if _, present := row[field]; !present {
+				return ImportReport{}, fmt.Errorf("review: %s row %d: missing field %q", opts.From, index+1, field)
+			}
+		}
 	}
 	c := opts.Corpus
 	if c == nil {
