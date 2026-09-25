@@ -18,8 +18,8 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Published `d9ecec9`; CI and Release workflow successful |
 | Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Published `18044ed`; CI and Release workflow successful |
 | Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
-| State persistence | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair reads the current tail and compaction reloads the current log. Normal appends read one tail byte, avoiding a full-log scan per write. | Fixed; race suite, cross-compilation and full gates passed; broader frontmatter ownership review ongoing |
-| Decision/generation/session boundaries | Budget, receipt validity, cache and cancellation review. | Pending |
+| State persistence | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair reads the current tail and compaction reloads the current log. Normal appends read one tail byte, avoiding a full-log scan per write. | Published `784a10f`; CI and Release workflow successful; broader frontmatter ownership review ongoing |
+| Decision/generation/session boundaries | Queued requests bypassed budget/authentication limits checked before queueing. Admission now covers accounting and rechecks fatal state; waiting duplicates reuse completed receipts. | Queue fix verified; accounting and cancellation review ongoing |
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
 | Retrieval, links, lint and QMD | Ranking, paths and subprocess failure handling. | Pending |
@@ -69,3 +69,10 @@ recorded as each portion is completed.
   of all record names and bytes, strengthening the read-only assertion. Final
   `make verify`: 1,868 tests; integration: 1,984 tests; both passed with one
   existing macOS platform skip.
+- `784a10f`: GitHub CI `36094879117` and Release `36094879126` succeeded.
+- Decision queue regressions reproduced two provider calls where the second
+  should have stopped after budget exhaustion or authentication failure.
+  Deterministic `testing/synctest` cases exercise the HTTP boundary without
+  sleeps and also cover queued cache reuse. The owning engine race suite,
+  `make verify` (1,872 tests), and integration (1,988 tests) passed; one existing
+  macOS platform skip in each full suite.

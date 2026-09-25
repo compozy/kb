@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/compozy/kb/internal/config"
@@ -947,6 +948,108 @@ func TestDecideRespectsConcurrency(t *testing.T) {
 	rows, err := LoadReceipts(root)
 	if err != nil || len(rows) != 8 {
 		t.Fatalf("rows = %d, err = %v (appends must be whole lines)", len(rows), err)
+	}
+}
+
+type decisionTransport func(*http.Request) (*http.Response, error)
+
+func (f decisionTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestDecideStopsQueuedCallsAfterRunLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		identical bool
+	}{
+		{name: "budget exhausted", status: http.StatusOK},
+		{name: "queued duplicate reuses cache", status: http.StatusOK, identical: true},
+		{name: "fatal authentication error", status: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				started := make(chan struct{})
+				release := make(chan struct{})
+				var calls atomic.Int32
+				transport := decisionTransport(func(r *http.Request) (*http.Response, error) {
+					// The request body is an in-memory reader with no close error.
+					defer func() { _ = r.Body.Close() }()
+					if calls.Add(1) == 1 {
+						close(started)
+						select {
+						case <-release:
+						case <-r.Context().Done():
+							return nil, r.Context().Err()
+						}
+					}
+					var req decisionRequest
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						return nil, err
+					}
+					response := httptest.NewRecorder()
+					writeJSON(response, tc.status, validResponse(req))
+					return response.Result(), nil
+				})
+				cfg := config.Default().Decisions
+				cfg.Concurrency = 1
+				engine, err := New(Options{
+					Config: cfg, APIKey: "test", HTTPClient: &http.Client{Transport: transport}, Budget: NewBudget(0.000001),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				type outcome struct {
+					result Result
+					err    error
+				}
+				first := make(chan outcome, 1)
+				second := make(chan outcome, 1)
+				req := qualityRequest(t, "")
+				go func() {
+					result, err := engine.Decide(t.Context(), req)
+					first <- outcome{result, err}
+				}()
+				<-started
+				queued := qualityRequest(t, "")
+				if !tc.identical {
+					queued.State = map[string]any{"document": "another article"}
+				}
+				go func() {
+					result, err := engine.Decide(t.Context(), queued)
+					second <- outcome{result, err}
+				}()
+				// Both goroutines must be blocked: one in transport, one queued
+				// for its slot. No sleep or scheduler timing controls the test.
+				synctest.Wait()
+				close(release)
+				a, b := <-first, <-second
+				if got := calls.Load(); got != 1 {
+					t.Fatalf("provider calls = %d, want 1 after the run limit", got)
+				}
+				if tc.status == http.StatusUnauthorized {
+					if !errors.Is(a.err, ErrAuth) || !errors.Is(b.err, ErrAuth) {
+						t.Fatalf("errors = %v, %v; want ErrAuth for both calls", a.err, b.err)
+					}
+					return
+				}
+				if a.err != nil || b.err != nil || a.result.CostUSD <= engine.Budget().Limit() {
+					t.Fatalf("first=%+v, second=%+v", a, b)
+				}
+				if len(b.result.Answers) != len(queued.Questions) {
+					t.Fatalf("queued answers = %d, want %d", len(b.result.Answers), len(queued.Questions))
+				}
+				if tc.identical {
+					if !b.result.CacheHit {
+						t.Fatal("queued identical request did not reuse the completed receipt")
+					}
+					return
+				}
+				for id, answer := range b.result.Answers {
+					if answer.Status != StatusUndecided || answer.Reason != ReasonBudget {
+						t.Errorf("queued %s = %+v, want undecided:budget", id, answer)
+					}
+				}
+			})
+		})
 	}
 }
 

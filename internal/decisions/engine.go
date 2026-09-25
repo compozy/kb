@@ -315,6 +315,22 @@ func (e *Engine) decideBatch(ctx context.Context, r Request, state json.RawMessa
 	if err != nil {
 		return batchOutcome{}, fmt.Errorf("%w: encode request: %v", ErrInvalidRequest, err)
 	}
+	// A slot covers dispatch through accounting, so queued calls cannot start
+	// before the previous call's cost or fatal outcome has been recorded.
+	select {
+	case e.sem <- struct{}{}:
+	case <-ctx.Done():
+		return batchOutcome{}, ctx.Err()
+	}
+	defer func() { <-e.sem }()
+	if err := ctx.Err(); err != nil {
+		return batchOutcome{}, err
+	}
+	// An identical request may have populated the cache while this one waited.
+	if cached, ok := e.fromCache(r.Topic.Root, key, batch); ok {
+		e.stats.cacheHit()
+		return batchOutcome{key: key, answers: cached, cacheHit: true}, nil
+	}
 
 	started := e.now()
 	call, err := e.call(ctx, payload)
@@ -494,6 +510,9 @@ func (e *Engine) call(ctx context.Context, payload []byte) (callResult, error) {
 		if err := e.waitPause(ctx); err != nil {
 			return result, err
 		}
+		if err := e.fatalErr(); err != nil {
+			return result, err
+		}
 		pausedBy429 = false
 		if e.budget.Exceeded() {
 			result.reason = ReasonBudget
@@ -547,18 +566,6 @@ func (e *Engine) call(ctx context.Context, payload []byte) (callResult, error) {
 
 // post runs one attempt under the per-attempt deadline, body read included.
 func (e *Engine) post(ctx context.Context, payload []byte) (int, http.Header, []byte, error) {
-	select {
-	case e.sem <- struct{}{}:
-	case <-ctx.Done():
-		return 0, nil, nil, ctx.Err()
-	}
-	defer func() { <-e.sem }()
-	// A 429 may have paused the pool while this attempt queued for a
-	// transport slot; honour it immediately before dispatch.
-	if err := e.waitPause(ctx); err != nil {
-		return 0, nil, nil, err
-	}
-
 	attemptCtx, cancel := context.WithTimeout(ctx, e.deadline)
 	defer cancel()
 	request, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, e.endpoint, bytes.NewReader(payload))
