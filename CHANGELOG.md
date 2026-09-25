@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📦 Build System
 - *(repo)* Update Go dependencies and align Go 1.26 tooling
+- Release v0.0.12 ([#33](https://github.com/compozy/kb/issues/33))
 
 ## 0.0.11 - 2026-09-24
 
