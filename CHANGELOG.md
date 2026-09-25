@@ -4,7 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-## Unreleased
+## 0.0.12 - 2026-09-25
+
+
+### 🐛 Bug Fixes
+- *(repo)* Enforce CLI boundaries across internal packages
+- *(vault)* Preserve decision logs across interrupted appends
+- *(vault)* Serialize state recovery and compaction across writers
+- *(cli)* Enforce decision limits after queue admission
+- *(cli)* Retain usage and receipts for failed model calls
+- *(vault)* Validate output before mutating existing topics
+- *(cli)* Preserve provider metadata at numeric boundaries
+- *(inspect)* Scope Go call resolution to package directories
+- *(vault)* Preserve existing alias values when merging
+- *(convert)* Retain exact JSON numeric metadata
+- *(ci)* Stabilize media fixtures and update action runtimes
+- *(cli)* Reject incomplete label imports before writing
+
+
+
+### 📚 Documentation
+- Update skills
+
+
+
+### 📦 Build System
+- *(repo)* Update Go dependencies and align Go 1.26 tooling
+
+## 0.0.11 - 2026-09-24
 
 
 ### 🎉 Features
@@ -20,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 - Fix skill
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.11 ([#30](https://github.com/compozy/kb/issues/30))
 
 ## 0.0.10 - 2026-06-27
 
@@ -218,6 +250,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.12]: https://github.com/compozy/kb/compare/v0.0.11...v0.0.12
+[0.0.11]: https://github.com/compozy/kb/compare/v0.0.10...v0.0.11
 [0.0.10]: https://github.com/compozy/kb/compare/v0.0.9...v0.0.10
 [0.0.9]: https://github.com/compozy/kb/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/compozy/kb/compare/v0.0.7...v0.0.8
