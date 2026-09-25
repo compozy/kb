@@ -422,7 +422,14 @@ func planKeys(values map[string]any, updates map[string]any, row *StateRow) keyP
 		present = present && !isEmptyValue(current)
 
 		if key == "aliases" && desired != nil {
-			plan.merge(key, current, present, mergeAliases(current, desired))
+			if !present {
+				current = nil
+			}
+			if merged, ok := mergeAliases(current, desired); ok {
+				plan.merge(key, current, present, merged)
+			} else {
+				plan.skipped = append(plan.skipped, key)
+			}
 			continue
 		}
 
@@ -527,30 +534,38 @@ func stringList(value any) ([]string, bool) {
 }
 
 // mergeAliases keeps every existing alias in order and appends new ones not
-// already present (case-insensitive).
-func mergeAliases(current, desired any) []string {
-	merged := make([]string, 0)
+// already present (case-insensitive). Unknown shapes are left to the owner.
+func mergeAliases(current, desired any) ([]string, bool) {
+	var existing []string
+	switch typed := current.(type) {
+	case nil:
+	case string:
+		existing = []string{typed}
+	default:
+		var ok bool
+		existing, ok = stringList(current)
+		if !ok {
+			return nil, false
+		}
+	}
+	merged := append([]string{}, existing...)
 	seen := make(map[string]struct{})
-	add := func(alias string) {
+	for _, alias := range existing {
+		seen[strings.ToLower(strings.TrimSpace(alias))] = struct{}{}
+	}
+	for _, alias := range stringValues(desired) {
 		trimmed := strings.TrimSpace(alias)
 		if trimmed == "" {
-			return
+			continue
 		}
 		key := strings.ToLower(trimmed)
 		if _, exists := seen[key]; exists {
-			return
+			continue
 		}
 		seen[key] = struct{}{}
 		merged = append(merged, trimmed)
 	}
-	for _, alias := range stringValues(current) {
-		add(alias)
-	}
-	for _, alias := range stringValues(desired) {
-		add(alias)
-	}
-
-	return merged
+	return merged, true
 }
 
 func stringValues(value any) []string {

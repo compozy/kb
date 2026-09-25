@@ -329,6 +329,33 @@ func TestWriterMergesAliases(t *testing.T) {
 	}
 }
 
+func TestWriterPreservesExistingAliasValues(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		value   string
+		skipped bool
+	}{
+		{"existing duplicates and spacing", `[" AI ", "AI", ""]`, false},
+		{"mixed list", `["AI", 10]`, true},
+		{"mapping", `{primary: AI}`, true},
+		{"number", `10`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			content := "---\ntitle: AI\naliases: " + tc.value + "\n---\nbody\n"
+			env := newWriterEnv(t, "wiki/concepts/AI.md", content)
+			result := env.apply(t, env.load(t), map[string]any{"aliases": []string{"AI"}})
+			if got := env.read(t); got != content {
+				t.Fatalf("existing alias values changed:\n%s", got)
+			}
+			if result.Status != corpus.StatusUnchanged || (len(result.SkippedUserKeys) > 0) != tc.skipped {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
 func TestWriterPreservesCRLF(t *testing.T) {
 	t.Parallel()
 

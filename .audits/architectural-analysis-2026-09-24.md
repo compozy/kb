@@ -18,7 +18,7 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Published `d9ecec9`; CI and Release workflow successful |
 | Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Published `18044ed`; CI and Release workflow successful |
 | Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
-| State persistence | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair reads the current tail and compaction reloads the current log. Normal appends read one tail byte, avoiding a full-log scan per write. | Published `784a10f`; CI and Release workflow successful; broader frontmatter ownership review ongoing |
+| State persistence and frontmatter ownership | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair/compaction read current data. Alias merging also deleted existing values and overwrote unrecognized shapes; it now preserves existing entries and skips unknown formats. | State fix published `784a10f`, CI/Release successful; ownership fix verified locally |
 | Decision/generation/session boundaries | Queue admission now covers accounting/fatal state and cache reuse. Invalid output envelopes lost billed usage; authentication/cancellation lost entire call receipts. Both clients now account for usage before decoding output and retain interrupted attempts. | Queue fix published `5c08099`, CI/Release successful; accounting fix verified locally |
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
@@ -104,3 +104,9 @@ recorded as each portion is completed.
   lookup now includes directory and package name. The owning adapter test
   covers local cross-file resolution, repeated names and external test
   packages. Full verification and integration passed.
+- Alias regressions reproduced removal of duplicates/spacing and replacement
+  of mixed lists, maps and numeric values with generated aliases. The writer
+  now preserves all existing string entries and reports unknown shapes as
+  user-owned keys. The existing append/deduplication test remains intact.
+  `make verify` (1,888 tests) and integration (2,004 tests) passed with the
+  existing macOS platform skip.
