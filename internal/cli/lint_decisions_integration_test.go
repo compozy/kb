@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -115,6 +116,23 @@ func TestCLIIntegrationLintReadsDecisionRecords(t *testing.T) {
 		}
 	}
 
+	readRecords := func() map[string]string {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(root, ".decisions"))
+		if err != nil {
+			t.Fatalf("read .decisions: %v", err)
+		}
+		records := make(map[string]string, len(entries))
+		for _, entry := range entries {
+			data, err := os.ReadFile(filepath.Join(root, ".decisions", entry.Name()))
+			if err != nil {
+				t.Fatalf("read record %s: %v", entry.Name(), err)
+			}
+			records[entry.Name()] = string(data)
+		}
+		return records
+	}
+	before := readRecords()
 	issues := runCLIJSON[[]models.LintIssue](t, "lint", topic.Slug, "--format", "json", "--vault", vaultRoot)
 
 	for _, want := range []models.LintIssue{
@@ -149,13 +167,7 @@ func TestCLIIntegrationLintReadsDecisionRecords(t *testing.T) {
 
 	// lint is read-only: the records it read are unchanged and nothing new
 	// appears under .decisions/.
-	entries, err := os.ReadDir(filepath.Join(root, ".decisions"))
-	if err != nil {
-		t.Fatalf("read .decisions: %v", err)
-	}
-	for _, entry := range entries {
-		if name := entry.Name(); name != "state.jsonl" && name != review.QueueFile {
-			t.Fatalf("lint wrote %s under .decisions/", name)
-		}
+	if !maps.Equal(before, readRecords()) {
+		t.Fatal("lint changed the names or contents of decision records")
 	}
 }

@@ -1,6 +1,7 @@
 package corpus_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -175,6 +176,100 @@ func TestStateStoreConcurrentPut(t *testing.T) {
 	}
 	if got := len(reopened.Rows()); got != 20 {
 		t.Fatalf("rows = %d, want 20", got)
+	}
+}
+
+func TestStateStoreIndependentWritersPreserveRows(t *testing.T) {
+	t.Parallel()
+	for _, repair := range []bool{false, true} {
+		t.Run(fmt.Sprintf("repair=%v", repair), func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			seed := `{"path":"raw/a.md","body_hash":"old"}` + "\n"
+			if repair {
+				seed += `{"path":"raw/torn`
+			}
+			writeTopicFile(t, root, corpus.StateFile, seed)
+			first, err := corpus.OpenState(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := corpus.OpenState(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			latest := corpus.StateRow{Path: "raw/a.md", BodyHash: "current"}
+			other := corpus.StateRow{Path: "raw/b.md", BodyHash: "b"}
+			if err := second.Put(latest); err != nil {
+				t.Fatal(err)
+			}
+			if err := second.Put(other); err != nil {
+				t.Fatal(err)
+			}
+			want := []corpus.StateRow{latest, other}
+			if repair {
+				extra := corpus.StateRow{Path: "raw/c.md", BodyHash: "c"}
+				if err := first.Put(extra); err != nil {
+					t.Fatal(err)
+				}
+				want = append(want, extra)
+			} else if err := first.Compact(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := corpus.OpenState(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := reopened.Rows(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("acknowledged rows lost or reverted: got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestStateStoreConcurrentIndependentPutAndCompact(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const writers, perWriter = 4, 10
+	stores := make([]*corpus.StateStore, writers+1)
+	for i := range stores {
+		var err error
+		stores[i], err = corpus.OpenState(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := make(chan struct{})
+	var group sync.WaitGroup
+	for i := range writers {
+		group.Go(func() {
+			<-start
+			for j := range perWriter {
+				row := corpus.StateRow{Path: fmt.Sprintf("raw/%d-%d.md", i, j), BodyHash: "h"}
+				if err := stores[i].Put(row); err != nil {
+					t.Errorf("Put: %v", err)
+					return
+				}
+			}
+		})
+	}
+	group.Go(func() {
+		<-start
+		for range perWriter {
+			if err := stores[writers].Compact(); err != nil {
+				t.Errorf("Compact: %v", err)
+				return
+			}
+		}
+	})
+	close(start)
+	group.Wait()
+	reopened, err := corpus.OpenState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(reopened.Rows()); got != writers*perWriter {
+		t.Fatalf("acknowledged rows = %d, want %d", got, writers*perWriter)
 	}
 }
 

@@ -82,35 +82,43 @@ func (row *StateRow) KeyBody(key string) string {
 }
 
 // StateStore is the append-only document state store. The last row per path
-// wins. It is safe for concurrent use.
+// wins. Methods are safe for concurrent use; appends and compaction coordinate
+// across independent stores and processes. Reads use the store's snapshot;
+// open a new store to observe another writer's updates.
 type StateStore struct {
 	mu   sync.Mutex
 	path string
 	rows map[string]StateRow
-	// needsSep is set when the file ends with a complete row but no newline,
-	// so the next append starts on a fresh line.
-	needsSep bool
-	// tornAt is the offset of a torn (unparsable) last line, or -1. The next
-	// append truncates it away so it never ends up in the middle of the file.
-	tornAt int64
 }
 
 // OpenState reads `<topicRoot>/.decisions/state.jsonl`. A missing file is an
 // empty store. A torn last line (a crash mid-append) is ignored; any other
 // malformed line is an error.
 func OpenState(topicRoot string) (*StateStore, error) {
-	store := &StateStore{
-		path:   filepath.Join(topicRoot, filepath.FromSlash(StateFile)),
-		rows:   make(map[string]StateRow),
-		tornAt: -1,
+	path := filepath.Join(topicRoot, filepath.FromSlash(StateFile))
+	rows, _, err := readState(path)
+	if err != nil {
+		return nil, err
 	}
+	return &StateStore{path: path, rows: rows}, nil
+}
 
-	content, err := os.ReadFile(store.path)
+// stateTail describes only the file just read. Mutations must obtain it again
+// under the file lock instead of reusing offsets from an earlier snapshot.
+type stateTail struct {
+	tornAt   int64
+	needsSep bool
+}
+
+func readState(path string) (map[string]StateRow, stateTail, error) {
+	rows := make(map[string]StateRow)
+	tail := stateTail{tornAt: -1}
+	content, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return store, nil
+		return rows, tail, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("corpus: read state %q: %w", store.path, err)
+		return nil, tail, fmt.Errorf("corpus: read state %q: %w", path, err)
 	}
 
 	lines := bytes.Split(content, []byte("\n"))
@@ -124,18 +132,15 @@ func OpenState(topicRoot string) (*StateStore, error) {
 		var row StateRow
 		if err := json.Unmarshal(line, &row); err != nil || row.Path == "" {
 			if index == len(lines)-1 {
-				store.tornAt = lineStart
+				tail.tornAt = lineStart
 				continue
 			}
-			return nil, fmt.Errorf("corpus: state %q line %d is malformed", store.path, index+1)
+			return nil, tail, fmt.Errorf("corpus: state %q line %d is malformed", path, index+1)
 		}
-		store.rows[row.Path] = row
+		rows[row.Path] = row
 	}
-	if store.tornAt < 0 && len(content) > 0 && content[len(content)-1] != '\n' {
-		store.needsSep = true
-	}
-
-	return store, nil
+	tail.needsSep = tail.tornAt < 0 && len(content) > 0 && content[len(content)-1] != '\n'
+	return rows, tail, nil
 }
 
 // Path returns the absolute path of the state file.
@@ -208,7 +213,7 @@ func (s *StateStore) Lookup(path, bodyHash string, exists func(path string) bool
 
 // Put appends row as one whole JSON line and makes it the latest row for its
 // path.
-func (s *StateStore) Put(row StateRow) error {
+func (s *StateStore) Put(row StateRow) (err error) {
 	if row.Path == "" {
 		return errors.New("corpus: state row path is required")
 	}
@@ -219,66 +224,121 @@ func (s *StateStore) Put(row StateRow) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("corpus: create state directory: %w", err)
-	}
-	if s.tornAt >= 0 {
-		if err := os.Truncate(s.path, s.tornAt); err != nil {
-			return fmt.Errorf("corpus: drop torn state line: %w", err)
-		}
-		s.tornAt = -1
-	}
-	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("corpus: open state %q: %w", s.path, err)
 	}
-
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("corpus: close state %q: %w", s.path, closeErr))
+		}
+	}()
+	needsSep, err := s.repairTail(file)
+	if err != nil {
+		return err
+	}
 	line := make([]byte, 0, len(encoded)+2)
-	if s.needsSep {
+	if needsSep {
 		line = append(line, '\n')
 	}
-	line = append(line, encoded...)
-	line = append(line, '\n')
+	line = append(append(line, encoded...), '\n')
 	if _, err := file.Write(line); err != nil {
-		_ = file.Close()
 		return fmt.Errorf("corpus: append state %q: %w", s.path, err)
 	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("corpus: close state %q: %w", s.path, err)
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("corpus: sync state %q: %w", s.path, err)
 	}
-
-	s.needsSep = false
 	s.rows[row.Path] = row.clone()
 	return nil
 }
 
-// Compact atomically rewrites the state file with only the latest row per
-// path, sorted by path.
-func (s *StateStore) Compact() error {
+// repairTail runs under the file lock and inspects the current tail. Normal
+// appends read only one byte; recovering an incomplete write revalidates the
+// log before truncating, preserving strict rejection of malformed middle rows.
+func (s *StateStore) repairTail(file *os.File) (bool, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return false, fmt.Errorf("corpus: stat state: %w", err)
+	}
+	if info.Size() == 0 {
+		return false, nil
+	}
+	var last [1]byte
+	if _, err := file.ReadAt(last[:], info.Size()-1); err != nil {
+		return false, fmt.Errorf("corpus: read state tail: %w", err)
+	}
+	if last[0] == '\n' {
+		return false, nil
+	}
+	_, tail, err := readState(s.path)
+	if err != nil {
+		return false, err
+	}
+	if tail.tornAt >= 0 {
+		if err := file.Truncate(tail.tornAt); err != nil {
+			return false, fmt.Errorf("corpus: drop torn state line: %w", err)
+		}
+	}
+	return tail.needsSep, nil
+}
+
+// Compact atomically rewrites the current on-disk state with only the latest
+// row per path, sorted by path, then refreshes this store's snapshot.
+func (s *StateStore) Compact() (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 
+	rows, _, err := readState(s.path)
+	if err != nil {
+		return err
+	}
 	var buffer bytes.Buffer
-	for _, path := range slices.Sorted(maps.Keys(s.rows)) {
-		encoded, err := json.Marshal(s.rows[path])
+	for _, path := range slices.Sorted(maps.Keys(rows)) {
+		encoded, err := json.Marshal(rows[path])
 		if err != nil {
 			return fmt.Errorf("corpus: encode state row: %w", err)
 		}
 		buffer.Write(encoded)
 		buffer.WriteByte('\n')
 	}
-
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("corpus: create state directory: %w", err)
-	}
 	if err := writeFileAtomic(s.path, buffer.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("corpus: compact state: %w", err)
 	}
-	s.needsSep = false
-	s.tornAt = -1
-
+	s.rows = rows
 	return nil
+}
+
+// lockFile uses a separate file because compaction replaces the state file's
+// inode. The OS releases the lock if a writer exits unexpectedly; the lock file
+// itself remains so every writer continues to lock the same inode.
+func (s *StateStore) lockFile() (func() error, error) {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return nil, fmt.Errorf("corpus: create state directory: %w", err)
+	}
+	file, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("corpus: open state lock: %w", err)
+	}
+	if err := lockStateFile(file); err != nil {
+		return nil, fmt.Errorf("corpus: lock state: %w", errors.Join(err, file.Close()))
+	}
+	return func() error {
+		if err := errors.Join(unlockStateFile(file), file.Close()); err != nil {
+			return fmt.Errorf("corpus: unlock state: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 // Unclassified reports whether doc needs a (re)classification: it has no

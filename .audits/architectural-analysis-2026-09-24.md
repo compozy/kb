@@ -17,8 +17,8 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | --- | --- | --- |
 | Dependency graph and build tooling | Updated required modules, Go minimum/CI/docs to 1.26, Mage fallback, lint/modernize and release tooling. Removed the unused tree-sitter replacement. Applied the Go 1.26 analyzer's behavior-preserving changes. | Published `d9ecec9`; CI and Release workflow successful |
 | Package boundaries | Replaced the four-directory grep check with parsed imports across internal packages, including tests and platform files. Missing/unreadable sources fail; fixtures and the CLI layer are excluded. | Published `18044ed`; CI and Release workflow successful |
-| Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Fixed; owning race/integration suites and full gates passed |
-| Corpus/frontmatter persistence | State truncation uses offsets captured when the store opened; compaction also uses a potentially stale snapshot. | Reproduction/fix pending; ownership review ongoing |
+| Append-only decision logs | Receipt and quarantine recovery tests reproduced lost rows after an interrupted append. Reused review's tail-separation algorithm in `internal/jsonl` for receipts, review, quarantine, skips and inserted links. Writes sync before returning. Link and review actions now share the insertion record writer. Failed receipt loads no longer poison the cache with an empty map. | Published `93611eb`; CI and Release workflow successful |
+| State persistence | Independent writers lost acknowledged rows during stale-tail repair and compaction. State mutations now share an OS file lock; repair reads the current tail and compaction reloads the current log. Normal appends read one tail byte, avoiding a full-log scan per write. | Fixed; race suite, cross-compilation and full gates passed; broader frontmatter ownership review ongoing |
 | Decision/generation/session boundaries | Budget, receipt validity, cache and cancellation review. | Pending |
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
@@ -57,3 +57,15 @@ recorded as each portion is completed.
   append suites protect their record contracts without duplicating low-level
   helper tests. `make verify`: 1,864 tests; `make test-integration`: 1,980 tests;
   both passed with the existing single macOS `/dev/full` skip.
+- `93611eb`: GitHub CI `36094298588` and Release `36094298551` succeeded.
+- State regression: stale repair reverted an updated row and removed another;
+  concurrent compaction lost all 40 acknowledged rows in the reproduction.
+  Both deterministic stale-store cases and concurrent independent appends plus
+  compaction now pass with `-race`. Existing malformed-middle-line rejection
+  remains intact. Corpus test binaries compile for Linux and Windows; execution
+  was local macOS (Linux execution also runs in CI).
+- The CLI lint integration fixture itself creates the state lock during setup.
+  Replaced its incorrect fixed filename allowlist with a before/after comparison
+  of all record names and bytes, strengthening the read-only assertion. Final
+  `make verify`: 1,868 tests; integration: 1,984 tests; both passed with one
+  existing macOS platform skip.

@@ -369,6 +369,7 @@ Records and caches, never the graph (the graph is wikilinks and frontmatter). JS
 | --- | --- |
 | `receipts.jsonl` | every decision and generation call: key, purpose, subject, bank version, contract hash, model, cost, latency, status, raw answers |
 | `state.jsonl` | one row per document: body hash, contract hash, bank versions, the value hash of every key kb wrote, and the body (and contract) each bank and key was judged on, so a write by one command never makes another command's judgment look current |
+| `state.jsonl.lock` | coordinates state appends, interrupted-write repair and compaction across processes; the OS releases the lock when the process exits, even though this file remains |
 | `review.jsonl` | review queue items and their status changes |
 | `labels.jsonl` | human verdicts and imported labels, with their origin |
 | `calibration.json` | the last `kb review calibrate --write`: date, label counts, dev and holdout metrics, and per purpose the decision context (contract hash, model, bank versions) the scores were joined under |
