@@ -634,7 +634,13 @@ func TestWriteVaultAppendsManagedBlockWhenClaudeHasNoMarkers(t *testing.T) {
 func TestWriteVaultRejectsInvalidRenderedDocument(t *testing.T) {
 	t.Parallel()
 
-	topic, graph, _, baseFiles := testWriteVaultInputs(t)
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if _, err := vault.WriteVault(t.Context(), vault.WriteVaultOptions{
+		Topic: topic, Graph: graph, Documents: documents, BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logBefore := readFile(t, filepath.Join(topic.TopicPath, "log.md"))
 	badDocument := models.RenderedDocument{
 		Kind:         models.DocWiki,
 		ManagedArea:  models.AreaWikiConcept,
@@ -653,6 +659,36 @@ func TestWriteVaultRejectsInvalidRenderedDocument(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing YAML frontmatter") {
 		t.Fatalf("expected frontmatter validation error, got %v", err)
+	}
+	for _, document := range documents {
+		got := readFile(t, filepath.Join(topic.TopicPath, filepath.FromSlash(document.RelativePath)))
+		if got != document.Body {
+			t.Errorf("invalid input changed %s", document.RelativePath)
+		}
+	}
+	if got := readFile(t, filepath.Join(topic.TopicPath, "log.md")); got != logBefore {
+		t.Fatal("invalid input changed the log")
+	}
+}
+
+func TestWriteVaultPreservesManualAgents(t *testing.T) {
+	t.Parallel()
+	topic, graph, documents, baseFiles := testWriteVaultInputs(t)
+	if err := os.MkdirAll(topic.TopicPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agents := filepath.Join(topic.TopicPath, "AGENTS.md")
+	const manual = "# Topic instructions\n\nPreserve the curated sources.\n"
+	if err := os.WriteFile(agents, []byte(manual), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.WriteVault(t.Context(), vault.WriteVaultOptions{
+		Topic: topic, Graph: graph, Documents: documents, BaseFiles: baseFiles,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, agents); got != manual {
+		t.Fatal("regenerating the codebase replaced the user's AGENTS.md")
 	}
 }
 

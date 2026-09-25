@@ -74,6 +74,11 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	if err := ctx.Err(); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: %w", err)
 	}
+	// Validate every output before touching the previous generation.
+	renderedFiles, err := buildWriteRequests(options)
+	if err != nil {
+		return WriteVaultResult{}, fmt.Errorf("write vault: %w", err)
+	}
 
 	if err := os.MkdirAll(options.Topic.VaultPath, 0o755); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: create vault path %q: %w", options.Topic.VaultPath, err)
@@ -85,10 +90,6 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 		return WriteVaultResult{}, fmt.Errorf("write vault: reset managed subtrees: %w", err)
 	}
 
-	renderedFiles, err := buildWriteRequests(options)
-	if err != nil {
-		return WriteVaultResult{}, fmt.Errorf("write vault: %w", err)
-	}
 	if err := ensureDirectories(renderedFiles); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure document directories: %w", err)
 	}
@@ -113,9 +114,6 @@ func WriteVault(ctx context.Context, options WriteVaultOptions) (WriteVaultResul
 	}
 	for _, bridgePath := range indexBridgePaths {
 		progressReporter.Report(bridgePath)
-	}
-	if err := ensureAgentsSymlink(options.Topic.TopicPath); err != nil {
-		return WriteVaultResult{}, fmt.Errorf("write vault: ensure topic agents symlink: %w", err)
 	}
 	if err := ensureTopicGitkeeps(options.Topic.TopicPath); err != nil {
 		return WriteVaultResult{}, fmt.Errorf("write vault: ensure gitkeep files: %w", err)
@@ -660,18 +658,6 @@ func renderedConceptTitle(document models.RenderedDocument) string {
 	}
 
 	return stripWikiConceptFilePrefix(strings.TrimSuffix(path.Base(document.RelativePath), ".md"))
-}
-
-func ensureAgentsSymlink(topicPath string) error {
-	agentsPath := filepath.Join(topicPath, "AGENTS.md")
-	if err := os.RemoveAll(agentsPath); err != nil {
-		return fmt.Errorf("remove existing agents file: %w", err)
-	}
-	if err := os.Symlink("CLAUDE.md", agentsPath); err != nil {
-		return fmt.Errorf("create agents symlink: %w", err)
-	}
-
-	return nil
 }
 
 func ensureTopicGitkeeps(topicPath string) error {

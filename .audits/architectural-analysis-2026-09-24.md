@@ -23,7 +23,7 @@ Baseline `make verify`: passed. GitHub CI run `36092228951`: successful.
 | Ingestion, conversion and media | File/network/subprocess boundaries and cancellation review. | Pending |
 | CLI, topics, contracts, OKF and review actions | Validation and mutation contracts. | Pending |
 | Retrieval, links, lint and QMD | Ranking, paths and subprocess failure handling. | Pending |
-| Codebase scan, adapters, graph, metrics and vault | Graph correctness, reproducibility and file ownership. | Pending |
+| Codebase scan, adapters, graph, metrics and vault | Invalid rendered input deleted the previous codebase output before validation; a duplicate symlink writer overwrote manual `AGENTS.md`. Output validation now runs before mutations and the existing preserving scaffold owns AGENTS creation. Scanner, pipeline cancellation boundaries, graph normalization and metric entrypoints inspected. | Vault fixes verified; adapter/inspection review ongoing |
 
 Uninspected areas are pending, not evidence of an absence of defects. This audit
 does not claim that tests prove the absence of every possible bug.
@@ -84,3 +84,7 @@ recorded as each portion is completed.
   with unknown cost; existing error returns and invalid-output rejection stay
   intact. The owning race suites, `make verify` (1,879 tests), and integration
   (1,995 tests) passed, with the existing macOS platform skip.
+- Vault regressions reproduced deletion of a previously generated document
+  on invalid input and replacement of a manual `AGENTS.md`. Both now pass
+  through the real filesystem writer. `make verify` (1,880 tests) and
+  integration (1,996 tests) passed with the existing macOS platform skip.
