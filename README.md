@@ -206,7 +206,7 @@ The key difference: `kb` outputs compound. A SonarQube scan from last month is s
 
 ## Decision Model
 
-kb makes every semantic judgment (is this source on topic, is this page broken, which article does this document discuss, should these two documents link, does this document answer that question) with a **decision model**: a model that answers typed questions (yes/no, choice, score) with probabilities and generates no text. The default is `typesafe/jev-1.13` through OpenRouter's decisions endpoint (`POST <openrouter.api_url>/alpha/decisions`). A small **generation model** writes the few short literals kb needs (summaries, criteria, aliases, entities, questions, contract and vocabulary drafts) under a strict JSON schema; it never edits article prose. Code does everything else: it proposes candidates, computes every number, applies thresholds and writes files.
+kb makes every semantic judgment (is this source on topic, is this page broken, which article does this document discuss, should these two documents link, does this document answer that question) with a **decision model**: a model that answers typed questions (yes/no, choice, score) with probabilities and generates no text. The default is `typesafe/jev-1.14` through OpenRouter's decisions endpoint (`POST <openrouter.api_url>/alpha/decisions`). A small **generation model** writes the few short literals kb needs (summaries, criteria, aliases, entities, questions, contract and vocabulary drafts) under a strict JSON schema; it never edits article prose. Code does everything else: it proposes candidates, computes every number, applies thresholds and writes files.
 
 - **Bands.** Every answer falls in a confidence band, `apply`, `review` or `ignore`, cut by named thresholds. Review-band outcomes go to the topic's [review queue](#review-queues-and-labels).
 - **Failures stay visible.** A timeout, exhausted retries, an invalid receipt or an exceeded budget yields `undecided:<reason>`; an oversized state yields `not_checked:state_too_large`. Neither is read as a "no": the document keeps its previous state and the run summary lists it.
@@ -226,7 +226,7 @@ These never call a model and run without it: `kb version`, `kb topic new|list|in
 api_key = ""                  # or OPENROUTER_API_KEY
 
 [decisions]
-model = "typesafe/jev-1.13"   # KB_DECISIONS_MODEL overrides
+model = "typesafe/jev-1.14"   # KB_DECISIONS_MODEL overrides
 deadline = "20s"              # total per attempt
 retries = 2                   # on 408/429/5xx; 401/402/403 stop the run
 concurrency = 8
@@ -792,7 +792,7 @@ The scanner:
 | `STT_MODEL` | env / TOML | STT model override, for example `gpt-4o-transcribe` |
 | `OPENROUTER_API_KEY` | env / TOML | **Required** by decision-backed commands (decision and generation models); also the STT key when `stt.provider = "openrouter"` |
 | `OPENROUTER_API_URL` | env / TOML | OpenRouter API endpoint |
-| `KB_DECISIONS_MODEL` | env / TOML | Decision model override (`[decisions].model`, default `typesafe/jev-1.13`) |
+| `KB_DECISIONS_MODEL` | env / TOML | Decision model override (`[decisions].model`, default `typesafe/jev-1.14`) |
 | `KB_GENERATION_MODEL` | env / TOML | Generation model override (`[generation].model`, default `xiaomi/mimo-v2.6-flash`) |
 | `YOUTUBE_YT_DLP_PATH` | env / TOML | `yt-dlp` executable path for `ingest youtube` |
 | `YOUTUBE_PROXY` | env / TOML | Proxy URL passed to `yt-dlp` |

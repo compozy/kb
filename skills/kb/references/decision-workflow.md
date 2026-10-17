@@ -2,7 +2,7 @@
 
 How kb's decision model gates ingests, classifies, links, finds and queues work for review, and what each command reads and writes. Read the section you need: **Commands** for flags, **Modes and thresholds** before changing `topic.yaml` `decisions`, **Review queues** before accepting or rejecting items, **Calibration** before `kb review calibrate --write`, **Files** when inspecting `<topic>/.decisions/`.
 
-The decision model (Jev, `typesafe/jev-1.13` over OpenRouter) answers typed questions (yes/no, choice, score) with probabilities and writes no text. The generation model writes only short, code-validated literals (summaries, criteria, aliases, entities, questions, contract and vocabulary drafts). Code proposes candidates, applies thresholds and writes files. You write article prose and give the human verdicts.
+The decision model (Jev, `typesafe/jev-1.14` over OpenRouter) answers typed questions (yes/no, choice, score) with probabilities and writes no text. The generation model writes only short, code-validated literals (summaries, criteria, aliases, entities, questions, contract and vocabulary drafts). Code proposes candidates, applies thresholds and writes files. You write article prose and give the human verdicts.
 
 ## Commands
 

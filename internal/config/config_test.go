@@ -270,7 +270,7 @@ func TestLoadDecisionsAndGenerationSections(t *testing.T) {
 			assert: func(t *testing.T, cfg Config) {
 				t.Helper()
 				want := DecisionsConfig{
-					Model:         "typesafe/jev-1.13",
+					Model:         "typesafe/jev-1.14",
 					Deadline:      "20s",
 					Retries:       2,
 					Concurrency:   8,

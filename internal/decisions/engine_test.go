@@ -142,7 +142,7 @@ func validAnswers(req decisionRequest) map[string]any {
 func validResponse(req decisionRequest) map[string]any {
 	return map[string]any{
 		"id":       "gen-dec-1",
-		"model":    "typesafe/jev-1.13-20260917",
+		"model":    "typesafe/jev-1.14-20261014",
 		"provider": "TypeSafe",
 		"answers":  validAnswers(req),
 		"usage":    map[string]any{"input_tokens": 1000, "output_tokens": 10, "cost": 0.000042},
@@ -267,7 +267,7 @@ func TestDecideValidAnswersWritesReceipt(t *testing.T) {
 			t.Fatalf("calls = %d, want 1", len(calls))
 		}
 		call := calls[0]
-		if call.Model != "typesafe/jev-1.13" {
+		if call.Model != "typesafe/jev-1.14" {
 			t.Errorf("model = %q", call.Model)
 		}
 		if got := call.header.Get("Authorization"); got != "Bearer sk-or-v1-test-key-0000000000000000" {
@@ -293,8 +293,8 @@ func TestDecideValidAnswersWritesReceipt(t *testing.T) {
 		bank := questions.MustLoad("quality")
 		if row.Key != result.ReceiptID || row.Purpose != "quality" || row.Subject != "raw/articles/a.md" ||
 			row.Bank != "quality" || row.BankVersion != bank.Version || row.BankHash != bank.Hash ||
-			row.Contract != "contract-hash" || row.Model != "typesafe/jev-1.13" ||
-			row.ReportedModel != "typesafe/jev-1.13-20260917" || row.Route != RouteDecisions ||
+			row.Contract != "contract-hash" || row.Model != "typesafe/jev-1.14" ||
+			row.ReportedModel != "typesafe/jev-1.14-20261014" || row.Route != RouteDecisions ||
 			row.ResponseID != "gen-dec-1" || row.Attempts != 1 || row.Status != StatusDecided || row.Reason != "" {
 			t.Errorf("row = %+v", row)
 		}
@@ -1017,7 +1017,7 @@ func TestDecideRespectsConcurrency(t *testing.T) {
 		writeJSON(w, http.StatusOK, validResponse(req))
 	})
 	engine, _ := newTestEngine(t, fake, engineSetup{cfg: func(c *config.DecisionsConfig) { c.Concurrency = 2 }})
-	if engine.Concurrency() != 2 || engine.Model() != "typesafe/jev-1.13" {
+	if engine.Concurrency() != 2 || engine.Model() != "typesafe/jev-1.14" {
 		t.Fatalf("Concurrency %d Model %q", engine.Concurrency(), engine.Model())
 	}
 	root := t.TempDir()

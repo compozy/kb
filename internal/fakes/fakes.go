@@ -190,7 +190,7 @@ func (f *OpenRouter) serveDecisions(w http.ResponseWriter, body []byte) {
 	}
 	writeJSON(w, map[string]any{
 		"id":       fmt.Sprintf("gen-dec-fake-%d", len(f.Calls())),
-		"model":    "typesafe/jev-1.13-20260917",
+		"model":    "typesafe/jev-1.14-20261014",
 		"provider": "TypeSafe",
 		"answers":  answers,
 		"usage":    map[string]any{"input_tokens": len(body) / 4, "output_tokens": 0, "cost": cost},

@@ -45,7 +45,7 @@ const (
 
 	defaultFirecrawlRefetchWaitMS = 3000
 
-	defaultDecisionsModel         = "typesafe/jev-1.13"
+	defaultDecisionsModel         = "typesafe/jev-1.14"
 	defaultDecisionsDeadline      = "20s"
 	defaultDecisionsRetries       = 2
 	defaultDecisionsConcurrency   = 8

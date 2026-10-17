@@ -93,7 +93,7 @@ stt_model = "google/gemini-2.5-flash"
 # [okf].types) and okf check --decide; needs OPENROUTER_API_KEY.
 # KB_DECISIONS_MODEL overrides the model. topic.yaml `decisions:` overrides mode
 # and thresholds per topic (plus gates, relevance and exclude).
-model = "typesafe/jev-1.13"
+model = "typesafe/jev-1.14"
 # Total deadline of one attempt, including the body read.
 deadline = "20s"
 # Retries after the first attempt on 408/429/5xx, network errors and timeouts.
