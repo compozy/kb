@@ -1,4 +1,9 @@
-## 0.0.12 - 2026-09-25
+## 0.0.12 - 2026-10-17
+
+
+### 🎉 Features
+- *(repo)* Default decision model to Jev 1.14
+
 
 
 ### 🐛 Bug Fixes
@@ -24,3 +29,4 @@
 
 ### 📦 Build System
 - *(repo)* Update Go dependencies and align Go 1.26 tooling
+- Release v0.0.12 ([#33](https://github.com/compozy/kb/issues/33))
