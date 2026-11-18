@@ -523,7 +523,7 @@ func (a *applier) stillFailing(ctx context.Context, doc *corpus.Document, title,
 	}
 	flags := quality.Check(quality.Input{
 		Title: title, Body: body, SourceURL: doc.SourceURL(), FinalURL: fetch.FinalURL,
-		RequestedURL: requested, StatusCode: fetch.StatusCode, SiteName: fetch.SiteName,
+		RequestedURL: requested, StatusCode: fetch.StatusCode, SiteName: fetch.SiteName, Blocked: fetch.Blocked,
 		HostLines: quality.HostLineCounts(c.Sources())[host],
 		SkipThin:  transcript || doc.SourceKind() == string(models.SourceKindBookmarkCluster),
 	})

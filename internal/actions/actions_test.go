@@ -373,7 +373,8 @@ func TestApplyQueues(t *testing.T) {
 // quarantined when it still fails and kept when it no longer does. The fresh
 // body is judged with the title of the same fetch. A quality judgment that
 // is undecided never reads as "no longer fails": the body, the quality key
-// and the item are left as they are and no label is written.
+// and the item are left as they are and no label is written. A refetch the
+// fetcher reported as blocked still fails on the blocked code, however long.
 func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("Typed judges answer questions with calibrated probabilities. ", 60)
@@ -398,6 +399,7 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 		{name: "longer good refetch replaces the body and provenance", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200, FetchedVia: "firecrawl-cloud"}, action: DidRecaptured, wantBody: long, wantVia: "firecrawl-cloud"},
 		{name: "shorter refetch and a still thin capture quarantine", oldBody: "Loading the page, please wait.\n", fresh: firecrawl.ScrapeResult{Markdown: "x", StatusCode: 200}, action: DidQuarantined, wantReason: "thin"},
 		{name: "longer refetch that still fails quarantines", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: "# Not Found\n\nThe page does not exist anymore.\n", Title: "Not Found", StatusCode: 404}, action: DidQuarantined, wantReason: "error_page"},
+		{name: "longer refetch reported as blocked quarantines", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200, Blocked: true, FetchedVia: "local"}, action: DidQuarantined, wantReason: "blocked"},
 		{name: "shorter refetch keeps a good old body and its provenance", oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200, FetchedVia: "firecrawl-cloud"}, action: DidKept, wantBody: long, wantVia: "local"},
 		{name: "recovered page is judged with the refetched title and drops obsolete provenance", title: "404 Not Found", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, Title: "Recovered article", StatusCode: 200}, action: DidRecaptured, wantBody: long},
 		{name: "undecided quality leaves a longer refetch unapplied", decide: malformedQuality, oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200}, undecided: true, wantBody: "Loading...\n"},
