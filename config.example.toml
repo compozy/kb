@@ -80,7 +80,7 @@ api_url = "https://api.firecrawl.dev"
 # An empty refetch_api_url reuses api_url. The refetch key defaults to api_key.
 refetch_api_url = ""
 refetch_api_key = ""
-# Fresh refetch before a quality gate judges a blocked, thin, or broken capture: the
+# Fresh refetch for quality gates and accepted recapture reviews. The
 # refetch always bypasses Firecrawl's cache (maxAge 0), waits this long for
 # client-side rendering, and keeps the full page unless set to true.
 refetch_wait_ms = 3000

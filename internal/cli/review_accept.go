@@ -152,7 +152,7 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 	var runner *kingest.Run
 	target := ingestTarget{TopicInfo: s.Topic, VaultPath: s.VaultPath}
 	deps := actions.Deps{
-		Scrape: scrapers.primary.ScrapeWithOptions,
+		Refetch: scrapers.refetch,
 		Rescue: func(ctx context.Context, row gate.SkippedRow) (string, error) {
 			if runner == nil {
 				runner = kingest.NewRun(s, kingest.RunOptions{Command: "rescue", Batch: row.Batch, Query: row.Query})

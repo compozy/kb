@@ -65,8 +65,8 @@ var ErrUndecided = errors.New("actions: required judgment is undecided")
 // Deps are the fetchers an action may need; both are optional and an action
 // that needs a missing one fails without changing anything.
 type Deps struct {
-	// Scrape fetches a URL with explicit Firecrawl options (recapture).
-	Scrape func(ctx context.Context, sourceURL string, opts firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error)
+	// Refetch fetches a fresh capture of a URL (recapture).
+	Refetch func(ctx context.Context, sourceURL string) (*firecrawl.ScrapeResult, error)
 	// Rescue fetches and ingests a skipped item, bypassing only the
 	// pre-fetch gate, and returns the written path (skip accept).
 	Rescue func(ctx context.Context, row gate.SkippedRow) (string, error)
@@ -397,12 +397,12 @@ func activeQuarantine(topicRoot, subject string) (refs.Quarantined, bool, error)
 // recapture: accept refetches with fresh options, keeps the longer of the
 // old and the refetched bodies (spec §7 stage 4) and re-judges the kept
 // body: a refetched body that is now good replaces the old one in place
-// (`recaptured: <date>`, kb's `quality` and `triage_reason` dropped, and the
-// state row's classify banks cleared so the next `kb classify` judges the
-// new body); a kept body still failing, or a source without source_url, is
-// quarantined with its quality reason; an old body that no longer fails is
-// kept as captured. A quality judgment that is undecided never reads as
-// "no longer fails": the action returns ErrUndecided with the reasons and
+// (with new capture provenance, `recaptured: <date>`, kb's `quality` and
+// `triage_reason` dropped, and the state row's classify banks cleared so the
+// next `kb classify` judges the new body); a kept body still failing, or a
+// source without source_url, is quarantined with its quality reason. An
+// old body that no longer fails is kept as captured. An undecided quality
+// judgment returns ErrUndecided with the reasons and
 // leaves the body and the item as they are. Reject keeps the source as it
 // is.
 func (a *applier) recapture(ctx context.Context, result *Result) error {
@@ -420,10 +420,10 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 	if actionBool(a.item, "no_source") || !strings.HasPrefix(strings.ToLower(sourceURL), "http") {
 		return a.quarantine(ctx, result, reason)
 	}
-	if a.deps.Scrape == nil {
+	if a.deps.Refetch == nil {
 		return errors.New("recapture needs Firecrawl")
 	}
-	fresh, err := a.deps.Scrape(ctx, sourceURL, firecrawl.RefetchOptions(s.Config.Firecrawl))
+	fresh, err := a.deps.Refetch(ctx, sourceURL)
 	if err != nil {
 		return fmt.Errorf("refetch %s: %w", sourceURL, err)
 	}
@@ -450,7 +450,7 @@ func (a *applier) recapture(ctx context.Context, result *Result) error {
 	updates := map[string]any{
 		"recaptured": s.Now().UTC().Format(frontmatter.DateLayout), "quality": nil, "triage_reason": nil,
 	}
-	written, err := s.Writer.ApplyBody(doc, fresh.Markdown, updates, s.StateMeta())
+	written, err := s.Writer.ApplyCapture(doc, fresh.Markdown, fresh.FetchedVia, updates, s.StateMeta())
 	if err != nil {
 		return err
 	}

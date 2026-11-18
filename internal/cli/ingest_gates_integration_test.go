@@ -788,17 +788,21 @@ func frontmatterSources(t *testing.T, env *gateEnv) string {
 }
 
 // TestReviewAcceptRecaptureRemoveAndLink covers the backfill and link
-// queues: recapture replaces the body in place, remove quarantines as
-// off_topic, a link insert writes the relation and the body link; every
-// verdict appends a label.
+// queues: recapture replaces the body in place via the configured refetch
+// backend, remove quarantines as off_topic, and link writes the relation and
+// body link. Every verdict appends a label.
 func TestReviewAcceptRecaptureRemoveAndLink(t *testing.T) {
 	full := article("Calibrating decision thresholds", 400)
-	env := newGateEnv(t, nil, pages(map[string]fakes.ScrapeResponse{
-		"https://example.com/posts/calibration": {Markdown: full, Title: "Calibrating decision thresholds"},
+	const sourceURL = "https://example.com/posts/calibration"
+	env := newGateEnv(t, nil, pages(nil))
+	refetch := fakes.NewFirecrawl(pages(map[string]fakes.ScrapeResponse{
+		sourceURL: {Markdown: full, Title: "Calibrating decision thresholds", Source: "firecrawl-cloud"},
 	}))
+	t.Cleanup(refetch.Close)
+	t.Setenv("FIRECRAWL_REFETCH_API_URL", refetch.URL)
 	writeMarkdownDocument(t, env.root, "raw/articles/calibration.md", map[string]any{
 		"title": "Calibrating decision thresholds", "type": "source", "source_kind": "article",
-		"source_url": "https://example.com/posts/calibration", "custom": "kept as is",
+		"source_url": sourceURL, "fetched_via": "local", "custom": "kept as is",
 	}, "# Calibrating\n\nLoading...\n")
 	writeMarkdownDocument(t, env.root, "raw/articles/recipes.md", map[string]any{
 		"title": "Weekend recipes", "type": "source", "source_kind": "article",
@@ -831,6 +835,13 @@ func TestReviewAcceptRecaptureRemoveAndLink(t *testing.T) {
 	stdout, _ := env.mustRun(t, "review", "accept", "--topic", "demo", ids[0])
 	if !strings.Contains(stdout, "recaptured raw/articles/calibration.md") {
 		t.Fatalf("recapture output:\n%s", stdout)
+	}
+	if calls := env.fc.Requests(); len(calls) != 0 {
+		t.Fatalf("primary requests = %+v", calls)
+	}
+	if calls := refetch.Requests(); len(calls) != 1 || calls[0].URL != sourceURL ||
+		calls[0].MaxAge == nil || *calls[0].MaxAge != 0 {
+		t.Fatalf("refetch requests = %+v", calls)
 	}
 	values, gotBody := env.read(t, "raw/articles/calibration.md")
 	if gotBody != full || values["custom"] != "kept as is" || values["recaptured"] == nil {

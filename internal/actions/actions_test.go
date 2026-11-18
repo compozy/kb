@@ -392,13 +392,14 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 		action     string
 		undecided  bool
 		wantBody   string
+		wantVia    string
 		wantReason string
 	}{
-		{name: "longer good refetch replaces the body", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200}, action: DidRecaptured, wantBody: long},
+		{name: "longer good refetch replaces the body and provenance", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200, FetchedVia: "firecrawl-cloud"}, action: DidRecaptured, wantBody: long, wantVia: "firecrawl-cloud"},
 		{name: "shorter refetch and a still thin capture quarantine", oldBody: "Loading the page, please wait.\n", fresh: firecrawl.ScrapeResult{Markdown: "x", StatusCode: 200}, action: DidQuarantined, wantReason: "thin"},
 		{name: "longer refetch that still fails quarantines", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: "# Not Found\n\nThe page does not exist anymore.\n", Title: "Not Found", StatusCode: 404}, action: DidQuarantined, wantReason: "error_page"},
-		{name: "shorter refetch keeps a good old body", oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200}, action: DidKept, wantBody: long},
-		{name: "recovered page is judged with the refetched title", title: "404 Not Found", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, Title: "Recovered article", StatusCode: 200}, action: DidRecaptured, wantBody: long},
+		{name: "shorter refetch keeps a good old body and its provenance", oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200, FetchedVia: "firecrawl-cloud"}, action: DidKept, wantBody: long, wantVia: "local"},
+		{name: "recovered page is judged with the refetched title and drops obsolete provenance", title: "404 Not Found", oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, Title: "Recovered article", StatusCode: 200}, action: DidRecaptured, wantBody: long},
 		{name: "undecided quality leaves a longer refetch unapplied", decide: malformedQuality, oldBody: "Loading...\n", fresh: firecrawl.ScrapeResult{Markdown: long, StatusCode: 200}, undecided: true, wantBody: "Loading...\n"},
 		{name: "undecided quality never keeps the old body as recovered", decide: malformedQuality, oldBody: long, fresh: firecrawl.ScrapeResult{Markdown: "short", StatusCode: 200}, undecided: true, wantBody: long},
 	}
@@ -408,7 +409,9 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 			e := newEnvWith(t, tt.decide)
 			rel := "raw/articles/p.md"
 			title := firstNonEmpty(tt.title, "Typed judges")
-			e.write(t, rel, map[string]any{"title": title, "source_kind": "article", "source_url": "https://example.com/posts/typed-judges"}, tt.oldBody)
+			e.write(t, rel, map[string]any{
+				"title": title, "source_kind": "article", "source_url": "https://example.com/posts/typed-judges", "fetched_via": "local",
+			}, tt.oldBody)
 			doc, err := corpus.ReadDocument(e.root, rel, corpus.KindSource)
 			if err != nil {
 				t.Fatal(err)
@@ -420,7 +423,7 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 			}
 			item := e.add(t, review.Item{Queue: review.QueueRecapture, Purpose: "quality", Subject: rel, Question: "code:thin", Action: map[string]any{"reason": "thin"}})
 			fresh := tt.fresh
-			deps := Deps{Scrape: func(context.Context, string, firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error) {
+			deps := Deps{Refetch: func(context.Context, string) (*firecrawl.ScrapeResult, error) {
 				return &fresh, nil
 			}}
 			result, err := Apply(context.Background(), e.s, deps, item, Accept)
@@ -461,6 +464,9 @@ func TestApplyRecaptureKeepsLongerBody(t *testing.T) {
 			}
 			if stored.Body != tt.wantBody {
 				t.Fatalf("body = %q", stored.Body)
+			}
+			if got, present := stored.Frontmatter["fetched_via"]; present != (tt.wantVia != "") || (present && got != tt.wantVia) {
+				t.Fatalf("fetched_via = %v (present: %t), want %q", got, present, tt.wantVia)
 			}
 			row, ok := e.s.State.Get(rel)
 			if !ok {

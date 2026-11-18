@@ -518,7 +518,7 @@ Set `FIRECRAWL_REFETCH_API_KEY` for the cloud retry. It defaults to the primary 
 
 Use `FIRECRAWL_CLOUD=off firecrawl-local serve` if you want `kb` to control when requests go to the cloud. Firecrawl Local can return an error page with HTTP 400 or attach HTTP 404 to a complete article. Both trigger the quality gate, and a fresh cloud capture can recover either case. Warnings from flagged captures appear in the ingest log and any gate review evidence.
 
-URL ingest writes `fetched_via` for the saved body. `local` means Firecrawl Local reported a local capture or the response came from a loopback endpoint with no source field. `firecrawl-cloud` means the request used `api.firecrawl.dev` or the backend reported a cloud hand-off. `self-hosted` identifies other endpoints. A selected refetch supplies the saved capture's provenance and title, and that title determines the filename.
+URL ingest writes `fetched_via` for the saved body. `local` means Firecrawl Local reported a local capture or the response came from a loopback endpoint with no source field. `firecrawl-cloud` means the request used `api.firecrawl.dev` or the backend reported a cloud hand-off. `self-hosted` identifies other endpoints. A selected ingest refetch supplies the saved capture's provenance and title, and that title determines the filename. Accepting a recapture review item uses the same refetch configuration and updates `fetched_via` when the body is replaced in place.
 
 ### `kb classify`
 
