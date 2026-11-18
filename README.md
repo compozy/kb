@@ -59,7 +59,7 @@ npm install -g @tobilu/qmd
 ```
 
 > [!NOTE]
-> **Requirements:** Go >= 1.26. `OPENROUTER_API_KEY` is required by every command that ingests, classifies, links, finds, reviews or promotes (see [Decision model](#decision-model)). The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The `ingest url` command requires a [Firecrawl](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
+> **Requirements:** Go >= 1.26. `OPENROUTER_API_KEY` is required by every command that ingests, classifies, links, finds, reviews or promotes (see [Decision model](#decision-model)). The `search` and `index` commands require [QMD](https://github.com/tobilu/qmd) to be installed separately. The default `ingest url` backend requires a [Firecrawl Cloud](https://firecrawl.dev) API key. The `ingest youtube` command requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) for captions and audio extraction. STT transcription with `--transcribe auto` or `--transcribe stt` uses the configured `[stt]` provider; OpenAI audio transcriptions are the default and require `OPENAI_API_KEY`. Long audio is segmented with `ffmpeg`.
 
 <details>
 <summary><strong>What it touches</strong></summary>
@@ -285,8 +285,8 @@ Every `kb ingest` subcommand except `codebase` runs the same staged pipeline; on
 
 1. **Exact dedupe** (code): normalized URL, platform video id and body hash against existing sources. `--force` skips the gates.
 2. **Pre-fetch relevance** (bulk only: `channel` and URL lists; a bookmark cluster is gated as one document): title and description are judged against the contract before anything is fetched. P(off_topic) ≥ 0.8 skips the item: it is recorded in `.decisions/skipped.jsonl`, never fetched, and can be rescued with `--rescue <id>`.
-3. **Code quality checks**: `not_an_article` (root or listing URL, redirect to the site home, title equal to the site name), `thin` (< 300 words after navigation lines), `error_page` (HTTP ≥ 400 or a 404-like title).
-4. **Refetch** (URL sources): a flagged or thin capture is scraped once more with Firecrawl `maxAge: 0`, `waitFor` (`[firecrawl].refetch_wait_ms`, default 3000) and `onlyMainContent` (`[firecrawl].refetch_only_main_content`, default false); the longer body is kept.
+3. **Code quality checks** include `blocked` (the backend reported it could not fetch the page), `not_an_article` (root or listing URL, redirect to the site home, title equal to the site name), `thin` (< 300 words after navigation lines), and `error_page` (HTTP ≥ 400 or a 404-like title).
+4. **Refetch** runs once for a flagged or thin URL capture with Firecrawl `maxAge: 0`, `waitFor` (`[firecrawl].refetch_wait_ms`, default 3000), and `onlyMainContent` (`[firecrawl].refetch_only_main_content`, default false). A capture that clears the code checks can replace a longer flagged capture. When both have the same pass or fail status, the longer body wins. If the chosen capture is still flagged, apply mode quarantines it before any post-fetch decision call.
 5. **Post-fetch quality and relevance**: `paywall_or_login`, `error_or_placeholder_page`, `thin_or_boilerplate`, `no_speech_content` (transcripts only) and the relevance role over the real content. ≥ 0.8 quarantines; 0.5–0.8 writes the source with `triage: review`.
 6. **Near-duplicate**: `same_content` ≥ 0.8 quarantines with `triage_reason: duplicate`; `new_version` ≥ 0.8 keeps the source and writes `supersedes`.
 7. **Write**, with `ingest_batch` and `ingest_query` provenance, then classify and link the new source in the same run.
@@ -341,7 +341,8 @@ kb writes plain keys, flat at the top level, so Obsidian, Dataview and Bases rea
 | Key | On | Shape | Written by |
 | --- | --- | --- | --- |
 | `triage` | source | `kept` \| `review` \| `quarantined` | gate |
-| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate`, `undecided` | gate |
+| `triage_reason` | source (not kept) | `off_topic`, `paywall`, `blocked`, `error_page`, `thin`, `not_an_article`, `no_speech`, `duplicate`, `undecided` | gate |
+| `fetched_via` | URL ingest source | `local` \| `firecrawl-cloud` \| `self-hosted` | ingest |
 | `genre` | source, article | `paper`, `article_or_essay`, `tutorial_or_guide`, `reference_docs`, `announcement_or_news`, `opinion_or_discussion`, `talk_or_interview`, `repository_or_code`, `dataset_or_benchmark`, `other` | classify |
 | `depth` | source | 0–3 (0 mention, 1 overview, 2 detailed, 3 primary), one decimal | classify |
 | `relevance` | source | `core` \| `adjacent` \| `collected_on_purpose` \| `general` \| `off_topic` \| `unknown` | classify |
@@ -502,6 +503,22 @@ Decision flags shared by every subcommand except `codebase`:
 | `instagram` | required | `--transcribe captions\|auto\|stt` (default: `auto`) |
 | `codebase` | required | `--vault`, `--output` (deprecated alias), `--title`, `--domain`, `--include`, `--exclude`, `--semantic`, `--progress`, `--log-format` |
 | `bookmarks` | required | -- |
+
+#### Firecrawl Local
+
+Start `firecrawl-local serve` to run the Firecrawl v2 API on loopback at port 3002. For local-first scraping with a single fresh cloud retry on flagged captures, add this to `kb.toml`.
+
+```toml
+[firecrawl]
+api_url = "http://localhost:3002"
+refetch_api_url = "https://api.firecrawl.dev"
+```
+
+Set `FIRECRAWL_REFETCH_API_KEY` for the cloud retry. It defaults to the primary Firecrawl key if one is configured. If the cloud retry has no key, `kb` reports that once and retries on the primary backend. Leaving `refetch_api_url` empty also uses the primary backend. The default Firecrawl Local listener accepts requests without a key.
+
+Use `FIRECRAWL_CLOUD=off firecrawl-local serve` if you want `kb` to control when requests go to the cloud. Firecrawl Local can return an error page with HTTP 400 or attach HTTP 404 to a complete article. Both trigger the quality gate, and a fresh cloud capture can recover either case. Warnings from flagged captures appear in the ingest log and any gate review evidence.
+
+URL ingest writes `fetched_via` for the saved body. `local` means Firecrawl Local reported a local capture or the response came from a loopback endpoint with no source field. `firecrawl-cloud` means the request used `api.firecrawl.dev` or the backend reported a cloud hand-off. `self-hosted` identifies other endpoints. A selected ingest refetch supplies the saved capture's provenance and title, and that title determines the filename. Accepting a recapture review item uses the same refetch configuration and updates `fetched_via` when the body is replaced in place.
 
 ### `kb classify`
 
@@ -784,8 +801,10 @@ The scanner:
 | Variable | Source | Description |
 | --- | --- | --- |
 | `APP_CONFIG` | env | Path to TOML config file |
-| `FIRECRAWL_API_KEY` | env / TOML | Firecrawl API key for `ingest url` |
-| `FIRECRAWL_API_URL` | env / TOML | Firecrawl API endpoint |
+| `FIRECRAWL_API_KEY` | env / TOML | Primary Firecrawl API key, required for Firecrawl Cloud |
+| `FIRECRAWL_API_URL` | env / TOML | Primary Firecrawl API endpoint |
+| `FIRECRAWL_REFETCH_API_KEY` | env / TOML | Refetch backend key, defaults to the primary key |
+| `FIRECRAWL_REFETCH_API_URL` | env / TOML | Optional backend for the ingest quality gate's fresh refetch |
 | `OPENAI_API_KEY` | env / TOML | OpenAI STT API key for the default `openai` provider |
 | `OPENAI_API_URL` | env / TOML | OpenAI-compatible STT API base URL |
 | `STT_PROVIDER` | env / TOML | STT provider: `openai` or `openrouter` |

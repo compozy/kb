@@ -56,14 +56,14 @@ func IsMergedListKey(key string) bool {
 	return key == "aliases" || slices.Contains(mergedListKeys, key)
 }
 
-// WriteResult reports what Apply or ApplyBody did.
+// WriteResult reports what the writer changed.
 type WriteResult struct {
-	// Written lists the keys whose value changed on disk, sorted.
+	// Written lists the owned keys whose value changed on disk, sorted.
 	Written []string
 	// SkippedUserKeys lists keys left alone because they belong to the user
 	// (present and not last written by kb), sorted.
 	SkippedUserKeys []string
-	// BodyWritten reports whether ApplyBody replaced the body.
+	// BodyWritten reports whether the body was replaced.
 	BodyWritten bool
 	// Status is StatusWritten, StatusUnchanged, StatusSkippedLocked or
 	// StatusSkippedChanged.
@@ -130,14 +130,25 @@ func (w *Writer) Apply(doc *Document, updates map[string]any, meta StateMeta) (W
 	return w.apply(doc, nil, updates, meta)
 }
 
-// ApplyBody is Apply plus a body replacement (link insertion, recapture).
+// ApplyBody is Apply plus a body replacement (link insertion).
 // The body is replaced only while the file's body hash still equals
 // doc.BodyHash; the same key rules apply to updates.
 func (w *Writer) ApplyBody(doc *Document, newBody string, updates map[string]any, meta StateMeta) (WriteResult, error) {
-	return w.apply(doc, &newBody, updates, meta)
+	return w.apply(doc, &bodyReplacement{text: newBody}, updates, meta)
 }
 
-func (w *Writer) apply(doc *Document, newBody *string, updates map[string]any, meta StateMeta) (WriteResult, error) {
+// ApplyCapture replaces the body and its fetched_via metadata together.
+// An empty fetchedVia clears the metadata. Owned key updates follow Apply's rules.
+func (w *Writer) ApplyCapture(doc *Document, newBody, fetchedVia string, updates map[string]any, meta StateMeta) (WriteResult, error) {
+	return w.apply(doc, &bodyReplacement{text: newBody, fetchedVia: new(fetchedVia)}, updates, meta)
+}
+
+type bodyReplacement struct {
+	text       string
+	fetchedVia *string
+}
+
+func (w *Writer) apply(doc *Document, replacement *bodyReplacement, updates map[string]any, meta StateMeta) (WriteResult, error) {
 	if doc == nil {
 		return WriteResult{}, errors.New("corpus: document is required")
 	}
@@ -160,7 +171,7 @@ func (w *Writer) apply(doc *Document, newBody *string, updates map[string]any, m
 	}
 
 	for range writeAttempts {
-		result, retry, err := w.attempt(doc, absolute, newBody, updates, meta)
+		result, retry, err := w.attempt(doc, absolute, replacement, updates, meta)
 		if err != nil || !retry {
 			return result, err
 		}
@@ -171,7 +182,7 @@ func (w *Writer) apply(doc *Document, newBody *string, updates map[string]any, m
 
 // attempt performs one read-plan-write cycle. retry is true when the file
 // changed between the read and the rename.
-func (w *Writer) attempt(doc *Document, absolute string, newBody *string, updates map[string]any, meta StateMeta) (WriteResult, bool, error) {
+func (w *Writer) attempt(doc *Document, absolute string, replacement *bodyReplacement, updates map[string]any, meta StateMeta) (WriteResult, bool, error) {
 	content, err := os.ReadFile(absolute)
 	if err != nil {
 		return WriteResult{}, false, fmt.Errorf("corpus: read %s: %w", doc.Path, err)
@@ -196,6 +207,14 @@ func (w *Writer) attempt(doc *Document, absolute string, newBody *string, update
 	row, _ := w.store.Lookup(doc.Path, doc.BodyHash, w.exists)
 	plan := planKeys(values, updates, row)
 	result := WriteResult{Written: plan.written, SkippedUserKeys: plan.skipped}
+	replaceBody := replacement != nil && replacement.text != body
+	if replaceBody && replacement.fetchedVia != nil {
+		const key = "fetched_via"
+		via := *replacement.fetchedVia
+		if current, present := values[key]; present != (via != "") || (present && current != via) {
+			plan.edits = append(plan.edits, frontmatter.KeyUpdate{Key: key, Value: via, Delete: via == ""})
+		}
+	}
 
 	edited := current
 	if len(plan.edits) > 0 {
@@ -204,8 +223,8 @@ func (w *Writer) attempt(doc *Document, absolute string, newBody *string, update
 			return WriteResult{}, false, fmt.Errorf("corpus: edit %s: %w", doc.Path, err)
 		}
 	}
-	if newBody != nil && *newBody != body {
-		edited = edited[:len(edited)-len(body)] + *newBody
+	if replaceBody {
+		edited = edited[:len(edited)-len(body)] + replacement.text
 		result.BodyWritten = true
 	}
 

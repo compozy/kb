@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -245,17 +246,64 @@ func TestScrapeDoesNotRetryOnClientErrors(t *testing.T) {
 func TestScrapeReturnsDescriptiveErrorWhenAPIKeyIsMissing(t *testing.T) {
 	t.Parallel()
 
-	client := NewClient(config.FirecrawlConfig{})
+	for _, endpoint := range []string{"", "https://API.FIRECRAWL.DEV:443/"} {
+		client := NewClient(config.FirecrawlConfig{APIURL: endpoint})
+		_, err := client.Scrape(t.Context(), "https://example.com/article")
+		if err == nil || !strings.Contains(err.Error(), "missing API key") || !strings.Contains(err.Error(), "FIRECRAWL_API_KEY") {
+			t.Errorf("Scrape with endpoint %q returned %v, want missing-key error with env guidance", endpoint, err)
+		}
+	}
+}
 
-	_, err := client.Scrape(context.Background(), "https://example.com/article")
-	if err == nil {
-		t.Fatal("expected error, got nil")
+func TestScrapeCaptureProvenance(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		host       string
+		key        string
+		source     string
+		warning    string
+		blocked    bool
+		fetchedVia string
+	}{
+		{name: "loopback", host: "localhost", fetchedVia: "local"},
+		{name: "cloud handoff", host: "127.0.0.1", source: "firecrawl-cloud", fetchedVia: "firecrawl-cloud"},
+		{name: "explicit local source", host: "firecrawl.internal", source: "local", fetchedVia: "local"},
+		{name: "blocked local", host: "[::1]", warning: "Browser unavailable", blocked: true, fetchedVia: "local"},
+		{name: "cloud API", host: "api.firecrawl.dev", key: "cloud-key", fetchedVia: "firecrawl-cloud"},
+		{name: "self-hosted API", host: "firecrawl.internal", fetchedVia: "self-hosted"},
 	}
-	if !strings.Contains(err.Error(), "missing API key") {
-		t.Fatalf("error = %q, want missing API key message", err.Error())
-	}
-	if !strings.Contains(err.Error(), "FIRECRAWL_API_KEY") {
-		t.Fatalf("error = %q, want env guidance", err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if auth, present := r.Header["Authorization"]; tt.key == "" && present {
+					t.Errorf("unexpected Authorization header: %v", auth)
+				} else if tt.key != "" && r.Header.Get("Authorization") != "Bearer "+tt.key {
+					t.Error("configured key was not sent")
+				}
+				if err := json.NewEncoder(w).Encode(scrapeResponse{Success: true, Data: scrapeResponseData{
+					Markdown: "captured body", Source: tt.source, Blocked: tt.blocked, Warning: tt.warning,
+				}}); err != nil {
+					t.Errorf("encode response: %v", err)
+				}
+			}))
+			defer server.Close()
+			client := NewClient(config.FirecrawlConfig{APIURL: "http://" + tt.host, APIKey: tt.key})
+			// Dial the test server while leaving the configured hostname in the HTTP request.
+			transport := &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+			}}
+			defer transport.CloseIdleConnections()
+			client.httpClient = &http.Client{Transport: transport}
+			result, err := client.Scrape(t.Context(), "https://example.com/article")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.FetchedVia != tt.fetchedVia || result.Source != tt.source || result.Blocked != tt.blocked || result.Warning != tt.warning {
+				t.Errorf("unexpected capture diagnostics: %+v", result)
+			}
+		})
 	}
 }
 

@@ -628,9 +628,22 @@ func TestResolveMarkdownValidationAndRegistryFailures(t *testing.T) {
 	t.Run("requires source path or markdown", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := resolveMarkdown(context.Background(), Options{SourceKind: models.SourceKindArticle})
+		_, _, err := resolveMarkdown(context.Background(), Options{SourceKind: models.SourceKindArticle}, true)
 		if err == nil || !strings.Contains(err.Error(), "source path or markdown content is required") {
 			t.Fatalf("error = %v, want missing input validation", err)
+		}
+	})
+
+	t.Run("blank blocked capture passes only when the gates judge it", func(t *testing.T) {
+		t.Parallel()
+
+		blocked := Options{SourceKind: models.SourceKindArticle, SourceURL: "https://example.com/a", Gate: GateOptions{Blocked: true}}
+		if _, _, err := resolveMarkdown(context.Background(), blocked, true); err != nil {
+			t.Fatalf("gated blank blocked capture: %v", err)
+		}
+		_, _, err := resolveMarkdown(context.Background(), blocked, false)
+		if err == nil || !strings.Contains(err.Error(), "source path or markdown content is required") {
+			t.Fatalf("ungated blank blocked capture error = %v, want missing input validation", err)
 		}
 	})
 
@@ -642,7 +655,7 @@ func TestResolveMarkdownValidationAndRegistryFailures(t *testing.T) {
 			SourceKind: models.SourceKindArticle,
 			SourcePath: sourcePath,
 			Registry:   &stubRegistry{},
-		})
+		}, true)
 		if err == nil || !strings.Contains(err.Error(), "converter returned nil result") {
 			t.Fatalf("error = %v, want nil result validation", err)
 		}
@@ -658,7 +671,7 @@ func TestResolveMarkdownValidationAndRegistryFailures(t *testing.T) {
 			Registry: &stubRegistry{
 				result: &models.ConvertResult{Title: "Empty", Markdown: " \n\t"},
 			},
-		})
+		}, true)
 		if err == nil || !strings.Contains(err.Error(), "markdown output is empty") {
 			t.Fatalf("error = %v, want empty markdown validation", err)
 		}
@@ -678,7 +691,7 @@ func TestResolveMarkdownValidationAndRegistryFailures(t *testing.T) {
 			SourcePath:     sourcePath,
 			Registry:       registry,
 			ConvertOptions: options,
-		})
+		}, true)
 		if err != nil {
 			t.Fatalf("resolveMarkdown returned error: %v", err)
 		}

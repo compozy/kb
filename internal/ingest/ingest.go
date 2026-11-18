@@ -61,6 +61,7 @@ type Options struct {
 	SourceKind       models.SourceKind
 	SourcePath       string
 	SourceURL        string
+	FetchedVia       string
 	Title            string
 	Markdown         string
 	ExtraFrontmatter map[string]any
@@ -114,7 +115,7 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 		return models.IngestResult{}, fmt.Errorf("ingest: %w", err)
 	}
 
-	title, markdown, err := resolveMarkdown(ctx, options)
+	title, markdown, err := resolveMarkdown(ctx, options, false)
 	if err != nil {
 		return models.IngestResult{}, fmt.Errorf("ingest: %w", err)
 	}
@@ -165,8 +166,12 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 	return result, nil
 }
 
-func resolveMarkdown(ctx context.Context, options Options) (string, string, error) {
-	if body := strings.TrimSpace(options.Markdown); body != "" {
+// resolveMarkdown returns the title and body to ingest. gated says the gates
+// will judge the capture: only then may a blank capture the fetcher reported
+// as blocked pass through, so the gate quarantines it with the blocked code.
+// Paths that write without the gates (sessionless ingest, --force) reject it.
+func resolveMarkdown(ctx context.Context, options Options, gated bool) (string, string, error) {
+	if strings.TrimSpace(options.Markdown) != "" || (gated && options.Gate.Blocked) {
 		title := deriveTitle(strings.TrimSpace(options.Title), options.SourcePath, options.SourceURL, options.SourceKind)
 		return title, options.Markdown, nil
 	}
@@ -230,6 +235,9 @@ func buildFrontmatter(
 	if sourceURL := strings.TrimSpace(options.SourceURL); sourceURL != "" {
 		values["source_url"] = sourceURL
 	}
+	if options.FetchedVia != "" {
+		values["fetched_via"] = options.FetchedVia
+	}
 	if sourcePath := normalizedSourcePath(options.SourcePath); sourcePath != "" {
 		values["source_path"] = sourcePath
 	}
@@ -271,6 +279,7 @@ func mergeExtraFrontmatter(values map[string]any, extra map[string]any) error {
 		"scraped":     {},
 		"tags":        {},
 		"source_url":  {},
+		"fetched_via": {},
 		"source_path": {},
 	}
 	for key, value := range extra {

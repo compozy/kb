@@ -23,11 +23,9 @@ type firecrawlScraper interface {
 	ScrapeWithOptions(ctx context.Context, sourceURL string, opts firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error)
 }
 
-var newFirecrawlScraper = func(cfg firecrawlConfig) firecrawlScraper {
+var newFirecrawlScraper = func(cfg kconfig.FirecrawlConfig) firecrawlScraper {
 	return firecrawl.NewClient(cfg)
 }
-
-type firecrawlConfig = kconfig.FirecrawlConfig
 
 // urlListEntry is one URL of a list, with its optional label.
 type urlListEntry struct {
@@ -115,28 +113,28 @@ func runIngestURLCommand(cmd *cobra.Command, args []string, topicSlug, batch, fr
 	if err != nil {
 		return err
 	}
-	scraper := newFirecrawlScraper(firecrawlConfig(cfg.Firecrawl))
+	scrapers := newURLScrapers(cmd, cfg.Firecrawl)
 	if rescue := strings.TrimSpace(flags.Rescue); rescue != "" {
-		return runIngestRescue(cmd, runner, target, rescueFetchers{cfg: cfg, scraper: scraper}, rescue)
+		return runIngestRescue(cmd, runner, target, rescueFetchers{cfg: cfg, scrapers: scrapers}, rescue)
 	}
 	if len(entries) == 1 && strings.TrimSpace(from) == "" {
-		return runSingleURL(cmd, runner, target, scraper, cfg, runBatch, entries[0].URL)
+		return runSingleURL(cmd, runner, target, scrapers, runBatch, entries[0].URL)
 	}
-	return runURLList(cmd, runner, target, scraper, cfg, runBatch, entries)
+	return runURLList(cmd, runner, target, scrapers, runBatch, entries)
 }
 
-func runSingleURL(cmd *cobra.Command, runner ingestRunner, target ingestTarget, scraper firecrawlScraper, cfg kconfig.Config, batch, sourceURL string) error {
+func runSingleURL(cmd *cobra.Command, runner ingestRunner, target ingestTarget, scrapers urlScrapers, batch, sourceURL string) error {
 	ctx := commandContext(cmd)
 	result, skipped, err := runner.Precheck(sourceURL, "", models.SourceKindArticle)
 	if err != nil {
 		return fmt.Errorf("ingest url: %w", err)
 	}
 	if !skipped {
-		scraped, err := scraper.Scrape(ctx, sourceURL)
+		scraped, err := scrapers.primary.Scrape(ctx, sourceURL)
 		if err != nil {
 			return fmt.Errorf("ingest url: %w", err)
 		}
-		result, err = ingestScraped(ctx, runner, target, scraper, cfg, sourceURL, scraped, kingest.Options{Batch: batch})
+		result, err = ingestScraped(ctx, runner, target, scrapers, sourceURL, scraped, kingest.Options{Batch: batch})
 		if err != nil {
 			return fmt.Errorf("ingest url: %w", err)
 		}
@@ -149,7 +147,7 @@ func runSingleURL(cmd *cobra.Command, runner ingestRunner, target ingestTarget, 
 
 // runURLList is the bulk path: stage 1 on every URL, stage 2 over the
 // rest (label as title, host as site), then fetch and ingest the survivors.
-func runURLList(cmd *cobra.Command, runner ingestRunner, target ingestTarget, scraper firecrawlScraper, cfg kconfig.Config, batch string, entries []urlListEntry) error {
+func runURLList(cmd *cobra.Command, runner ingestRunner, target ingestTarget, scrapers urlScrapers, batch string, entries []urlListEntry) error {
 	ctx := commandContext(cmd)
 	summary := urlListSummary{Topic: target.TopicInfo.Slug, Batch: batch, Results: []kingest.Result{}, Skipped: []urlListSkip{}, Failures: []urlListFailure{}}
 	items := make([]gate.Item, 0, len(entries))
@@ -183,7 +181,7 @@ func runURLList(cmd *cobra.Command, runner ingestRunner, target ingestTarget, sc
 			})
 			continue
 		}
-		scraped, err := scraper.Scrape(ctx, item.URL)
+		scraped, err := scrapers.primary.Scrape(ctx, item.URL)
 		if err != nil {
 			summary.Failures = append(summary.Failures, urlListFailure{URL: item.URL, Error: err.Error()})
 			continue
@@ -192,7 +190,7 @@ func runURLList(cmd *cobra.Command, runner ingestRunner, target ingestTarget, sc
 		if label := labels[item.URL]; label != "" {
 			options.Query = label
 		}
-		result, err := ingestScraped(ctx, runner, target, scraper, cfg, item.URL, scraped, options)
+		result, err := ingestScraped(ctx, runner, target, scrapers, item.URL, scraped, options)
 		if err != nil {
 			// Ingest errors are fatal (auth, cancellation, I/O): stop, but
 			// still classify, link and log what the run already wrote.

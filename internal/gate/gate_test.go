@@ -362,7 +362,7 @@ func newEvalEnvWith(t *testing.T, decide fakes.DecideFunc, flags session.Flags, 
 func (e *evalEnv) fetched(title, sourceURL, body string) Fetched {
 	return Fetched{
 		Title: title, Markdown: body,
-		Build: func(title, markdown string) (*corpus.Document, error) {
+		Build: func(title, markdown, _ string) (*corpus.Document, error) {
 			return &corpus.Document{
 				Path: "raw/articles/new.md", Title: title, Kind: corpus.KindSource, Body: markdown, BodyHash: corpus.BodyHash(markdown),
 				Frontmatter: map[string]any{"title": title, "source_url": sourceURL, "source_kind": "article"},

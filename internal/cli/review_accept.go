@@ -12,7 +12,6 @@ import (
 
 	"github.com/compozy/kb/internal/actions"
 	"github.com/compozy/kb/internal/decisions"
-	"github.com/compozy/kb/internal/firecrawl"
 	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/review"
@@ -149,18 +148,16 @@ func runReviewVerdict(cmd *cobra.Command, verdict string, options *reviewVerdict
 	}
 
 	ctx := commandContext(cmd)
-	scraper := newFirecrawlScraper(firecrawlConfig(s.Config.Firecrawl))
+	scrapers := newURLScrapers(cmd, s.Config.Firecrawl)
 	var runner *kingest.Run
 	target := ingestTarget{TopicInfo: s.Topic, VaultPath: s.VaultPath}
 	deps := actions.Deps{
-		Scrape: func(ctx context.Context, sourceURL string, opts firecrawl.ScrapeOptions) (*firecrawl.ScrapeResult, error) {
-			return scraper.ScrapeWithOptions(ctx, sourceURL, opts)
-		},
+		Refetch: scrapers.refetch,
 		Rescue: func(ctx context.Context, row gate.SkippedRow) (string, error) {
 			if runner == nil {
 				runner = kingest.NewRun(s, kingest.RunOptions{Command: "rescue", Batch: row.Batch, Query: row.Query})
 			}
-			result, err := rescueSkipped(ctx, runner, target, rescueFetchers{cfg: s.Config, scraper: scraper}, row)
+			result, err := rescueSkipped(ctx, runner, target, rescueFetchers{cfg: s.Config, scrapers: scrapers}, row)
 			if err != nil {
 				return "", err
 			}

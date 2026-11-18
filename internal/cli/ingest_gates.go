@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -80,12 +81,28 @@ func writeIngestSummary(w io.Writer, s *session.Session, summary kingest.Summary
 	}
 }
 
-// scrapeRefetch returns the stage-4 refetch of a URL: one fresh scrape with
-// the configured freshness options.
-func scrapeRefetch(scraper firecrawlScraper, cfg kconfig.FirecrawlConfig, sourceURL string) func(context.Context) (*firecrawl.ScrapeResult, error) {
-	return func(ctx context.Context) (*firecrawl.ScrapeResult, error) {
-		return scraper.ScrapeWithOptions(ctx, sourceURL, firecrawl.RefetchOptions(cfg))
+type urlScrapers struct {
+	primary firecrawlScraper
+	refetch func(context.Context, string) (*firecrawl.ScrapeResult, error)
+}
+
+func newURLScrapers(cmd *cobra.Command, cfg kconfig.FirecrawlConfig) urlScrapers {
+	primary := newFirecrawlScraper(cfg)
+	refetch := primary
+	var warn func()
+	if client, err := firecrawl.NewRefetchClient(cfg); err != nil {
+		warn = sync.OnceFunc(func() {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "firecrawl refetch: %v; using the primary backend\n", err)
+		})
+	} else if client != nil {
+		refetch = client
 	}
+	return urlScrapers{primary: primary, refetch: func(ctx context.Context, sourceURL string) (*firecrawl.ScrapeResult, error) {
+		if warn != nil {
+			warn()
+		}
+		return refetch.ScrapeWithOptions(ctx, sourceURL, firecrawl.RefetchOptions(cfg))
+	}}
 }
 
 // ingestScraped ingests one scraped web page through the run.
@@ -93,8 +110,7 @@ func ingestScraped(
 	ctx context.Context,
 	runner ingestRunner,
 	target ingestTarget,
-	scraper firecrawlScraper,
-	cfg kconfig.Config,
+	scrapers urlScrapers,
 	requested string,
 	scraped *firecrawl.ScrapeResult,
 	options kingest.Options,
@@ -107,20 +123,25 @@ func ingestScraped(
 	options.Topic = target.TopicInfo.Slug
 	options.SourceKind = models.SourceKindArticle
 	options.SourceURL = sourceURL
+	options.FetchedVia = scraped.FetchedVia
 	options.Title = scraped.Title
 	options.Markdown = scraped.Markdown
 	options.Gate.RequestedURL = requested
 	options.Gate.FinalURL = scraped.FinalURL
 	options.Gate.StatusCode = scraped.StatusCode
 	options.Gate.SiteName = scraped.SiteName
-	options.Gate.Refetch = scrapeRefetch(scraper, cfg.Firecrawl, requested)
+	options.Gate.Blocked = scraped.Blocked
+	options.Gate.Warning = scraped.Warning
+	options.Gate.Refetch = func(ctx context.Context) (*firecrawl.ScrapeResult, error) {
+		return scrapers.refetch(ctx, requested)
+	}
 	return runner.Ingest(ctx, options)
 }
 
 // rescueFetchers are the extractors a rescue may need.
 type rescueFetchers struct {
-	cfg     kconfig.Config
-	scraper firecrawlScraper
+	cfg      kconfig.Config
+	scrapers urlScrapers
 }
 
 // rescueSkipped fetches and ingests one skipped item, bypassing only the
@@ -139,9 +160,9 @@ func rescueSkipped(ctx context.Context, runner ingestRunner, target ingestTarget
 		result, err = rescueInstagram(ctx, runner, fetchers.cfg, row, options)
 	default:
 		var scraped *firecrawl.ScrapeResult
-		scraped, err = fetchers.scraper.Scrape(ctx, row.URL)
+		scraped, err = fetchers.scrapers.primary.Scrape(ctx, row.URL)
 		if err == nil {
-			result, err = ingestScraped(ctx, runner, target, fetchers.scraper, fetchers.cfg, row.URL, scraped, options)
+			result, err = ingestScraped(ctx, runner, target, fetchers.scrapers, row.URL, scraped, options)
 		}
 	}
 	if err != nil {

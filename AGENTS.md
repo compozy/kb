@@ -44,7 +44,7 @@ make help                # mage target list
 | `internal/topic` | Topic scaffolding, listing, and topic metadata lookup |
 | `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
 | `internal/convert` | Converter registry and format-specific file converters |
-| `internal/firecrawl` | Firecrawl REST client for `kb ingest url`, including the fresh-refetch options (`maxAge`, `waitFor`, `onlyMainContent`) |
+| `internal/firecrawl` | Firecrawl REST client for `kb ingest url`, including capture provenance, blocked diagnostics, and optional separate routing for fresh refetches |
 | `internal/mediadl` | Shared `yt-dlp` + STT engine reused by `youtube` and `instagram` |
 | `internal/youtube` | YouTube URL parsing, channel/bulk ingestion, and frontmatter over the `mediadl` core |
 | `internal/instagram` | Instagram reel/video URL parsing and caption+transcript composition over the `mediadl` core |
@@ -72,7 +72,7 @@ make help                # mage target list
 | `internal/session` | Per-run bundle for decision-backed commands: config, topic, settings, contract, engine, generation client, lazy corpus, state store, writer, review store, decision modes; fails fast without `OPENROUTER_API_KEY` |
 | `internal/scope` | `kb topic contract` workflow: draft, `CLAUDE.md` import, self-check, impact preview, activation |
 | `internal/classify` | Classification facets, generated literals (summary, entities, questions, criterion, aliases), the shared gate judgment, `recapture`/`remove` queues, concept proposals, vocabulary draft/accept |
-| `internal/quality` | Code quality checks run before any quality question (`not_an_article`, `thin`, `error_page`) |
+| `internal/quality` | Code quality checks run before any quality question (`blocked`, `not_an_article`, `thin`, `error_page`) |
 | `internal/gate` | Ingest gates: exact dedupe, pre-fetch relevance, code quality, refetch, post-fetch quality and relevance, near-duplicate, quarantine |
 | `internal/link` | Link candidates, per-document judgment, write policy (frontmatter relations, body links), reverse pass |
 | `internal/find` | Retrieval judge (candidates, judgment, ranking with named exclusions) and facet counts |
@@ -150,6 +150,7 @@ make help                # mage target list
 - `APP_CONFIG` overrides the config file path.
 - `.env` is loaded automatically when present.
 - `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL` configure the Firecrawl client for `ingest url`.
+- `FIRECRAWL_REFETCH_API_URL` and `FIRECRAWL_REFETCH_API_KEY` configure the optional stage-4 backend. The key falls back to the primary key. Firecrawl Cloud requires a key.
 - `[okf].types` configures the optional OKF type vocabulary used by `promote` and `okf check`; `[okf.type_descriptions]` gives the option text per type for decision-model type suggestions.
 - `OPENROUTER_API_KEY` (or `[openrouter].api_key`) is **required** by every decision-backed command; `OPENROUTER_API_URL` / `[openrouter].api_url` is shared by STT, decisions, and generation.
 - `[decisions]` configures the decision model: `model` (default `typesafe/jev-1.14`, env `KB_DECISIONS_MODEL`), `deadline`, `retries`, `concurrency`, `max_state_bytes`, `budget_usd` (per-run ceiling shared with generation; `--budget` overrides), and `mode` (default body-link insertion mode, `shadow`).

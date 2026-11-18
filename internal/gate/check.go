@@ -21,9 +21,13 @@ type Fetched struct {
 	Title    string
 	Markdown string
 	// Build returns the would-be document (path, frontmatter with
-	// provenance, body) for a title and body. The gate calls it again after
+	// provenance, body) for a capture. The gate calls it again after
 	// a refetch, so the judged document is always the one that is written.
-	Build func(title, markdown string) (*corpus.Document, error)
+	Build func(title, markdown, fetchedVia string) (*corpus.Document, error)
+	// FetchedVia, Blocked and Warning describe the first capture.
+	FetchedVia string
+	Blocked    bool
+	Warning    string
 	// RequestedURL, FinalURL, StatusCode and SiteName are what the fetcher
 	// reported (SiteName feeds the "title equals the site name" rule).
 	RequestedURL string
@@ -140,7 +144,7 @@ func (c *Checker) Register(doc *corpus.Document, quarantined bool) {
 // code flag that survives the refetch quarantines without any decision call
 // (in apply mode). The error is fatal only (auth, cancellation, I/O).
 func (c *Checker) Evaluate(ctx context.Context, in Fetched) (Outcome, *corpus.Document, error) {
-	doc, err := in.Build(in.Title, in.Markdown)
+	doc, err := in.Build(in.Title, in.Markdown, in.FetchedVia)
 	if err != nil {
 		return Outcome{}, nil, err
 	}
@@ -160,18 +164,18 @@ func (c *Checker) Evaluate(ctx context.Context, in Fetched) (Outcome, *corpus.Do
 		return skip, doc, nil
 	}
 
-	fetch := fetchInfo{requested: in.RequestedURL, final: in.FinalURL, status: in.StatusCode, site: in.SiteName}
+	fetch := fetchInfo{requested: in.RequestedURL, final: in.FinalURL, status: in.StatusCode, site: in.SiteName, blocked: in.Blocked}
 	flags := c.flags(doc, fetch, in.Transcript)
+	out.recordFetchWarning("capture", in.Warning, flags)
 	if NeedsRefetch(flags, c.words(doc), in.Refetch != nil) {
-		refetched, info, ok := c.refetch(ctx, in, doc, &out)
-		if ok {
-			doc, fetch, out.Refetched = refetched, info, true
+		if refetched, freshFlags := c.refetch(ctx, in, doc, flags, &out); refetched != nil {
+			doc, flags, out.Refetched = refetched, freshFlags, true
 			if skip, dup := c.dedupe(Ref{BodyHash: doc.BodyHash}, &out); dup {
 				skip.Refetched = true
+				skip.fetchWarnings = out.fetchWarnings
 				return skip, doc, nil
 			}
 		}
-		flags = c.flags(doc, fetch, in.Transcript)
 	}
 	out.Flags = flags
 
@@ -308,6 +312,7 @@ func (o *Outcome) mergeRelevance(j classify.GateJudgment, quarantine, reviewAt f
 type fetchInfo struct {
 	requested, final, site string
 	status                 int
+	blocked                bool
 }
 
 func (c *Checker) flags(doc *corpus.Document, fetch fetchInfo, transcript bool) []quality.Flag {
@@ -319,6 +324,7 @@ func (c *Checker) flags(doc *corpus.Document, fetch fetchInfo, transcript bool) 
 		FinalURL:     fetch.final,
 		RequestedURL: fetch.requested,
 		StatusCode:   fetch.status,
+		Blocked:      fetch.blocked,
 		SiteName:     fetch.site,
 		HostLines:    c.hostLines[host],
 		SkipThin:     !webCapture(doc, transcript),
@@ -330,12 +336,9 @@ func (c *Checker) words(doc *corpus.Document) int {
 	return quality.ContentWords(doc.Body, c.hostLines[host])
 }
 
-// refetch runs the one stage-4 scrape and returns the refetched document
-// when its body is longer than the current one. The refetched document
-// carries the title the refetch reported (the first capture's title only
-// when the refetch has none), so the quality checks judge the title and the
-// body of the same fetch.
-func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document, out *Outcome) (*corpus.Document, fetchInfo, bool) {
+// refetch runs the one stage-4 scrape. A clean capture wins over a flagged
+// one; when both have the same quality status, the longer body wins.
+func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document, flags []quality.Flag, out *Outcome) (*corpus.Document, []quality.Flag) {
 	result, err := in.Refetch(ctx)
 	if err != nil || result == nil {
 		reason := "empty result"
@@ -343,17 +346,29 @@ func (c *Checker) refetch(ctx context.Context, in Fetched, doc *corpus.Document,
 			reason = err.Error()
 		}
 		out.Undecided = append(out.Undecided, "refetch:"+reason)
-		return nil, fetchInfo{}, false
+		return nil, nil
 	}
-	if len(strings.TrimSpace(result.Markdown)) <= len(strings.TrimSpace(doc.Body)) {
-		return nil, fetchInfo{}, false
-	}
-	refetched, err := in.Build(firstNonEmpty(result.Title, in.Title), result.Markdown)
+	refetched, err := in.Build(firstNonEmpty(result.Title, in.Title), result.Markdown, result.FetchedVia)
 	if err != nil {
 		out.Undecided = append(out.Undecided, "refetch:"+err.Error())
-		return nil, fetchInfo{}, false
+		return nil, nil
 	}
-	return refetched, fetchInfo{requested: in.RequestedURL, final: result.FinalURL, status: result.StatusCode, site: firstNonEmpty(result.SiteName, in.SiteName)}, true
+	fetch := fetchInfo{
+		requested: in.RequestedURL, final: result.FinalURL, status: result.StatusCode,
+		site: firstNonEmpty(result.SiteName, in.SiteName), blocked: result.Blocked,
+	}
+	freshFlags := c.flags(refetched, fetch, in.Transcript)
+	out.recordFetchWarning("refetch", result.Warning, freshFlags)
+	if (len(freshFlags) == 0) != (len(flags) == 0) {
+		if len(freshFlags) == 0 {
+			return refetched, freshFlags
+		}
+		return nil, nil
+	}
+	if len(strings.TrimSpace(refetched.Body)) > len(strings.TrimSpace(doc.Body)) {
+		return refetched, freshFlags
+	}
+	return nil, nil
 }
 
 // webCapture reports whether the thin rule applies: an http(s) capture that

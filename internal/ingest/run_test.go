@@ -120,6 +120,15 @@ func TestRunForceSkipsGates(t *testing.T) {
 			t.Fatalf("forced result = %+v, %v", result, err)
 		}
 	}
+	if _, err := run.Ingest(context.Background(), Options{
+		SourceKind: models.SourceKindArticle, SourceURL: "https://example.com/blocked", Title: "Blocked",
+		Gate: GateOptions{Blocked: true},
+	}); err == nil || !strings.Contains(err.Error(), "source path or markdown content is required") {
+		t.Fatalf("forced blank blocked capture error = %v, want rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Root(), "raw", "articles", "blocked.md")); !os.IsNotExist(err) {
+		t.Fatalf("forced blank blocked capture was written: %v", err)
+	}
 	if lines := ModeLines(s, true); len(lines) != 1 || !strings.Contains(lines[0], "--force") {
 		t.Fatalf("mode lines = %v", lines)
 	}
