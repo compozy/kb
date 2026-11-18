@@ -12,7 +12,7 @@ var (
 	atxHeadingPattern      = regexp.MustCompile(`^ {0,3}#{1,6}(?:\s|$)`)
 )
 
-// truncatedMarker ends a head section that alone exceeds the excerpt budget.
+// truncatedMarker ends a section cut to fit the excerpt budget.
 const truncatedMarker = "[... truncated ...]"
 
 // EstimateTokens estimates the token count of text as runes/4, rounded up.
@@ -28,9 +28,11 @@ func EstimateTokens(text string) int {
 // kept in document order by priority: the head (the text before the first
 // heading plus the first section), then every section containing one of terms
 // (case-insensitive), then the remaining sections, while the budget allows.
-// Each run of omitted sections is replaced by `[... N sections omitted ...]`;
-// a head section larger than the whole budget is cut and ends with
-// `[... truncated ...]`. The tail is never dropped without a marker.
+// A head section larger than the whole budget is cut. After whole sections
+// are chosen, any remaining room for body text goes to one oversized section,
+// preferring a term match and breaking ties in document order. A cut section
+// ends with `[... truncated ...]`. Each run of omitted sections is replaced
+// by `[... N sections omitted ...]`. The tail is never dropped without a marker.
 func Excerpt(body string, maxTokens int, terms []string) string {
 	if maxTokens <= 0 || EstimateTokens(body) <= maxTokens {
 		return body
@@ -80,6 +82,14 @@ func Excerpt(body string, maxTokens int, terms []string) string {
 		}
 	}
 
+	// Leave room for the truncation marker and a possible omission marker.
+	if budget > markerReserve*2 {
+		if index, prefix := partialSection(sections, keep, (budget-markerReserve*2)*4, loweredTerms); index >= 0 {
+			texts[index] = prefix + "\n" + truncatedMarker + "\n"
+			keep[index] = true
+		}
+	}
+
 	var builder strings.Builder
 	omitted := 0
 	flush := func() {
@@ -106,6 +116,30 @@ func Excerpt(body string, maxTokens int, terms []string) string {
 	flush()
 
 	return builder.String()
+}
+
+// partialSection picks an omitted section with room to show text below its
+// heading. A matching section wins over an earlier nonmatching section.
+func partialSection(sections []string, keep []bool, maxRunes int, terms []string) (int, string) {
+	first := -1
+	var firstPrefix string
+	for index, section := range sections {
+		if keep[index] {
+			continue
+		}
+		prefix := truncateRunes(section, maxRunes)
+		_, content, _ := strings.Cut(prefix, "\n")
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+		if len(terms) == 0 || sectionMatches(section, terms) {
+			return index, prefix
+		}
+		if first == -1 {
+			first, firstPrefix = index, prefix
+		}
+	}
+	return first, firstPrefix
 }
 
 // markerReserve is the token allowance kept per section for an omission
