@@ -222,7 +222,8 @@ func (r *Run) Ingest(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("ingest: %w", err)
 	}
-	title, markdown, err := resolveMarkdown(ctx, options)
+	force := r.opts.Force || options.Gate.Force
+	title, markdown, err := resolveMarkdown(ctx, options, !force)
 	if err != nil {
 		return Result{}, fmt.Errorf("ingest: %w", err)
 	}
@@ -232,7 +233,6 @@ func (r *Run) Ingest(ctx context.Context, options Options) (Result, error) {
 	}
 	options.Batch = firstNonEmpty(strings.TrimSpace(options.Batch), r.opts.Batch)
 	options.Query = firstNonEmpty(strings.TrimSpace(options.Query), r.opts.Query)
-	force := r.opts.Force || options.Gate.Force
 
 	checker, err := r.gates()
 	if err != nil {
