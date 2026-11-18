@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## 0.0.13 - 2026-11-18
+
+
+### 🎉 Features
+- *(ingest)* Support firecrawl-local with a cloud refetch backend ([#35](https://github.com/compozy/kb/issues/35))
+
+
+
+### 🐛 Bug Fixes
+- *(ingest)* Keep a truncated oversized section in gate excerpts ([#36](https://github.com/compozy/kb/issues/36))
+
 ## 0.0.12 - 2026-10-17
 
 
@@ -36,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📦 Build System
 - *(repo)* Update Go dependencies and align Go 1.26 tooling
 - Release v0.0.12 ([#33](https://github.com/compozy/kb/issues/33))
+
+
+
+### 🔧 CI/CD
+- *(release)* Release v0.0.12 ([#34](https://github.com/compozy/kb/issues/34))
 
 ## 0.0.11 - 2026-09-24
 
@@ -256,6 +272,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Miscellaneous Tasks
 - Initial project setup from go-devstack scaffold
 
+[0.0.13]: https://github.com/compozy/kb/compare/v0.0.12...v0.0.13
 [0.0.12]: https://github.com/compozy/kb/compare/v0.0.11...v0.0.12
 [0.0.11]: https://github.com/compozy/kb/compare/v0.0.10...v0.0.11
 [0.0.10]: https://github.com/compozy/kb/compare/v0.0.9...v0.0.10
