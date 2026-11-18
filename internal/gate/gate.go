@@ -63,7 +63,7 @@ const (
 type Outcome struct {
 	// Triage is kept, review, quarantined, skipped or duplicate-skipped.
 	Triage string `json:"triage"`
-	// Reason is the triage_reason (off_topic, thin, error_page, paywall,
+	// Reason is the triage_reason (off_topic, thin, error_page, blocked, paywall,
 	// not_an_article, no_speech, duplicate); empty when kept.
 	Reason string `json:"triage_reason,omitempty"`
 	// Stage is the stage that set Triage.
@@ -98,6 +98,23 @@ type Outcome struct {
 	Excluded bool `json:"excluded,omitempty"`
 	// Evidence is one human-readable line for review items and logs.
 	Evidence string `json:"evidence,omitempty"`
+
+	fetchWarnings []string
+}
+
+func (o *Outcome) recordFetchWarning(stage, warning string, flags []quality.Flag) {
+	if len(flags) > 0 && warning != "" {
+		warning = strings.Join(strings.Fields(decisions.RedactString(warning)), " ")
+		o.fetchWarnings = append(o.fetchWarnings, fmt.Sprintf("%s warning (%s): %s", stage, flags[0].Code, warning))
+	}
+}
+
+// EvidenceLine combines the verdict evidence with warnings from flagged captures.
+func (o Outcome) EvidenceLine() string {
+	if o.Evidence == "" {
+		return strings.Join(o.fetchWarnings, "; ")
+	}
+	return strings.Join(append([]string{o.Evidence}, o.fetchWarnings...), "; ")
 }
 
 // Kept reports whether the source is written to raw/ (kept or review).
@@ -186,8 +203,8 @@ func ReviewItem(o Outcome, path, title string) (review.Item, bool) {
 		action["duplicate_of"] = o.DuplicateOf
 	}
 	evidence := strings.TrimSpace(title + " — " + o.Triage + ":" + reason)
-	if o.Evidence != "" {
-		evidence += " (" + o.Evidence + ")"
+	if details := o.EvidenceLine(); details != "" {
+		evidence += " (" + details + ")"
 	}
 	return review.Item{
 		Queue: review.QueueGate, Purpose: string(purpose), Subject: path, Question: question,

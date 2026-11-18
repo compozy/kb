@@ -26,6 +26,12 @@ const (
 	// EnvFirecrawlAPIURL stores the Firecrawl API URL override.
 	EnvFirecrawlAPIURL = "FIRECRAWL_API_URL"
 
+	// EnvFirecrawlRefetchAPIKey overrides the Firecrawl refetch API key.
+	EnvFirecrawlRefetchAPIKey = "FIRECRAWL_REFETCH_API_KEY"
+
+	// EnvFirecrawlRefetchAPIURL overrides the Firecrawl refetch endpoint.
+	EnvFirecrawlRefetchAPIURL = "FIRECRAWL_REFETCH_API_URL"
+
 	// EnvOpenRouterAPIKey stores the OpenRouter API key override.
 	EnvOpenRouterAPIKey = "OPENROUTER_API_KEY"
 
@@ -78,6 +84,12 @@ func ApplyEnvOverrides(cfg *Config) {
 	}
 	if value, ok := os.LookupEnv(EnvFirecrawlAPIURL); ok && value != "" {
 		cfg.Firecrawl.APIURL = value
+	}
+	if value := os.Getenv(EnvFirecrawlRefetchAPIKey); strings.TrimSpace(value) != "" {
+		cfg.Firecrawl.RefetchAPIKey = value
+	}
+	if value := os.Getenv(EnvFirecrawlRefetchAPIURL); strings.TrimSpace(value) != "" {
+		cfg.Firecrawl.RefetchAPIURL = value
 	}
 	if value, ok := os.LookupEnv(EnvOpenRouterAPIKey); ok && value != "" {
 		cfg.OpenRouter.APIKey = value

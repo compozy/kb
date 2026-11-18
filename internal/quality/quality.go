@@ -16,6 +16,7 @@ import (
 
 // Flag codes (the `quality` / `triage_reason` values they map to).
 const (
+	Blocked      = "blocked"
 	NotAnArticle = "not_an_article"
 	Thin         = "thin"
 	ErrorPage    = "error_page"
@@ -31,7 +32,7 @@ const HostRepeatThreshold = 3
 
 // Flag is one code quality finding.
 type Flag struct {
-	// Code is NotAnArticle, Thin or ErrorPage.
+	// Code is Blocked, NotAnArticle, Thin or ErrorPage.
 	Code string `json:"code"`
 	// Detail says which rule fired, for run summaries and review evidence.
 	Detail string `json:"detail"`
@@ -51,6 +52,8 @@ type Input struct {
 	RequestedURL string
 	// StatusCode is the HTTP status reported by the fetcher (0 = unknown).
 	StatusCode int
+	// Blocked means the fetcher could not get the page.
+	Blocked bool
 	// SiteName is the site name reported by the fetcher; when empty it is
 	// derived from the host (first label without `www.`).
 	SiteName string
@@ -66,10 +69,13 @@ type Input struct {
 var errorTitlePattern = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}])(404|page not found|not found|access denied)([^\p{L}\p{N}]|$)`)
 
 // Check runs every code check and returns the flags that fired, in the fixed
-// order not_an_article, error_page, thin (the first one is the reason code
+// order blocked, not_an_article, error_page, thin (the first one is the reason code
 // writes).
 func Check(in Input) []Flag {
 	var flags []Flag
+	if in.Blocked {
+		flags = append(flags, Flag{Code: Blocked, Detail: "fetcher reported that the page was blocked"})
+	}
 	if detail := notAnArticle(in); detail != "" {
 		flags = append(flags, Flag{Code: NotAnArticle, Detail: detail})
 	}

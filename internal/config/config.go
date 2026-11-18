@@ -146,6 +146,10 @@ func (c OKFConfig) TypeDescription(name string) string {
 type FirecrawlConfig struct {
 	APIKey string `toml:"api_key"`
 	APIURL string `toml:"api_url"`
+	// RefetchAPIURL overrides the primary endpoint for the stage-4 scrape.
+	RefetchAPIURL string `toml:"refetch_api_url"`
+	// RefetchAPIKey defaults to APIKey when the refetch endpoint is set.
+	RefetchAPIKey string `toml:"refetch_api_key"`
 	// RefetchWaitMS is the `waitFor` sent on the fresh refetch that runs before
 	// a quality gate judges a thin or broken capture (spec §7 stage 4).
 	RefetchWaitMS int `toml:"refetch_wait_ms"`

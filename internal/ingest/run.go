@@ -44,6 +44,9 @@ type GateOptions struct {
 	// SiteName is the site name the fetcher reported (Firecrawl
 	// ogSiteName), for the "title equals the site name" quality rule.
 	SiteName string
+	// Blocked and Warning are the Firecrawl Local capture diagnostics.
+	Blocked bool
+	Warning string
 	// PlatformID is the `youtube:<id>` / `instagram:<shortcode>` identity.
 	PlatformID string
 	// Prefetch is the stage-2 verdict of a bulk item (nil for single
@@ -241,18 +244,13 @@ func (r *Run) Ingest(ctx context.Context, options Options) (Result, error) {
 		}
 	}
 
-	slug, err := uniqueGatedSlug(topicInfo.RootPath, sourceDirectory, vault.SlugifySegment(title))
-	if err != nil {
-		return Result{}, fmt.Errorf("ingest: allocate slug: %w", err)
-	}
-	rel := path.Join("raw", sourceDirectory, slug+".md")
-	built := &builder{topicInfo: topicInfo, options: options, rel: rel, now: now}
+	built := &builder{topicInfo: topicInfo, options: options, sourceDirectory: sourceDirectory, now: now}
 
 	var out gate.Outcome
 	var doc *corpus.Document
 	if force {
 		out = gate.Outcome{Triage: gate.TriageKept, Stage: "force"}
-		doc, err = built.build(title, markdown)
+		doc, err = built.build(title, markdown, options.FetchedVia)
 	} else {
 		out, doc, err = checker.Evaluate(ctx, fetched(options, built, title, markdown))
 	}
@@ -269,6 +267,7 @@ func (r *Run) Ingest(ctx context.Context, options Options) (Result, error) {
 func fetched(options Options, built *builder, title, markdown string) gate.Fetched {
 	in := gate.Fetched{
 		Title: title, Markdown: markdown, Build: built.build,
+		FetchedVia: options.FetchedVia, Blocked: options.Gate.Blocked, Warning: options.Gate.Warning,
 		RequestedURL: options.Gate.RequestedURL, FinalURL: options.Gate.FinalURL, StatusCode: options.Gate.StatusCode,
 		SiteName: options.Gate.SiteName,
 		Refetch:  options.Gate.Refetch, PlatformID: options.Gate.PlatformID,
@@ -287,15 +286,15 @@ func fetched(options Options, built *builder, title, markdown string) gate.Fetch
 func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, out gate.Outcome) (Result, error) {
 	s := r.s
 	root := s.Root()
-	base, err := built.values(doc.Title, built.markdown, false)
+	base, err := built.values(doc.Title, doc.Body, frontmatter.GetString(doc.Frontmatter, "fetched_via"), false)
 	if err != nil {
 		return Result{}, fmt.Errorf("ingest: %w", err)
 	}
-	content, err := frontmatter.Generate(base, built.markdown)
+	content, err := frontmatter.Generate(base, doc.Body)
 	if err != nil {
 		return Result{}, fmt.Errorf("ingest: generate frontmatter: %w", err)
 	}
-	absolute := filepath.Join(root, filepath.FromSlash(built.rel))
+	absolute := doc.AbsPath
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 		return Result{}, fmt.Errorf("ingest: create target directory: %w", err)
 	}
@@ -303,7 +302,7 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 		return Result{}, fmt.Errorf("ingest: write %q: %w", absolute, err)
 	}
 
-	stored, err := corpus.ReadDocument(root, built.rel, corpus.KindSource)
+	stored, err := corpus.ReadDocument(root, doc.Path, corpus.KindSource)
 	if err != nil {
 		return Result{}, fmt.Errorf("ingest: %w", err)
 	}
@@ -330,15 +329,15 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 		return Result{}, fmt.Errorf("ingest: write owned keys: %w", err)
 	}
 
-	finalRel := built.rel
+	finalRel := doc.Path
 	quarantined := out.Triage == gate.TriageQuarantined
 	if quarantined {
 		moved, err := refs.Quarantine(ctx, refs.Options{
-			VaultPath: s.VaultPath, TopicRoot: root, Path: built.rel, Reason: out.Reason,
+			VaultPath: s.VaultPath, TopicRoot: root, Path: doc.Path, Reason: out.Reason,
 			Writer: s.Writer, State: s.State, Now: s.Now,
 		})
 		if err != nil {
-			return Result{}, fmt.Errorf("ingest: quarantine %s: %w", built.rel, err)
+			return Result{}, fmt.Errorf("ingest: quarantine %s: %w", doc.Path, err)
 		}
 		finalRel = moved.NewPath
 	}
@@ -355,7 +354,7 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 	if out.Excluded {
 		result.Note = gate.ExcludedNote
 	}
-	if item, ok := gate.ReviewItem(out, built.rel, doc.Title); ok {
+	if item, ok := gate.ReviewItem(out, doc.Path, doc.Title); ok {
 		item.ID = review.ItemID(item.Queue, item.Subject, item.Target, item.Question)
 		if _, err := r.queue.Add(item); err != nil {
 			return result, fmt.Errorf("ingest: review queue: %w", err)
@@ -369,12 +368,12 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 	if !quarantined && !out.Excluded {
 		// Excluded sources stay out of every call, so they are not
 		// classified or linked either.
-		r.written = append(r.written, built.rel)
+		r.written = append(r.written, doc.Path)
 	}
 	r.tally.Add(out)
 	details := make([]string, 0, len(out.Shadow)+1)
-	if out.Evidence != "" {
-		details = append(details, out.Evidence)
+	if evidence := out.EvidenceLine(); evidence != "" {
+		details = append(details, evidence)
 	}
 	details = append(details, out.Shadow...)
 	r.entries = append(r.entries, logEntry{
@@ -386,7 +385,7 @@ func (r *Run) write(ctx context.Context, built *builder, doc *corpus.Document, o
 // recordSkip counts and logs a source that is not written.
 func (r *Run) recordSkip(out gate.Outcome, title string, kind models.SourceKind) Result {
 	r.tally.Add(out)
-	r.entries = append(r.entries, logEntry{triage: out.Triage, reason: out.Reason, title: title, detail: out.Evidence})
+	r.entries = append(r.entries, logEntry{triage: out.Triage, reason: out.Reason, title: title, detail: out.EvidenceLine()})
 	return Result{
 		IngestResult: models.IngestResult{Topic: r.s.Topic.Slug, SourceType: kind, Title: title},
 		Triage:       out.Triage, TriageReason: out.Reason, DuplicateOf: out.DuplicateOf, Shadow: out.Shadow,
@@ -541,29 +540,32 @@ func appendRunLogEntry(logPath string, when time.Time, opts RunOptions, summary 
 // builder assembles the would-be document of one source for the gates and
 // the final write.
 type builder struct {
-	topicInfo models.TopicInfo
-	options   Options
-	rel       string
-	now       time.Time
-	// markdown is the body of the last built document (the refetched body
-	// when stage 4 kept it).
-	markdown string
+	topicInfo       models.TopicInfo
+	options         Options
+	sourceDirectory string
+	now             time.Time
 }
 
 // values returns the frontmatter of the source; withOwned adds the
 // provenance keys (ingest_batch, ingest_query), which the final write adds
 // through the owned-key writer instead.
-func (b *builder) values(title, markdown string, withOwned bool) (map[string]any, error) {
+func (b *builder) values(title, markdown, fetchedVia string, withOwned bool) (map[string]any, error) {
 	options := b.options
+	options.FetchedVia = fetchedVia
 	if !withOwned {
 		options.Batch, options.Query = "", ""
 	}
 	return buildFrontmatter(b.topicInfo, options, title, markdown, b.now)
 }
 
-// build returns the would-be document at the allocated path.
-func (b *builder) build(title, markdown string) (*corpus.Document, error) {
-	values, err := b.values(title, markdown, true)
+// build returns the would-be document at a path allocated for this capture's title.
+func (b *builder) build(title, markdown, fetchedVia string) (*corpus.Document, error) {
+	slug, err := uniqueGatedSlug(b.topicInfo.RootPath, b.sourceDirectory, vault.SlugifySegment(title))
+	if err != nil {
+		return nil, fmt.Errorf("ingest: allocate slug: %w", err)
+	}
+	rel := path.Join("raw", b.sourceDirectory, slug+".md")
+	values, err := b.values(title, markdown, fetchedVia, true)
 	if err != nil {
 		return nil, fmt.Errorf("ingest: %w", err)
 	}
@@ -575,10 +577,9 @@ func (b *builder) build(title, markdown string) (*corpus.Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ingest: parse generated frontmatter: %w", err)
 	}
-	b.markdown = markdown
 	return &corpus.Document{
-		Path:        b.rel,
-		AbsPath:     filepath.Join(b.topicInfo.RootPath, filepath.FromSlash(b.rel)),
+		Path:        rel,
+		AbsPath:     filepath.Join(b.topicInfo.RootPath, filepath.FromSlash(rel)),
 		Title:       strings.TrimSpace(title),
 		Kind:        corpus.KindSource,
 		Frontmatter: maps.Clone(parsed),

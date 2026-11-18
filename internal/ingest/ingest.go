@@ -61,6 +61,7 @@ type Options struct {
 	SourceKind       models.SourceKind
 	SourcePath       string
 	SourceURL        string
+	FetchedVia       string
 	Title            string
 	Markdown         string
 	ExtraFrontmatter map[string]any
@@ -166,7 +167,7 @@ func Ingest(ctx context.Context, options Options) (models.IngestResult, error) {
 }
 
 func resolveMarkdown(ctx context.Context, options Options) (string, string, error) {
-	if body := strings.TrimSpace(options.Markdown); body != "" {
+	if strings.TrimSpace(options.Markdown) != "" || options.Gate.Blocked {
 		title := deriveTitle(strings.TrimSpace(options.Title), options.SourcePath, options.SourceURL, options.SourceKind)
 		return title, options.Markdown, nil
 	}
@@ -230,6 +231,9 @@ func buildFrontmatter(
 	if sourceURL := strings.TrimSpace(options.SourceURL); sourceURL != "" {
 		values["source_url"] = sourceURL
 	}
+	if options.FetchedVia != "" {
+		values["fetched_via"] = options.FetchedVia
+	}
 	if sourcePath := normalizedSourcePath(options.SourcePath); sourcePath != "" {
 		values["source_path"] = sourcePath
 	}
@@ -271,6 +275,7 @@ func mergeExtraFrontmatter(values map[string]any, extra map[string]any) error {
 		"scraped":     {},
 		"tags":        {},
 		"source_url":  {},
+		"fetched_via": {},
 		"source_path": {},
 	}
 	for key, value := range extra {

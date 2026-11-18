@@ -29,6 +29,7 @@ func TestCheck(t *testing.T) {
 		want []string
 	}{
 		{name: "complete article", in: Input{Title: "How BM25 works", Body: long, SourceURL: "https://blog.example.com/posts/bm25"}, want: []string{}},
+		{name: "blocked despite full body and HTTP 200", in: Input{Title: "Post", Body: long, StatusCode: 200, Blocked: true}, want: []string{Blocked}},
 		{name: "site root", in: Input{Title: "Example blog", Body: long, SourceURL: "https://blog.example.com/"}, want: []string{NotAnArticle}},
 		{name: "empty path", in: Input{Title: "Example", Body: long, SourceURL: "https://example.com"}, want: []string{NotAnArticle}},
 		{name: "index.html", in: Input{Title: "Welcome", Body: long, SourceURL: "https://example.com/index.html"}, want: []string{NotAnArticle}},
@@ -46,7 +47,7 @@ func TestCheck(t *testing.T) {
 		{name: "404 inside a word does not match", in: Input{Title: "Model X4040 review", Body: long}, want: []string{}},
 		{name: "thin body", in: Input{Title: "Short", Body: words(120)}, want: []string{Thin}},
 		{name: "thin skipped", in: Input{Title: "Short", Body: words(20), SkipThin: true}, want: []string{}},
-		{name: "every flag in fixed order", in: Input{Title: "Not Found", Body: "", SourceURL: "https://example.com/", StatusCode: 404}, want: []string{NotAnArticle, ErrorPage, Thin}},
+		{name: "every flag in fixed order", in: Input{Title: "Not Found", Body: "", SourceURL: "https://example.com/", StatusCode: 404, Blocked: true}, want: []string{Blocked, NotAnArticle, ErrorPage, Thin}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

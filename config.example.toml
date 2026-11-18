@@ -72,9 +72,15 @@ types = []
 # Reference = "Facts, tables or definitions meant to be looked up"
 
 [firecrawl]
+# Required for api.firecrawl.dev. A keyless endpoint receives no Authorization header.
 api_key = ""
 api_url = "https://api.firecrawl.dev"
-# Fresh refetch before a quality gate judges a thin or broken capture: the
+# For Firecrawl Local, set api_url = "http://localhost:3002" and
+# refetch_api_url = "https://api.firecrawl.dev" to recover flagged captures.
+# An empty refetch_api_url reuses api_url. The refetch key defaults to api_key.
+refetch_api_url = ""
+refetch_api_key = ""
+# Fresh refetch before a quality gate judges a blocked, thin, or broken capture: the
 # refetch always bypasses Firecrawl's cache (maxAge 0), waits this long for
 # client-side rendering, and keeps the full page unless set to true.
 refetch_wait_ms = 3000

@@ -338,7 +338,7 @@ func runIngestChannelRescue(cmd *cobra.Command, options ingestChannelCommandOpti
 	if err != nil {
 		return err
 	}
-	fetchers := rescueFetchers{cfg: cfg, scraper: newFirecrawlScraper(firecrawlConfig(cfg.Firecrawl))}
+	fetchers := rescueFetchers{cfg: cfg, scrapers: newURLScrapers(cmd, cfg.Firecrawl)}
 	return runIngestRescue(cmd, runner, target, fetchers, options.flags.Rescue)
 }
 

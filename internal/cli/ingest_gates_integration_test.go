@@ -16,11 +16,13 @@ import (
 	"testing"
 
 	"github.com/compozy/kb/internal/contract"
+	"github.com/compozy/kb/internal/corpus"
 	"github.com/compozy/kb/internal/fakes"
 	"github.com/compozy/kb/internal/frontmatter"
 	"github.com/compozy/kb/internal/gate"
 	kingest "github.com/compozy/kb/internal/ingest"
 	"github.com/compozy/kb/internal/refs"
+	"github.com/compozy/kb/internal/resolve"
 	"github.com/compozy/kb/internal/review"
 	"github.com/compozy/kb/internal/topic"
 )
@@ -73,6 +75,8 @@ func newGateEnv(t *testing.T, decide fakes.DecideFunc, scrape fakes.ScrapeFunc) 
 	t.Setenv("OPENROUTER_API_URL", or.URL)
 	t.Setenv("FIRECRAWL_API_KEY", "fc-key")
 	t.Setenv("FIRECRAWL_API_URL", fc.URL)
+	t.Setenv("FIRECRAWL_REFETCH_API_URL", "")
+	t.Setenv("FIRECRAWL_REFETCH_API_KEY", "")
 
 	vault := t.TempDir()
 	info, err := topic.New(vault, "demo", "Demo", "demo")
@@ -359,8 +363,99 @@ func TestIngestGatesRefetchKeepsFullBody(t *testing.T) {
 	if values["triage"] != "kept" {
 		t.Fatalf("triage = %v", values["triage"])
 	}
+	if values["fetched_via"] != "local" {
+		t.Fatalf("fetched_via = %v", values["fetched_via"])
+	}
 	if requests := env.fc.Requests(); len(requests) != 2 || requests[0].MaxAge != nil || requests[1].WaitFor == nil {
 		t.Fatalf("scrape requests = %+v", requests)
+	}
+}
+
+func TestIngestGatesConfiguredRefetchRescuesLong404(t *testing.T) {
+	full := article("Interview with the founder", 400)
+	env := newGateEnv(t, nil, func(fakes.ScrapeRequest) fakes.ScrapeResponse {
+		return fakes.ScrapeResponse{
+			Markdown: article("Interview with the founder", 800), Title: "Interview with the founder",
+			StatusCode: 404, Warning: "Browser unavailable",
+		}
+	})
+	refetch := fakes.NewFirecrawl(func(fakes.ScrapeRequest) fakes.ScrapeResponse {
+		return fakes.ScrapeResponse{Markdown: full, Title: "Interview with the founder", Source: "firecrawl-cloud"}
+	})
+	t.Cleanup(refetch.Close)
+	t.Setenv("FIRECRAWL_REFETCH_API_URL", refetch.URL)
+
+	result := env.ingestURL(t, "https://example.com/posts/interview")
+	if result.Triage != gate.TriageKept || !result.Refetched {
+		t.Fatalf("result = %+v", result)
+	}
+	values, body := env.read(t, topicRel(result.FilePath))
+	if body != full || values["fetched_via"] != "firecrawl-cloud" {
+		t.Fatalf("kept capture provenance = %v, matches refetch body = %t", values["fetched_via"], body == full)
+	}
+	if calls := env.fc.Requests(); len(calls) != 1 || calls[0].MaxAge != nil {
+		t.Fatalf("primary requests = %+v", calls)
+	}
+	if calls := refetch.Requests(); len(calls) != 1 || calls[0].MaxAge == nil || *calls[0].MaxAge != 0 ||
+		calls[0].WaitFor == nil || *calls[0].WaitFor != 3000 || calls[0].OnlyMainContent == nil || *calls[0].OnlyMainContent {
+		t.Fatalf("refetch requests = %+v", calls)
+	}
+	if !strings.Contains(env.file(t, "log.md"), "Browser unavailable") {
+		t.Fatal("missing warning from the flagged primary capture")
+	}
+}
+
+func TestIngestGatesBlockedQuarantinesWithoutDecision(t *testing.T) {
+	env := newGateEnv(t, nil, func(req fakes.ScrapeRequest) fakes.ScrapeResponse {
+		warning := "Browser unavailable"
+		body := ""
+		if req.MaxAge != nil {
+			warning = "Still blocked after refetch"
+			body = article("A complete-looking page", 400)
+		}
+		return fakes.ScrapeResponse{Markdown: body, Title: "A complete-looking page", Blocked: true, Warning: warning}
+	})
+	result := env.ingestURL(t, "https://example.com/posts/blocked")
+	if result.Triage != gate.TriageQuarantined || result.Quality != "blocked" || result.TriageReason != "blocked" ||
+		!strings.HasPrefix(topicRel(result.FilePath), resolve.QuarantineDir+"/") {
+		t.Fatalf("result = %+v", result)
+	}
+	if requests := env.fc.Requests(); len(requests) != 2 || requests[1].MaxAge == nil || *requests[1].MaxAge != 0 {
+		t.Fatalf("scrape requests = %+v", requests)
+	}
+	if calls, generations := env.or.Calls(), env.or.GenCalls(); len(calls)+len(generations) != 0 {
+		t.Fatalf("blocked capture reached the model: %d decision calls, %d generation calls", len(calls), len(generations))
+	}
+	items := env.pending(t, review.QueueGate)
+	if len(items) != 1 || items[0].Question != "code:blocked" || items[0].ReceiptKey != "" ||
+		!strings.Contains(items[0].Evidence, "Browser unavailable") || !strings.Contains(items[0].Evidence, "Still blocked after refetch") {
+		t.Fatalf("gate review evidence = %+v", items)
+	}
+}
+
+func TestIngestGatesMissingCloudRefetchKeyFallsBackOnce(t *testing.T) {
+	env := newGateEnv(t, nil, func(req fakes.ScrapeRequest) fakes.ScrapeResponse {
+		if req.MaxAge != nil {
+			subject := titleHintFromURL(req.URL) + " example"
+			return fakes.ScrapeResponse{Markdown: article(subject, 400), Title: subject}
+		}
+		return fakes.ScrapeResponse{Markdown: "Loading...", Title: "Loading"}
+	})
+	t.Setenv("FIRECRAWL_API_KEY", "")
+	t.Setenv("FIRECRAWL_REFETCH_API_URL", "https://api.firecrawl.dev")
+	stdout, stderr := env.mustRun(t, "ingest", "url", "--topic", "demo", "https://example.com/posts/first", "https://example.com/posts/second")
+	var summary urlListSummary
+	if err := json.Unmarshal([]byte(stdout), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Results) != 2 || !summary.Results[0].Refetched || !summary.Results[1].Refetched || len(summary.Failures) != 0 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if calls := env.fc.Requests(); len(calls) != 4 || calls[0].MaxAge != nil || calls[1].MaxAge == nil || calls[2].MaxAge != nil || calls[3].MaxAge == nil {
+		t.Fatalf("primary requests = %+v", calls)
+	}
+	if strings.Count(stderr, "FIRECRAWL_REFETCH_API_KEY") != 1 {
+		t.Fatalf("expected one missing-key diagnostic:\n%s", stderr)
 	}
 }
 
@@ -846,10 +941,30 @@ func TestIngestGatesRefetchRecoversErrorTitle(t *testing.T) {
 		}
 		return fakes.ScrapeResponse{Markdown: "# 404 Not Found\n\nLoading...\n", Title: "404 Not Found"}
 	})
+	for _, rel := range []string{"raw/articles/recovered-article.md", "raw/_quarantine/articles/recovered-article-2.md"} {
+		writeFile(t, filepath.Join(env.root, rel), "---\ntitle: Existing document\nsource_kind: article\n---\nExisting document.\n")
+	}
 
 	result := env.ingestURL(t, "https://example.com/posts/recovered")
 	if result.Triage != gate.TriageKept || !result.Refetched || result.TriageReason != "" {
 		t.Fatalf("result = %+v", result)
+	}
+	const wantRel = "raw/articles/recovered-article-3.md"
+	if topicRel(result.FilePath) != wantRel {
+		t.Fatalf("path = %s, want %s", result.FilePath, wantRel)
+	}
+	if _, err := os.Stat(filepath.Join(env.root, "raw/articles/404-not-found.md")); !os.IsNotExist(err) {
+		t.Fatalf("stale capture path: %v", err)
+	}
+	state, err := corpus.OpenState(env.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Get(wantRel); !ok || !strings.Contains(env.file(t, "log.md"), result.FilePath) {
+		t.Fatal("ingest state and log must reference the final path")
+	}
+	if calls := env.or.Calls(); len(calls) == 0 || !strings.Contains(calls[0].StateString(), wantRel) {
+		t.Fatal("gate decision must use the final path")
 	}
 	values, body := env.read(t, topicRel(result.FilePath))
 	if body != full || values["title"] != "Recovered article" || values["quality"] != nil {

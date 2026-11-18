@@ -46,7 +46,7 @@ make help
 | `internal/topic` | Topic scaffolding, listing, and topic metadata lookup |
 | `internal/ingest` | Ingest orchestration, frontmatter assembly, raw writes, and log entries |
 | `internal/convert` | Converter registry and format-specific file converters |
-| `internal/firecrawl` | Firecrawl REST client for `kb ingest url`, including the fresh-refetch options (`maxAge`, `waitFor`, `onlyMainContent`) |
+| `internal/firecrawl` | Firecrawl REST client for `kb ingest url`, including capture provenance, blocked diagnostics, and optional separate routing for fresh refetches |
 | `internal/mediadl` | Shared `yt-dlp` + STT engine: audio/caption download, ffmpeg segmentation, and transcript extraction reused by `youtube` and `instagram` |
 | `internal/youtube` | YouTube URL parsing, channel/bulk ingestion, and frontmatter over the `mediadl` core |
 | `internal/instagram` | Instagram reel/video URL parsing and caption+transcript composition over the `mediadl` core |
@@ -74,7 +74,7 @@ make help
 | `internal/session` | Per-run bundle for decision-backed commands: config, topic, settings, contract, engine, generation client, lazy corpus, state store, writer, review store, decision modes; fails fast without `OPENROUTER_API_KEY` |
 | `internal/scope` | `kb topic contract` workflow: draft, `CLAUDE.md` import, self-check, impact preview, activation |
 | `internal/classify` | Classification facets, generated literals (summary, entities, questions, criterion, aliases), the shared gate judgment, `recapture`/`remove` queues, concept proposals, vocabulary draft/accept |
-| `internal/quality` | Code quality checks run before any quality question (`not_an_article`, `thin`, `error_page`) |
+| `internal/quality` | Code quality checks run before any quality question (`blocked`, `not_an_article`, `thin`, `error_page`) |
 | `internal/gate` | Ingest gates: exact dedupe, pre-fetch relevance, code quality, refetch, post-fetch quality and relevance, near-duplicate, quarantine |
 | `internal/link` | Link candidates, per-document judgment, write policy (frontmatter relations, body links), reverse pass |
 | `internal/find` | Retrieval judge (candidates, judgment, ranking with named exclusions) and facet counts |
@@ -138,6 +138,7 @@ make help
 - `[decisions.thresholds]`: `link_apply`, `link_review`, `mention_sense`, `affects`, `relevance_quarantine`, `relevance_review`, `relevance_fetch`, `quality_apply`, `quality_review`, `duplicate`, `primary_concept`, `concept_noul`, `find_keep`, `find_window`, `okf_type`, `contract_conflict`; `topic.yaml` `decisions.thresholds` overrides them per topic and `kb review calibrate --write` writes there.
 - `[generation]`: `model` (default `xiaomi/mimo-v2.6-flash`, env `KB_GENERATION_MODEL`), `fallback_model` (`deepseek/deepseek-v4-flash`), `deadline` (90s), `retries`, `summary_language` (`en`).
 - `[firecrawl].refetch_wait_ms` (3000) and `[firecrawl].refetch_only_main_content` (false) configure the fresh refetch (`maxAge: 0`) run before a quality gate judges a thin or broken capture.
+- `[firecrawl].refetch_api_url` and `[firecrawl].refetch_api_key` select an optional backend for that refetch (`FIRECRAWL_REFETCH_API_URL` and `FIRECRAWL_REFETCH_API_KEY` override them). The refetch key falls back to the primary key. Firecrawl Cloud requires a key.
 - `topic.yaml` carries `contract`, `contract_draft`, `vocabulary_draft`, and `decisions: {mode, gates, relevance, thresholds, exclude}`. Relevance gates stay in shadow until the topic has an accepted contract and either a calibration with ≥ 30 review relevance labels or `decisions.gates: apply`.
 - Long STT audio is segmented with `ffmpeg`; keep `[stt].ffmpeg_path`, `[stt].chunk_duration`, `[stt].max_chunk_bytes`, and `[stt].concurrency` aligned with provider upload limits.
 - `[okf].types` configures the optional OKF type vocabulary used by `kb promote` and `kb okf check`; `[okf.type_descriptions]` gives the option text per type for decision-model type suggestions.
