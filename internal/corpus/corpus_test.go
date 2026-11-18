@@ -321,7 +321,8 @@ func TestExcerpt(t *testing.T) {
 		t.Fatal("Excerpt with no budget must return the body")
 	}
 
-	got := corpus.Excerpt(body, 170, []string{"Quantum"})
+	const wholeSectionBudget = 150
+	got := corpus.Excerpt(body, wholeSectionBudget, []string{"Quantum"})
 	for _, want := range []string{"Intro paragraph.", "## One", "## Three", "[... 1 section omitted ...]"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("Excerpt missing %q:\n%s", want, got)
@@ -336,11 +337,11 @@ func TestExcerpt(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(got), "omitted ...]") {
 		t.Fatalf("Excerpt must end with an omission marker when the tail is dropped:\n%s", got)
 	}
-	if corpus.EstimateTokens(got) > 170+20 {
+	if corpus.EstimateTokens(got) > wholeSectionBudget+20 {
 		t.Fatalf("Excerpt exceeds budget: %d tokens", corpus.EstimateTokens(got))
 	}
 
-	noTerms := corpus.Excerpt(body, 170, nil)
+	noTerms := corpus.Excerpt(body, wholeSectionBudget, nil)
 	if !strings.Contains(noTerms, "## Two") || strings.Contains(noTerms, "## Five") {
 		t.Fatalf("Excerpt without terms must fill in document order:\n%s", noTerms)
 	}
@@ -358,6 +359,87 @@ func TestExcerpt(t *testing.T) {
 
 	if corpus.EstimateTokens("abcd") != 1 || corpus.EstimateTokens("abcde") != 2 || corpus.EstimateTokens("ção") != 1 {
 		t.Fatal("EstimateTokens must be runes/4 rounded up")
+	}
+}
+
+func TestExcerptUsesRemainingBudgetOnOversizedSectionContent(t *testing.T) {
+	t.Parallel()
+
+	section := func(title, content string) string {
+		return "## " + title + "\n" + strings.Repeat(content+" ", 1000) + "unseen ending\n"
+	}
+	const (
+		head      = "# Title\n\nOpening context.\n\n"
+		short     = "## Small\nA short section.\n"
+		tail      = "## Tail\nClosing notes.\n"
+		truncated = "[... truncated ...]"
+		omitted   = "[... 1 section omitted ...]"
+	)
+	tests := []struct {
+		name     string
+		body     string
+		budget   int
+		terms    []string
+		ordered  []string
+		excluded []string
+	}{
+		{
+			name:     "single dominant section after an introduction",
+			body:     "An introduction.\n\n" + section("Transcript", "interview dialogue"),
+			budget:   120,
+			ordered:  []string{"An introduction.", "## Transcript", strings.Repeat("interview dialogue ", 8), truncated},
+			excluded: []string{omitted, "unseen ending"},
+		},
+		{
+			name: "first oversized section after small sections",
+			body: head + short + section("First large section", "article content") +
+				section("Other large section", "later content") + tail + section("Omitted tail", "appendix content"),
+			budget:   150,
+			ordered:  []string{"# Title", "## Small", "## First large section", strings.Repeat("article content ", 8), truncated, omitted, "## Tail", omitted},
+			excluded: []string{"## Other large section", "## Omitted tail", "unseen ending"},
+		},
+		{
+			name: "first oversized section matching the requested terms",
+			body: head + section("Nonmatching", "background material") +
+				section("First match", "quantum explanation") + tail + section("Later match", "quantum examples"),
+			budget:   150,
+			terms:    []string{"  QuAnTuM  "},
+			ordered:  []string{"# Title", omitted, "## First match", strings.Repeat("quantum explanation ", 8), truncated, "## Tail", omitted},
+			excluded: []string{"## Nonmatching", "## Later match", "unseen ending"},
+		},
+		{
+			name:     "too little room for body content keeps the omission marker",
+			body:     head + section("Oversized section with a long heading", "body content"),
+			budget:   40,
+			ordered:  []string{"# Title", omitted},
+			excluded: []string{"## Oversized section", truncated},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := corpus.Excerpt(tt.body, tt.budget, tt.terms)
+			rest := got
+			for _, want := range tt.ordered {
+				_, after, found := strings.Cut(rest, want)
+				if !found {
+					t.Fatalf("Excerpt missing %q in document order:\n%s", want, got)
+				}
+				rest = after
+			}
+			for _, unwanted := range tt.excluded {
+				if strings.Contains(got, unwanted) {
+					t.Fatalf("Excerpt unexpectedly includes %q:\n%s", unwanted, got)
+				}
+			}
+			if len(strings.TrimSpace(rest)) != 0 {
+				t.Fatalf("unexpected text after the final marker: %q", rest)
+			}
+			if cost := corpus.EstimateTokens(got); cost > tt.budget {
+				t.Fatalf("Excerpt uses %d tokens, budget %d", cost, tt.budget)
+			}
+		})
 	}
 }
 
